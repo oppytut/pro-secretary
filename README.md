@@ -291,6 +291,154 @@ sudo ufw status
 
 ---
 
+## 🤖 LLM Provider Configuration
+
+This project uses **enowX Labs** as the primary LLM provider, offering unified access to 36+ models via OpenAI-compatible API.
+
+### Why enowX Labs?
+
+- ✅ **Single API** for multiple providers (OpenAI, Anthropic, Google, DeepSeek, etc.)
+- ✅ **94.4% success rate** (34/36 models working)
+- ✅ **No vendor lock-in** - switch models without code changes
+- ✅ **Cost optimization** - choose models by speed/quality/price
+- ✅ **OpenAI-compatible** - works with existing tools (LangChain, n8n, OpenFang)
+
+### Getting Started
+
+1. **Get API Key:** Sign up at [enowX Labs](https://enowx.com)
+2. **Set Environment Variables:**
+   ```bash
+   export ENOWX_API_KEY="sk-enowx-xxxxxxxxxxxxxxxx"
+   export ENOWX_BASE_URL="https://api.enowx.com/v1"
+   export ENOWX_MODEL="gpt-5.2"  # or your preferred model
+   ```
+
+3. **Test Connection:**
+   ```bash
+   curl https://api.enowx.com/v1/models \
+     -H "Authorization: Bearer $ENOWX_API_KEY"
+   ```
+
+### Model Selection Guide
+
+Choose models based on your use case:
+
+| Use Case | Recommended Model | TTFT | TPS | Notes |
+|----------|-------------------|------|-----|-------|
+| **Real-time Chat** | `gemini-3.1-flash-lite` | 1.3s | 94 | Fastest response |
+| **Code Completion** | `gpt-5.1-codex-mini` | 1.6s | 458 | Ultra-fast coding |
+| **Code Generation** | `gpt-5.3-codex` | 2.7s | 600 | Complex code |
+| **Complex Reasoning** | `claude-sonnet-4-thinking` | 2.8s | 22 | Best reasoning |
+| **General Assistant** | `enowx-default` | 3.2s | 478 | Auto-routing |
+| **Bulk Processing** | `gemini-2.5-flash` | 4.3s | 36,030 | Extreme throughput |
+
+> **💡 Tip:** Use `enowx-default` for automatic model selection based on request type, or manually select models for specific use cases.
+
+### Configuration Examples
+
+#### LangChain/LangGraph
+
+```python
+from langchain_openai import ChatOpenAI
+
+model = ChatOpenAI(
+    model="gpt-5.2",
+    base_url="https://api.enowx.com/v1",
+    api_key="your-enowx-api-key",
+    temperature=0.7,
+)
+```
+
+#### n8n (HTTP Request Node)
+
+```json
+{
+  "method": "POST",
+  "url": "https://api.enowx.com/v1/chat/completions",
+  "headers": {
+    "Authorization": "Bearer {{$env.ENOWX_API_KEY}}"
+  },
+  "body": {
+    "model": "gpt-5.2",
+    "messages": [{"role": "user", "content": "Your prompt"}],
+    "temperature": 0.7
+  }
+}
+```
+
+#### OpenFang (TOML)
+
+```toml
+[llm]
+provider = "openai"
+model = "gpt-5.2"
+base_url = "https://api.enowx.com/v1"
+api_key = "${ENOWX_API_KEY}"
+```
+
+### Performance Benchmark
+
+Benchmark results (3 runs per model, 200 max tokens):
+
+#### ⚡ Fastest Response (TTFT)
+
+| Rank | Model | Avg TTFT | Use Case |
+|------|-------|----------|----------|
+| 🥇 | gemini-3.1-flash-lite | 1.31s | Real-time chat |
+| 🥈 | gpt-5.1-codex-mini | 1.56s | Code completion |
+| 🥉 | gpt-5.1-codex | 1.65s | Code assistance |
+
+#### 🚀 Highest Throughput (TPS)
+
+| Rank | Model | Avg TPS | Use Case |
+|------|-------|---------|----------|
+| 🥇 | gemini-2.5-flash | 36,030 | Bulk processing |
+| 🥈 | gemini-2.5-pro | 34,228 | High-volume |
+| 🥉 | minimax-m2.1-thinking | 32,531 | Reasoning at scale |
+
+#### 💻 Best for Coding
+
+| Model | TTFT | TPS | Notes |
+|-------|------|-----|-------|
+| gpt-5.1-codex-mini | 1.56s | 458 | Ultra-fast completion |
+| gpt-5.1-codex | 1.65s | 807 | High quality + speed |
+| gpt-5.3-codex | 2.73s | 600 | Complex generation |
+
+#### 🧠 Best for Reasoning
+
+| Model | TTFT | TPS | Notes |
+|-------|------|-----|-------|
+| claude-sonnet-4-thinking | 2.79s | 22 | Best reasoning quality |
+| claude-haiku-4.5-thinking | 2.94s | 40 | Fast reasoning |
+| claude-sonnet-4.5-thinking | 3.37s | 21 | Advanced reasoning |
+
+**Success Rate:** 34/36 models working (94.4%)
+
+**Failed Models:**
+- `deepseek-v3-2-volc` - HTTP 400 error
+- `gemini-3.1-pro` - Timeout
+
+### Alternative: Local Ollama (Privacy-First)
+
+If you prefer 100% local processing:
+
+```bash
+# Use Ollama instead of enowX Labs
+export LLM_PROVIDER=ollama
+export LLM_MODEL=llama3.1:8b
+export OLLAMA_BASE_URL=http://localhost:11434
+```
+
+**Tradeoffs:**
+- ✅ Complete privacy (no data leaves your server)
+- ✅ No API costs
+- ✅ Unlimited usage
+- ❌ Requires GPU (NVIDIA 8GB+ recommended)
+- ❌ Lower quality than GPT-4/Claude
+- ❌ Slower inference
+
+---
+
 ## 🚀 Quick Start
 
 ```bash
@@ -551,12 +699,31 @@ N8N_PASSWORD=your_secure_password_here
 N8N_HOST=n8n.yourdomain.com
 
 # ============================================
-# LM Configuration
+# LLM Configuration - enowX Labs
 # ============================================
-LLM_PROVIDER=ollama
-LLM_API_KEY=sk-xxxxxxxx
-LLM_MODEL=llama3.1:8b
-OPENAI_API_KEY=sk-xxxxxxxxxx
+# enowX Labs provides unified access to 36+ LLM models via OpenAI-compatible API
+# Benchmark: 34/36 models working (94.4% success rate)
+# Get API key from: https://enowx.com
+
+# Primary LLM Provider
+ENOWX_API_KEY=sk-enowx-xxxxxxxxxxxxxxxx
+ENOWX_BASE_URL=https://api.enowx.com/v1
+ENOWX_MODEL=gpt-5.2
+
+# Model Selection by Use Case:
+# - Real-time chat: gemini-3.1-flash-lite (1.3s TTFT)
+# - Code completion: gpt-5.1-codex-mini (1.6s TTFT, 458 TPS)
+# - Code generation: gpt-5.3-codex (2.7s TTFT, 600 TPS)
+# - Complex reasoning: claude-sonnet-4-thinking (2.8s TTFT)
+# - General purpose: enowx-default (auto-routing) or gpt-5.2
+# - Bulk processing: gemini-2.5-flash (36,030 TPS!)
+
+# Legacy/Compatibility (for tools that expect these)
+LLM_PROVIDER=openai
+LLM_API_KEY=${ENOWX_API_KEY}
+LLM_MODEL=${ENOWX_MODEL}
+OPENAI_API_KEY=${ENOWX_API_KEY}
+OPENAI_API_BASE=${ENOWX_BASE_URL}
 
 # ============================================
 # OpenFang
@@ -703,16 +870,18 @@ Kamu memberikan reminder tanpa diminta jika ada deadline mendekat.
 """
 
 [llm]
-provider = "ollama"
-model = "llama3.1:8b"
-base_url = "http://ollama:11434"
+provider = "openai"  # Use OpenAI-compatible mode for enowX Labs
+model = "${ENOWX_MODEL}"
+base_url = "${ENOWX_BASE_URL}"
+api_key = "${ENOWX_API_KEY}"
 temperature = 0.7
 max_tokens = 2048
 
 [llm.fallback]
 provider = "openai"
-model = "gpt-4o-mini"
-api_key = "${OPENAI_API_KEY}"
+model = "gpt-5.1-codex-mini"  # Fast fallback for coding tasks
+api_key = "${ENOWX_API_KEY}"
+base_url = "${ENOWX_BASE_URL}"
 
 [memory]
 type = "qdrant"

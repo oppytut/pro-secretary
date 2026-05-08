@@ -32,7 +32,7 @@ graph TB
     end
     
     subgraph Storage["📁 FILE STORAGE"]
-        MinIO[MinIO<br/>S3-Compatible Object Storage]
+        R2[Cloudflare R2<br/>S3-Compatible Object Storage]
     end
     
     subgraph External["📧 EXTERNAL SERVICES"]
@@ -49,11 +49,11 @@ graph TB
     N8N --> SMTP
     OpenFang --> Obsidian
     OpenFang --> Qdrant
-    OpenFang --> MinIO
+    OpenFang --> R2
     LangGraph --> Obsidian
     LangGraph --> Qdrant
-    LangGraph --> MinIO
-    Obsidian --> MinIO
+    LangGraph --> R2
+    Obsidian --> R2
     CalCom --> SMTP
     
     classDef interfaceStyle fill:#e1f5ff,stroke:#01579b,stroke-width:2px,color:#000
@@ -69,7 +69,7 @@ graph TB
     class OpenFang,LangGraph aiStyle
     class CalCom scheduleStyle
     class Obsidian,Qdrant knowledgeStyle
-    class MinIO storageStyle
+    class R2 storageStyle
     class SMTP externalStyle
 ```
 
@@ -140,9 +140,9 @@ sudo usermod -aG docker $USER
 - **8090** - OpenFang
 - **6333, 6334** - Qdrant
 - **3000** - Cal.com
-- **9000** - MinIO API
-- **9001** - MinIO Console
 - **5432** - PostgreSQL
+
+> **Note:** File storage menggunakan Cloudflare R2 (external service), tidak ada port internal.
 
 #### Firewall Setup
 
@@ -521,30 +521,6 @@ services:
       - secretary-net
 
   # ============================================
-  # FILE STORAGE - MinIO (S3-Compatible)
-  # ============================================
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    restart: always
-    ports:
-      - "9000:9000"  # API
-      - "9001:9001"  # Console
-    environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio_data:/data
-    networks:
-      - secretary-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-
-  # ============================================
   # TELEGRAM BOT
   # ============================================
   telegram-bot:
@@ -557,14 +533,14 @@ services:
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/telegram
       - OPENFANG_URL=http://openfang:8090
       - QDRANT_URL=http://qdrant:6333
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET=${R2_BUCKET}
     depends_on:
       - n8n
       - openfang
       - qdrant
-      - minio
     networks:
       - secretary-net
 
@@ -581,8 +557,6 @@ services:
       - POSTGRES_DB=calcom
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - secretary-net
     networks:
       - secretary-net
 
@@ -607,7 +581,6 @@ volumes:
   n8n_data:
   openfang_data:
   qdrant_data:
-  minio_data:
   postgres_data:
   caddy_data:
   caddy_config:
@@ -680,11 +653,18 @@ CALCOM_SECRET=your_calcom_secret
 CALCOM_ENCRYPTION_KEY=your_encryption_key
 
 # ============================================
-# MinIO (S3-Compatible Storage)
+# Cloudflare R2 (S3-Compatible Object Storage)
 # ============================================
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=your_secure_minio_password
-MINIO_BUCKET=secretary-files
+# Get credentials from: https://dash.cloudflare.com → R2 → Manage R2 API Tokens
+R2_ACCOUNT_ID=your_cloudflare_account_id
+R2_ACCESS_KEY_ID=your_r2_access_key_id
+R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
+R2_BUCKET=secretary-files
+R2_ENDPOINT=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+R2_PUBLIC_URL=https://files.yourdomain.com  # Optional: custom domain
+
+# Free tier: 10GB storage, unlimited egress
+# Pricing after free tier: $0.015/GB/month storage
 
 # ============================================
 # Database (PostgreSQL for Cal.com)

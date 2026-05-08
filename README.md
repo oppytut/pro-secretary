@@ -68,6 +68,7 @@ graph TB
 ## 📋 Table of Contents
 
 - [Prerequisites](#prerequisites)
+- [Monthly Cost Estimate](#-monthly-cost-estimate)
 - [Quick Start](#quick-start)
 - [Docker Compose](#docker-compose)
 - [Environment Variables](#environment-variables)
@@ -166,6 +167,129 @@ sudo ufw enable
 # Verify
 sudo ufw status
 ```
+
+---
+
+## 💰 Monthly Cost Estimate
+
+### Scenario 1: Full Self-Hosted (Minimal Cost)
+
+**Infrastructure:**
+- **VPS/Dedicated Server:** $20-50/month
+  - Hetzner AX41 (Ryzen 5 3600, 64GB RAM): ~€39/month (~$42)
+  - Contabo VPS L (10 cores, 60GB RAM): ~€27/month (~$29)
+  - OVH Advance-2 (8 cores, 32GB RAM): ~$40/month
+- **Domain + SSL:** $1-2/month
+  - Domain (.com): ~$12/year = $1/month
+  - SSL: Free (Let's Encrypt via Caddy)
+- **Backup Storage (Optional):** $5-10/month
+  - Backblaze B2: $0.005/GB = ~$5 for 1TB
+  - Wasabi: $6.99/TB/month
+
+**LLM Costs:**
+- **Local LLM Only:** $0/month (Ollama with Llama 3.1 8B)
+- **Electricity (GPU):** ~$10-20/month (RTX 3060 @ $0.12/kWh, 24/7)
+
+**Total: $36-82/month** (fully self-hosted, complete privacy)
+
+---
+
+### Scenario 2: Hybrid (Local + Cloud LLM)
+
+**Infrastructure:** (same as Scenario 1)
+- VPS/Server: $20-50/month
+- Domain + SSL: $1-2/month
+- Backup: $5-10/month
+
+**LLM Costs:**
+- **Local LLM (Simple Tasks):** $0/month
+- **Cloud LLM (Complex Tasks):**
+  - OpenAI GPT-4o: ~$10-30/month (moderate usage)
+  - Anthropic Claude 3.5 Sonnet: ~$15-40/month
+  - Google Gemini Pro: ~$5-15/month
+
+**Total: $51-132/month** (balanced privacy & capability)
+
+---
+
+### Scenario 3: Cloud-Only (No GPU Required)
+
+**Infrastructure:**
+- **VPS (No GPU):** $10-20/month
+  - DigitalOcean Droplet (4 cores, 16GB): $96/year = $8/month
+  - Linode Dedicated 16GB: $96/month = $8/month
+  - Hetzner CX31 (4 cores, 16GB): €13/month = ~$14/month
+- **Domain + SSL:** $1-2/month
+- **Backup:** $5-10/month
+
+**LLM Costs:**
+- **Cloud LLM Only:**
+  - OpenAI GPT-4o: ~$30-80/month (heavy usage)
+  - Anthropic Claude 3.5 Sonnet: ~$40-100/month
+  - Google Gemini Pro: ~$15-40/month
+
+**Total: $61-212/month** (no GPU, easier setup, less privacy)
+
+---
+
+### Cost Comparison Table
+
+| Component | Scenario 1<br/>(Full Self-Hosted) | Scenario 2<br/>(Hybrid) | Scenario 3<br/>(Cloud-Only) |
+|-----------|-----------------------------------|-------------------------|----------------------------|
+| **Server/VPS** | $20-50 | $20-50 | $10-20 |
+| **Domain + SSL** | $1-2 | $1-2 | $1-2 |
+| **Backup Storage** | $5-10 | $5-10 | $5-10 |
+| **Local LLM (Electricity)** | $10-20 | $0-10 | $0 |
+| **Cloud LLM API** | $0 | $10-40 | $30-100 |
+| **GPU Required** | ✅ Yes | ⚠️ Optional | ❌ No |
+| **Privacy Level** | 🔒🔒🔒 High | 🔒🔒 Medium | 🔒 Low |
+| **Setup Complexity** | 🔧🔧🔧 High | 🔧🔧 Medium | 🔧 Low |
+| **TOTAL/month** | **$36-82** | **$51-132** | **$61-212** |
+
+---
+
+### Additional Optional Costs
+
+- **Telegram Bot:** Free (unlimited messages)
+- **Cal.com:** Free (self-hosted)
+- **n8n:** Free (self-hosted)
+- **Nextcloud:** Free (self-hosted)
+- **Qdrant:** Free (self-hosted)
+- **Monitoring (Uptime Robot):** Free tier available
+- **Email Service (SMTP):**
+  - SendGrid: Free (100 emails/day)
+  - Mailgun: Free (5,000 emails/month)
+  - Self-hosted: $0 (included in Nextcloud)
+
+---
+
+### Cost Optimization Tips
+
+1. **Start with Scenario 3** (Cloud-Only) untuk testing, lalu migrate ke Scenario 1 setelah confident
+2. **Use Hetzner Auction Server** - bisa dapat dedicated server dengan GPU mulai €30/month
+3. **Ollama + Llama 3.1 8B** cukup untuk 80% tasks, reserve cloud LLM untuk complex reasoning
+4. **Backblaze B2 + Cloudflare** - bandwidth gratis untuk backup
+5. **Annual domain purchase** - lebih murah daripada monthly
+6. **Spot instances** (AWS/GCP) - bisa 70% lebih murah untuk non-critical workloads
+
+---
+
+### ROI Comparison
+
+**vs. Commercial AI Assistant Services:**
+- ChatGPT Plus: $20/month (limited features)
+- Claude Pro: $20/month (limited features)
+- Notion AI: $10/month (limited to Notion)
+- **This Stack (Scenario 1):** $36-82/month
+  - ✅ Unlimited usage
+  - ✅ Full privacy
+  - ✅ Complete customization
+  - ✅ All your data stays local
+  - ✅ Integration with your entire workflow
+
+**Break-even:** If you use >2 AI services, self-hosting is cheaper and more powerful.
+
+---
 
 ## 🚀 Quick Start
 

@@ -27,7 +27,7 @@ graph TB
     end
     
     subgraph Knowledge["🧠 KNOWLEDGE & MEMORY"]
-        Obsidian[Obsidian + Local LM]
+        Obsidian[Obsidian Notes]
         Qdrant[Qdrant/ChromaDB<br/>Vector Memory]
     end
     
@@ -83,28 +83,23 @@ graph TB
 
 ### Hardware Requirements
 
-#### Minimum (Cloud LLM Only)
+#### Minimum (Small Team/Personal Use)
 - **CPU:** 4 cores (x86_64)
 - **RAM:** 16 GB
 - **Storage:** 100 GB SSD
-- **GPU:** Not required
 - **Network:** 10 Mbps upload/download
 
-#### Recommended (Hybrid: Local + Cloud LLM)
+#### Recommended (Production Use)
 - **CPU:** 8 cores (x86_64)
 - **RAM:** 32 GB
 - **Storage:** 500 GB NVMe SSD
-- **GPU:** NVIDIA 8GB+ VRAM (RTX 3060 or better)
 - **Network:** 50 Mbps upload/download
 
-#### Optimal (Full Local LLM)
+#### Optimal (High-Volume/Enterprise)
 - **CPU:** 16 cores (x86_64)
 - **RAM:** 64 GB
 - **Storage:** 1 TB NVMe SSD
-- **GPU:** NVIDIA 24GB+ VRAM (RTX 4090 or A6000)
 - **Network:** 100 Mbps upload/download
-
-> **Note:** GPU support requires NVIDIA Container Toolkit installed
 
 ### Software Prerequisites
 
@@ -116,11 +111,6 @@ graph TB
 - **Domain:** Registered domain with DNS access
 - **Telegram:** Active Telegram account
 
-#### Optional (for GPU support)
-- **NVIDIA Driver:** 525.0+
-- **NVIDIA Container Toolkit:** 1.13.0+
-- **CUDA:** 12.0+ (bundled with driver)
-
 #### Installation Commands
 
 ```bash
@@ -128,16 +118,7 @@ graph TB
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
 
-# NVIDIA Container Toolkit (if using GPU)
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/libnvidia-container/gpgkey | sudo apt-key add -
-curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
-  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo systemctl restart docker
-
-# Verify GPU support
-docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
+# Logout and login again for group changes to take effect
 ```
 
 ### Network & Firewall Requirements
@@ -149,7 +130,6 @@ docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 #### Internal Ports (Docker network only)
 - **5678** - n8n
 - **8090** - OpenFang
-- **11434** - Ollama
 - **6333, 6334** - Qdrant
 - **3000** - Cal.com
 - **8080** - Nextcloud
@@ -172,13 +152,13 @@ sudo ufw status
 
 ## 💰 Monthly Cost Estimate
 
-### Scenario 1: Full Self-Hosted (Minimal Cost)
+### Scenario 1: Minimal Setup (Small Team/Personal)
 
 **Infrastructure:**
-- **VPS/Dedicated Server:** $20-50/month
-  - Hetzner AX41 (Ryzen 5 3600, 64GB RAM): ~€39/month (~$42)
-  - Contabo VPS L (10 cores, 60GB RAM): ~€27/month (~$29)
-  - OVH Advance-2 (8 cores, 32GB RAM): ~$40/month
+- **VPS:** $10-20/month
+  - DigitalOcean Droplet (4 cores, 16GB): $96/year = $8/month
+  - Linode Dedicated 16GB: $96/month = $8/month
+  - Hetzner CX31 (4 cores, 16GB): €13/month = ~$14/month
 - **Domain + SSL:** $1-2/month
   - Domain (.com): ~$12/year = $1/month
   - SSL: Free (Let's Encrypt via Caddy)
@@ -186,65 +166,65 @@ sudo ufw status
   - Backblaze B2: $0.005/GB = ~$5 for 1TB
   - Wasabi: $6.99/TB/month
 
-**LLM Costs:**
-- **Local LLM Only:** $0/month (Ollama with Llama 3.1 8B)
-- **Electricity (GPU):** ~$10-20/month (RTX 3060 @ $0.12/kWh, 24/7)
+**LLM Costs (enowX Labs):**
+- **Light Usage:** ~$10-30/month
+  - Using fast models (gemini-3.1-flash-lite, gpt-5.1-codex-mini)
+  - ~1000-3000 requests/month
 
-**Total: $36-82/month** (fully self-hosted, complete privacy)
-
----
-
-### Scenario 2: Hybrid (Local + Cloud LLM)
-
-**Infrastructure:** (same as Scenario 1)
-- VPS/Server: $20-50/month
-- Domain + SSL: $1-2/month
-- Backup: $5-10/month
-
-**LLM Costs:**
-- **Local LLM (Simple Tasks):** $0/month
-- **Cloud LLM (Complex Tasks):**
-  - OpenAI GPT-4o: ~$10-30/month (moderate usage)
-  - Anthropic Claude 3.5 Sonnet: ~$15-40/month
-  - Google Gemini Pro: ~$5-15/month
-
-**Total: $51-132/month** (balanced privacy & capability)
+**Total: $26-62/month** (minimal setup, cost-optimized)
 
 ---
 
-### Scenario 3: Cloud-Only (No GPU Required)
+### Scenario 2: Production Setup (Recommended)
 
 **Infrastructure:**
-- **VPS (No GPU):** $10-20/month
-  - DigitalOcean Droplet (4 cores, 16GB): $96/year = $8/month
-  - Linode Dedicated 16GB: $96/month = $8/month
-  - Hetzner CX31 (4 cores, 16GB): €13/month = ~$14/month
+- **VPS/Dedicated Server:** $20-50/month
+  - Hetzner AX41 (Ryzen 5 3600, 64GB RAM): ~€39/month (~$42)
+  - Contabo VPS L (10 cores, 60GB RAM): ~€27/month (~$29)
+  - OVH Advance-2 (8 cores, 32GB RAM): ~$40/month
 - **Domain + SSL:** $1-2/month
-- **Backup:** $5-10/month
+- **Backup Storage:** $5-10/month
 
-**LLM Costs:**
-- **Cloud LLM Only:**
-  - OpenAI GPT-4o: ~$30-80/month (heavy usage)
-  - Anthropic Claude 3.5 Sonnet: ~$40-100/month
-  - Google Gemini Pro: ~$15-40/month
+**LLM Costs (enowX Labs):**
+- **Moderate Usage:** ~$30-80/month
+  - Mix of fast and quality models
+  - ~5000-10000 requests/month
+  - Using enowx-default for auto-routing
 
-**Total: $61-212/month** (no GPU, easier setup, less privacy)
+**Total: $56-142/month** (production-ready, balanced)
+
+---
+
+### Scenario 3: High-Volume/Enterprise
+
+**Infrastructure:**
+- **Dedicated Server:** $50-100/month
+  - Hetzner AX102 (Ryzen 9 5950X, 128GB RAM): ~€99/month (~$107)
+  - OVH Scale-3 (16 cores, 64GB RAM): ~$80/month
+- **Domain + SSL:** $1-2/month
+- **Backup Storage:** $10-20/month
+
+**LLM Costs (enowX Labs):**
+- **Heavy Usage:** ~$100-300/month
+  - High-quality models (claude-sonnet-4, gpt-5.3-codex)
+  - ~20000-50000 requests/month
+  - Bulk processing with gemini-2.5-flash
+
+**Total: $161-422/month** (enterprise-grade, high-volume)
 
 ---
 
 ### Cost Comparison Table
 
-| Component | Scenario 1<br/>(Full Self-Hosted) | Scenario 2<br/>(Hybrid) | Scenario 3<br/>(Cloud-Only) |
-|-----------|-----------------------------------|-------------------------|----------------------------|
-| **Server/VPS** | $20-50 | $20-50 | $10-20 |
+| Component | Scenario 1<br/>(Minimal) | Scenario 2<br/>(Production) | Scenario 3<br/>(Enterprise) |
+|-----------|--------------------------|-----------------------------|-----------------------------|
+| **Server/VPS** | $10-20 | $20-50 | $50-100 |
 | **Domain + SSL** | $1-2 | $1-2 | $1-2 |
-| **Backup Storage** | $5-10 | $5-10 | $5-10 |
-| **Local LLM (Electricity)** | $10-20 | $0-10 | $0 |
-| **Cloud LLM API** | $0 | $10-40 | $30-100 |
-| **GPU Required** | ✅ Yes | ⚠️ Optional | ❌ No |
-| **Privacy Level** | 🔒🔒🔒 High | 🔒🔒 Medium | 🔒 Low |
-| **Setup Complexity** | 🔧🔧🔧 High | 🔧🔧 Medium | 🔧 Low |
-| **TOTAL/month** | **$36-82** | **$51-132** | **$61-212** |
+| **Backup Storage** | $5-10 | $5-10 | $10-20 |
+| **LLM API (enowX Labs)** | $10-30 | $30-80 | $100-300 |
+| **Usage Level** | Light | Moderate | Heavy |
+| **Setup Complexity** | 🔧 Low | 🔧🔧 Medium | 🔧🔧🔧 High |
+| **TOTAL/month** | **$26-62** | **$56-142** | **$161-422** |
 
 ---
 
@@ -265,12 +245,12 @@ sudo ufw status
 
 ### Cost Optimization Tips
 
-1. **Start with Scenario 3** (Cloud-Only) untuk testing, lalu migrate ke Scenario 1 setelah confident
-2. **Use Hetzner Auction Server** - bisa dapat dedicated server dengan GPU mulai €30/month
-3. **Ollama + Llama 3.1 8B** cukup untuk 80% tasks, reserve cloud LLM untuk complex reasoning
+1. **Start with Scenario 1** (Minimal) untuk testing, scale up sesuai kebutuhan
+2. **Use Hetzner Auction Server** - bisa dapat dedicated server mulai €30/month
+3. **Choose fast models** (gemini-3.1-flash-lite, gpt-5.1-codex-mini) untuk cost efficiency
 4. **Backblaze B2 + Cloudflare** - bandwidth gratis untuk backup
 5. **Annual domain purchase** - lebih murah daripada monthly
-6. **Spot instances** (AWS/GCP) - bisa 70% lebih murah untuk non-critical workloads
+6. **Use enowx-default** - auto-routing ke model paling cost-effective
 
 ---
 
@@ -280,14 +260,14 @@ sudo ufw status
 - ChatGPT Plus: $20/month (limited features)
 - Claude Pro: $20/month (limited features)
 - Notion AI: $10/month (limited to Notion)
-- **This Stack (Scenario 1):** $36-82/month
+- **This Stack (Scenario 1):** $26-62/month
   - ✅ Unlimited usage
-  - ✅ Full privacy
+  - ✅ 36+ models to choose from
   - ✅ Complete customization
-  - ✅ All your data stays local
   - ✅ Integration with your entire workflow
+  - ✅ Self-hosted infrastructure
 
-**Break-even:** If you use >2 AI services, self-hosting is cheaper and more powerful.
+**Break-even:** If you use >1 AI service, self-hosting provides more value and flexibility.
 
 ---
 
@@ -418,25 +398,6 @@ Benchmark results (3 runs per model, 200 max tokens):
 - `deepseek-v3-2-volc` - HTTP 400 error
 - `gemini-3.1-pro` - Timeout
 
-### Alternative: Local Ollama (Privacy-First)
-
-If you prefer 100% local processing:
-
-```bash
-# Use Ollama instead of enowX Labs
-export LLM_PROVIDER=ollama
-export LLM_MODEL=llama3.1:8b
-export OLLAMA_BASE_URL=http://localhost:11434
-```
-
-**Tradeoffs:**
-- ✅ Complete privacy (no data leaves your server)
-- ✅ No API costs
-- ✅ Unlimited usage
-- ❌ Requires GPU (NVIDIA 8GB+ recommended)
-- ❌ Lower quality than GPT-4/Claude
-- ❌ Slower inference
-
 ---
 
 ## 🚀 Quick Start
@@ -512,27 +473,6 @@ services:
     volumes:
       - ./openfang/secretary.toml:/etc/openfang/secretary.toml
       - openfang_data:/var/lib/openfang
-    networks:
-      - secretary-net
-
-  # ============================================
-  # LOCAL LLM - Ollama
-  # ============================================
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    restart: always
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-            capabilities: [gpu]
     networks:
       - secretary-net
 
@@ -667,7 +607,6 @@ services:
 volumes:
   n8n_data:
   openfang_data:
-  ollama_data:
   qdrant_data:
   nextcloud_data:
   postgres_data:
@@ -810,7 +749,7 @@ n8n berfungsi sebagai otak koordinasi yang menghubungkan semua komponen.
       "type": "@n8n/n8n-nodes-langchain.agent",
       "parameters": {
         "prompt": "Buatkan briefing pagi berdasarkan jadwal dan task berikut.",
-        "model": "ollama/llama3.1:8b"
+        "model": "gpt-5.2"
       },
       "name": "AI Generate Briefing"
     },
@@ -941,12 +880,13 @@ enabled = true
 
 ```python
 from langgraph.graph import StateGraph, END
-from langchain_community.llms import Ollama
+from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import Qdrant
 from langchain.agents import tool
 from qdrant_client import QdrantClient
 import requests
 from datetime import datetime
+import os
 
 # State definition
 class SecretaryState:
@@ -1015,6 +955,14 @@ def search_files(query: str) -> str:
     )
     return parse_search_results(response.text)
 
+# Initialize LLM
+llm = ChatOpenAI(
+    model=os.getenv("ENOWX_MODEL", "gpt-5.2"),
+    base_url=os.getenv("ENOWX_BASE_URL"),
+    api_key=os.getenv("ENOWX_API_KEY"),
+    temperature=0.7,
+)
+
 # Build Graph
 workflow = StateGraph(SecretaryState)
 workflow.add_node("understand", understand_intent)
@@ -1033,7 +981,7 @@ workflow.add_edge("generate_response", END)
 
 ---
 
-### 3. Obsidian + Local LLM
+### 3. Knowledge Base (Obsidian + Qdrant)
 
 #### Struktur Vault Obsidian:
 
@@ -1688,7 +1636,6 @@ curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
         "n8n|http://localhost:5678/healthz|200"
         "qdrant|http://localhost:6333/healthz|200"
         "nextcloud|http://localhost:8080/status.php|200"
-        "ollama|http://localhost:11434/api/tags|200"
         "calcom|http://localhost:3000/api/health|200"
         "openfang|http://localhost:8090/health|200"
     )
@@ -1721,14 +1668,10 @@ curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
 
 Setelah semua service running:
 
-    # 1. Pull model LM
-    docker exec ollama ollama pull llama3.1:8b
-    docker exec ollama ollama pull nomic-embed-text
-
-    # 2. Inisialisasi Qdrant collections
+    # 1. Inisialisasi Qdrant collections
     python3 scripts/init_qdrant.py
 
-    # 3. Sync Obsidian vault pertama kali
+    # 2. Sync Obsidian vault pertama kali
     python3 scripts/sync_obsidian.py
 
     # 4. Test Telegram bot
@@ -1771,7 +1714,7 @@ MIT License - Gunakan dan modifikasi sesuka hati.
 - n8n (https://n8n.io) - Workflow Automation
 - OpenFang (https://openfang.sh) - Agent OS
 - Qdrant (https://qdrant.tech) - Vector Database
-- Ollama (https://ollama.ai) - Local LLM
+- enowX Labs (https://enowx.com) - LLM Provider
 - Cal.com (https://cal.com) - Scheduling
 - Nextcloud (https://nextcloud.com) - Cloud Platform
 - Obsidian (https://obsidian.md) - Knowledge Management

@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-08 17:10  
+**Last Updated:** 2026-05-08 17:20  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -98,6 +98,16 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
   - Fixes contrast issues in both light and dark themes
   - Commit: a3f5d8a "fix: improve Mermaid diagram text readability"
   - Changes: 1 file changed, 6 insertions(+), 6 deletions(-)
+  - Pushed to remote successfully
+- ✅ [2026-05-08 17:20] Added comprehensive monthly cost breakdown to README.md
+  - Created 3 deployment scenarios: Full Self-Hosted ($36-82/mo), Hybrid ($51-132/mo), Cloud-Only ($61-212/mo)
+  - Detailed cost breakdown: server, domain, backup, LLM, electricity
+  - Cost comparison table with privacy/complexity tradeoffs
+  - Optional costs section (email, monitoring, etc.)
+  - Cost optimization tips (Hetzner auction, Ollama, annual domain)
+  - ROI comparison vs commercial AI services (ChatGPT Plus, Claude Pro)
+  - Commit: 368790f "docs: add comprehensive monthly cost breakdown"
+  - Changes: 1 file changed, 124 insertions(+)
   - Pushed to remote successfully
 
 ---
@@ -198,7 +208,7 @@ pro-secretary/
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-08 17:10]** Documentation complete with readable Mermaid diagram. All text now uses black color (#000) for proper contrast on light backgrounds. README.md fully polished with all critical errors fixed and comprehensive requirements. Next: Implement actual infrastructure files - create docker-compose.yml, .env.example, directory structure (n8n/, openfang/, scripts/, caddy/), and setup scripts as documented in README.
+> **[2026-05-08 17:20]** README.md fully complete with cost breakdown. Users can now make informed decisions about deployment scenarios. Documentation includes: architecture diagram (Mermaid), hardware/software requirements, network setup, and detailed monthly costs ($36-212/mo). Next: Implement actual infrastructure files - create docker-compose.yml, .env.example, directory structure (n8n/, openfang/, scripts/, caddy/), and setup scripts.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

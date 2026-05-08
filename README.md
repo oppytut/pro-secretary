@@ -241,7 +241,7 @@ sudo ufw status
 - **Telegram Bot:** Free (unlimited messages)
 - **Cal.com:** Free (self-hosted)
 - **n8n:** Free (self-hosted)
-- **MinIO:** Free (self-hosted, S3-compatible storage)
+- **Cloudflare R2:** Free 10GB, $0.015/GB after (S3-compatible, no egress fees)
 - **Qdrant:** Free (self-hosted)
 - **Monitoring (Uptime Robot):** Free tier available
 - **Email Service (SMTP):**
@@ -845,11 +845,11 @@ from_email = "${SMTP_FROM}"
 
 [hands.storage]
 provider = "s3"
-endpoint = "http://minio:9000"
-access_key = "${MINIO_ROOT_USER}"
-secret_key = "${MINIO_ROOT_PASSWORD}"
-bucket = "${MINIO_BUCKET}"
-region = "us-east-1"
+endpoint = "${R2_ENDPOINT}"
+access_key = "${R2_ACCESS_KEY_ID}"
+secret_key = "${R2_SECRET_ACCESS_KEY}"
+bucket = "${R2_BUCKET}"
+region = "auto"  # Cloudflare R2 uses "auto" region
 
 [hands.tasks]
 provider = "qdrant"
@@ -940,18 +940,19 @@ def create_task(title: str, due_date: str, priority: str) -> str:
 
 @tool
 def search_files(query: str) -> str:
-    """Cari file di MinIO S3 storage."""
+    """Cari file di Cloudflare R2 storage."""
     import boto3
     
     s3 = boto3.client(
         's3',
-        endpoint_url='http://minio:9000',
-        aws_access_key_id=os.getenv('MINIO_ROOT_USER'),
-        aws_secret_access_key=os.getenv('MINIO_ROOT_PASSWORD')
+        endpoint_url=os.getenv('R2_ENDPOINT'),
+        aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
+        region_name='auto'  # Cloudflare R2 uses "auto" region
     )
     
     response = s3.list_objects_v2(
-        Bucket=os.getenv('MINIO_BUCKET', 'secretary-files'),
+        Bucket=os.getenv('R2_BUCKET', 'secretary-files'),
         Prefix=query
     )
     
@@ -1255,52 +1256,56 @@ Ketika ada booking baru, AI akan:
 
 ---
 
-### 6. MinIO (S3 Storage)
+### 6. Cloudflare R2 (S3 Storage)
 
-#### Post-Installation Setup:
+#### Setup Guide:
 
-```bash
-# Install MinIO client
-wget https://dl.min.io/client/mc/release/linux-amd64/mc
-chmod +x mc
-sudo mv mc /usr/local/bin/
+1. **Create Cloudflare R2 Account:**
+   - Go to https://dash.cloudflare.com
+   - Navigate to R2 Object Storage
+   - Create a bucket: `secretary-files`
 
-# Configure MinIO client
-mc alias set local http://localhost:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
+2. **Generate API Tokens:**
+   - Go to R2 → Manage R2 API Tokens
+   - Create API Token with "Object Read & Write" permissions
+   - Save: Access Key ID and Secret Access Key
 
-# Create bucket
-mc mb local/secretary-files
+3. **Configure Environment Variables:**
+   ```bash
+   R2_ACCOUNT_ID=your_account_id
+   R2_ACCESS_KEY_ID=your_access_key
+   R2_SECRET_ACCESS_KEY=your_secret_key
+   R2_BUCKET=secretary-files
+   R2_ENDPOINT=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+   ```
 
-# Set public read policy (optional, for shared files)
-mc anonymous set download local/secretary-files
+4. **Optional: Custom Domain (for public files):**
+   - R2 → Settings → Custom Domains
+   - Add: `files.yourdomain.com`
+   - Update DNS: CNAME to R2 endpoint
 
-# Create folders
-mc mb local/secretary-files/documents
-mc mb local/secretary-files/images
-mc mb local/secretary-files/obsidian-vault
+#### S3 API Endpoints:
+
 ```
-
-#### S3 API Endpoints (untuk integrasi):
-
-```
-API Endpoint:     http://minio:9000
-Console:          http://localhost:9001
+API Endpoint:     https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
 Bucket:           secretary-files
-Region:           us-east-1 (default)
-Access Key:       ${MINIO_ROOT_USER}
-Secret Key:       ${MINIO_ROOT_PASSWORD}
+Region:           auto (Cloudflare R2 uses "auto")
+Access Key:       ${R2_ACCESS_KEY_ID}
+Secret Key:       ${R2_SECRET_ACCESS_KEY}
 ```
 
 #### Python S3 Integration Example:
 
 ```python
 import boto3
+import os
 
 s3 = boto3.client(
     's3',
-    endpoint_url='http://minio:9000',
-    aws_access_key_id=os.getenv('MINIO_ROOT_USER'),
-    aws_secret_access_key=os.getenv('MINIO_ROOT_PASSWORD')
+    endpoint_url=os.getenv('R2_ENDPOINT'),
+    aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
+    region_name='auto'
 )
 
 # Upload file
@@ -1468,7 +1473,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle file upload - simpan ke MinIO S3."""
+    """Handle file upload - simpan ke Cloudflare R2."""
     import boto3
     from io import BytesIO
     
@@ -1476,22 +1481,23 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = await context.bot.get_file(document.file_id)
     file_bytes = await file.download_as_bytearray()
     
-    # Upload to MinIO
+    # Upload to Cloudflare R2
     s3 = boto3.client(
         's3',
-        endpoint_url=os.getenv('MINIO_ENDPOINT', 'http://minio:9000'),
-        aws_access_key_id=os.getenv('MINIO_ACCESS_KEY'),
-        aws_secret_access_key=os.getenv('MINIO_SECRET_KEY')
+        endpoint_url=os.getenv('R2_ENDPOINT'),
+        aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
+        region_name='auto'
     )
     
     s3.upload_fileobj(
         BytesIO(file_bytes),
-        os.getenv('MINIO_BUCKET', 'secretary-files'),
+        os.getenv('R2_BUCKET', 'secretary-files'),
         f"telegram-uploads/{document.file_name}"
     )
 
     await update.message.reply_text(
-        f"File '{document.file_name}' disimpan ke MinIO storage"
+        f"File '{document.file_name}' disimpan ke Cloudflare R2"
     )
 
 def main():
@@ -1550,10 +1556,8 @@ cal.yourdomain.com {
     reverse_proxy calcom:3000
 }
 
-minio.yourdomain.com {
-    reverse_proxy minio:9001
+# Cloudflare R2 (external service, no reverse proxy needed)
     header {
-        Strict-Transport-Security "max-age=31536000;"
     }
 }
 
@@ -1574,7 +1578,7 @@ qdrant.yourdomain.com {
 - Qdrant API key di-set dan tidak exposed ke public
 - Telegram bot hanya menerima dari ALLOWED_USER_IDS
 - n8n menggunakan basic auth
-- MinIO access policies configured (bucket-level permissions)
+- Cloudflare R2 bucket policies configured
 - Docker network isolated (secretary-net)
 - Regular security updates (watchtower)
 - Firewall: hanya port 80, 443 yang terbuka
@@ -1629,9 +1633,7 @@ done
 docker run --rm -v qdrant_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
     tar czf /backup/qdrant-data.tar.gz /data
 
-# 3. MinIO
-docker run --rm -v minio_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
-    tar czf /backup/minio-data.tar.gz /data
+# 3. Cloudflare R2 (external backup via rclone)
 
 # 4. Database (PostgreSQL)
 docker exec postgres pg_dump -U calcom calcom > $BACKUP_DIR/$DATE/postgres-calcom.sql
@@ -1681,7 +1683,7 @@ curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
     SERVICES=(
         "n8n|http://localhost:5678/healthz|200"
         "qdrant|http://localhost:6333/healthz|200"
-        "minio|http://localhost:9000/minio/health/live|200"
+        
         "calcom|http://localhost:3000/api/health|200"
         "openfang|http://localhost:8090/health|200"
     )
@@ -1762,7 +1764,7 @@ MIT License - Gunakan dan modifikasi sesuka hati.
 - Qdrant (https://qdrant.tech) - Vector Database
 - enowX Labs (https://enowx.com) - LLM Provider
 - Cal.com (https://cal.com) - Scheduling
-- MinIO (https://min.io) - S3-Compatible Object Storage
+- Cloudflare R2 (https://www.cloudflare.com/products/r2/) - S3-Compatible Object Storage
 - Obsidian (https://obsidian.md) - Knowledge Management
 
 ---

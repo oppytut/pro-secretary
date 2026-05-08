@@ -247,7 +247,7 @@ sudo ufw status
 - **Email Service (SMTP):**
   - SendGrid: Free (100 emails/day)
   - Mailgun: Free (5,000 emails/month)
-  - Self-hosted: $0 (included in Nextcloud)
+  - SMTP2GO: Free (1,000 emails/month)
 
 ---
 
@@ -733,8 +733,14 @@ n8n berfungsi sebagai otak koordinasi yang menghubungkan semua komponen.
     {
       "type": "n8n-nodes-base.httpRequest",
       "parameters": {
-        "url": "http://nextcloud:80/remote.php/dav/calendars/admin/personal",
-        "method": "REPORT"
+        "url": "http://calcom:3000/api/bookings",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{$env.CALCOM_API_KEY}}"
+        },
+        "qs": {
+          "startTime": "{{$now.toISO()}}"
+        }
       },
       "name": "Fetch Today Calendar"
     },
@@ -845,15 +851,25 @@ enabled = [
 ]
 
 [hands.calendar]
-provider = "caldav"
-url = "http://nextcloud:80/remote.php/dav"
-username = "${NC_ADMIN_USER}"
-password = "${NC_ADMIN_PASSWORD}"
+provider = "calcom"
+api_url = "http://calcom:3000/api"
+api_key = "${CALCOM_API_KEY}"
 
 [hands.email]
-provider = "nextcloud"
-imap_host = "nextcloud"
-smtp_host = "nextcloud"
+provider = "smtp"
+smtp_host = "${SMTP_HOST}"
+smtp_port = "${SMTP_PORT}"
+smtp_user = "${SMTP_USER}"
+smtp_password = "${SMTP_PASSWORD}"
+from_email = "${SMTP_FROM}"
+
+[hands.storage]
+provider = "s3"
+endpoint = "http://minio:9000"
+access_key = "${MINIO_ROOT_USER}"
+secret_key = "${MINIO_ROOT_PASSWORD}"
+bucket = "${MINIO_BUCKET}"
+region = "us-east-1"
 
 [hands.tasks]
 provider = "qdrant"
@@ -914,12 +930,13 @@ def search_knowledge(query: str) -> str:
 
 @tool
 def get_today_schedule() -> str:
-    """Ambil jadwal hari ini dari Cal.com / Nextcloud."""
+    """Ambil jadwal hari ini dari Cal.com API."""
     response = requests.get(
-        "http://nextcloud:80/remote.php/dav/calendars/admin/personal",
-        auth=("admin", "password")
+        "http://calcom:3000/api/bookings",
+        headers={"Authorization": f"Bearer {os.getenv('CALCOM_API_KEY')}"},
+        params={"startTime": datetime.now().isoformat()}
     )
-    return parse_calendar(response.text)
+    return parse_calendar_json(response.json())
 
 @tool
 def create_task(title: str, due_date: str, priority: str) -> str:
@@ -943,22 +960,23 @@ def create_task(title: str, due_date: str, priority: str) -> str:
 
 @tool
 def search_files(query: str) -> str:
-    """Cari file di Nextcloud."""
-    response = requests.request(
-        "SEARCH",
-        "http://nextcloud:80/remote.php/dav",
-        auth=("admin", "password"),
-        data=f"""<?xml version="1.0" encoding="UTF-8"?>
-        <d:searchrequest xmlns:d="DAV:">
-            <d:basicsearch>
-                <d:select><d:prop><d:displayname/></d:prop></d:select>
-                <d:from><d:scope><d:href>/files/admin</d:href></d:scope></d:from>
-                <d:where><d:like><d:prop><d:displayname/></d:prop>
-                <d:literal>%{query}%</d:literal></d:like></d:where>
-            </d:basicsearch>
-        </d:searchrequest>"""
+    """Cari file di MinIO S3 storage."""
+    import boto3
+    
+    s3 = boto3.client(
+        's3',
+        endpoint_url='http://minio:9000',
+        aws_access_key_id=os.getenv('MINIO_ROOT_USER'),
+        aws_secret_access_key=os.getenv('MINIO_ROOT_PASSWORD')
     )
-    return parse_search_results(response.text)
+    
+    response = s3.list_objects_v2(
+        Bucket=os.getenv('MINIO_BUCKET', 'secretary-files'),
+        Prefix=query
+    )
+    
+    files = [obj['Key'] for obj in response.get('Contents', [])]
+    return "\n".join(files) if files else "No files found"
 
 # Initialize LLM
 llm = ChatOpenAI(
@@ -1250,34 +1268,72 @@ curl -X POST https://cal.yourdomain.com/api/v1/webhooks \
 ```
 
 Ketika ada booking baru, AI akan:
-1. Menambahkan ke Nextcloud Calendar
+1. Sync dengan Cal.com calendar
 2. Membuat preparation notes di Obsidian
 3. Mengirim notifikasi ke Telegram
 4. Menyimpan context ke Qdrant memory
 
 ---
 
-### 6. Nextcloud
+### 6. MinIO (S3 Storage)
 
 #### Post-Installation Setup:
 
-    # Install apps yang dibutuhkan
-    docker exec -u www-data nextcloud php occ app:install calendar
-    docker exec -u www-data nextcloud php occ app:install contacts
-    docker exec -u www-data nextcloud php occ app:install mail
-    docker exec -u www-data nextcloud php occ app:install tasks
-    docker exec -u www-data nextcloud php occ app:install notes
-    docker exec -u www-data nextcloud php occ app:install deck
+```bash
+# Install MinIO client
+wget https://dl.min.io/client/mc/release/linux-amd64/mc
+chmod +x mc
+sudo mv mc /usr/local/bin/
 
-    # Setup external storage untuk Obsidian vault
-    docker exec -u www-data nextcloud php occ app:install files_external
+# Configure MinIO client
+mc alias set local http://localhost:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
 
-#### WebDAV Endpoints (untuk integrasi):
+# Create bucket
+mc mb local/secretary-files
 
-    Calendar:  http://nextcloud:80/remote.php/dav/calendars/{user}/
-    Contacts:  http://nextcloud:80/remote.php/dav/addressbooks/users/{user}/
-    Files:     http://nextcloud:80/remote.php/dav/files/{user}/
-    Tasks:     http://nextcloud:80/remote.php/dav/calendars/{user}/tasks/
+# Set public read policy (optional, for shared files)
+mc anonymous set download local/secretary-files
+
+# Create folders
+mc mb local/secretary-files/documents
+mc mb local/secretary-files/images
+mc mb local/secretary-files/obsidian-vault
+```
+
+#### S3 API Endpoints (untuk integrasi):
+
+```
+API Endpoint:     http://minio:9000
+Console:          http://localhost:9001
+Bucket:           secretary-files
+Region:           us-east-1 (default)
+Access Key:       ${MINIO_ROOT_USER}
+Secret Key:       ${MINIO_ROOT_PASSWORD}
+```
+
+#### Python S3 Integration Example:
+
+```python
+import boto3
+
+s3 = boto3.client(
+    's3',
+    endpoint_url='http://minio:9000',
+    aws_access_key_id=os.getenv('MINIO_ROOT_USER'),
+    aws_secret_access_key=os.getenv('MINIO_ROOT_PASSWORD')
+)
+
+# Upload file
+s3.upload_file('local_file.pdf', 'secretary-files', 'documents/file.pdf')
+
+# Download file
+s3.download_file('secretary-files', 'documents/file.pdf', 'downloaded.pdf')
+
+# List files
+response = s3.list_objects_v2(Bucket='secretary-files', Prefix='documents/')
+for obj in response.get('Contents', []):
+    print(obj['Key'])
+```
 
 ---
 
@@ -1432,20 +1488,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle file upload - simpan ke Nextcloud."""
+    """Handle file upload - simpan ke MinIO S3."""
+    import boto3
+    from io import BytesIO
+    
     document = update.message.document
     file = await context.bot.get_file(document.file_id)
     file_bytes = await file.download_as_bytearray()
-
-    async with httpx.AsyncClient() as client:
-        await client.put(
-            f"http://nextcloud:80/remote.php/dav/files/admin/Inbox/{document.file_name}",
-            content=file_bytes,
-            auth=("admin", os.getenv("NC_ADMIN_PASSWORD"))
-        )
+    
+    # Upload to MinIO
+    s3 = boto3.client(
+        's3',
+        endpoint_url=os.getenv('MINIO_ENDPOINT', 'http://minio:9000'),
+        aws_access_key_id=os.getenv('MINIO_ACCESS_KEY'),
+        aws_secret_access_key=os.getenv('MINIO_SECRET_KEY')
+    )
+    
+    s3.upload_fileobj(
+        BytesIO(file_bytes),
+        os.getenv('MINIO_BUCKET', 'secretary-files'),
+        f"telegram-uploads/{document.file_name}"
+    )
 
     await update.message.reply_text(
-        f"File '{document.file_name}' disimpan ke Nextcloud/Inbox/"
+        f"File '{document.file_name}' disimpan ke MinIO storage"
     )
 
 def main():
@@ -1504,13 +1570,11 @@ cal.yourdomain.com {
     reverse_proxy calcom:3000
 }
 
-cloud.yourdomain.com {
-    reverse_proxy nextcloud:80
+minio.yourdomain.com {
+    reverse_proxy minio:9001
     header {
         Strict-Transport-Security "max-age=31536000;"
     }
-    redir /.well-known/carddav /remote.php/dav 301
-    redir /.well-known/caldav /remote.php/dav 301
 }
 
 qdrant.yourdomain.com {
@@ -1530,7 +1594,7 @@ qdrant.yourdomain.com {
 - Qdrant API key di-set dan tidak exposed ke public
 - Telegram bot hanya menerima dari ALLOWED_USER_IDS
 - n8n menggunakan basic auth
-- Nextcloud 2FA enabled
+- MinIO access policies configured (bucket-level permissions)
 - Docker network isolated (secretary-net)
 - Regular security updates (watchtower)
 - Firewall: hanya port 80, 443 yang terbuka
@@ -1585,15 +1649,12 @@ done
 docker run --rm -v qdrant_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
     tar czf /backup/qdrant-data.tar.gz /data
 
-# 3. Nextcloud
-docker exec -u www-data nextcloud php occ maintenance:mode --on
-docker run --rm -v nextcloud_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
-    tar czf /backup/nextcloud-data.tar.gz /data
-docker exec -u www-data nextcloud php occ maintenance:mode --off
+# 3. MinIO
+docker run --rm -v minio_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
+    tar czf /backup/minio-data.tar.gz /data
 
-# 4. Databases
+# 4. Database (PostgreSQL)
 docker exec postgres pg_dump -U calcom calcom > $BACKUP_DIR/$DATE/postgres-calcom.sql
-docker exec mariadb mysqldump -u root -p$MYSQL_ROOT_PASSWORD nextcloud > $BACKUP_DIR/$DATE/mariadb-nextcloud.sql
 
 # 5. Obsidian vault
 tar czf $BACKUP_DIR/$DATE/obsidian-vault.tar.gz /path/to/SecretaryVault
@@ -1640,7 +1701,7 @@ curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
     SERVICES=(
         "n8n|http://localhost:5678/healthz|200"
         "qdrant|http://localhost:6333/healthz|200"
-        "nextcloud|http://localhost:8080/status.php|200"
+        "minio|http://localhost:9000/minio/health/live|200"
         "calcom|http://localhost:3000/api/health|200"
         "openfang|http://localhost:8090/health|200"
     )
@@ -1721,7 +1782,7 @@ MIT License - Gunakan dan modifikasi sesuka hati.
 - Qdrant (https://qdrant.tech) - Vector Database
 - enowX Labs (https://enowx.com) - LLM Provider
 - Cal.com (https://cal.com) - Scheduling
-- Nextcloud (https://nextcloud.com) - Cloud Platform
+- MinIO (https://min.io) - S3-Compatible Object Storage
 - Obsidian (https://obsidian.md) - Knowledge Management
 
 ---

@@ -23,16 +23,20 @@ graph TB
     end
     
     subgraph Scheduling["📅 SCHEDULING"]
-        CalCom[Cal.com]
+        CalCom[Cal.com<br/>Calendar & Appointments]
     end
     
     subgraph Knowledge["🧠 KNOWLEDGE & MEMORY"]
         Obsidian[Obsidian Notes]
-        Qdrant[Qdrant/ChromaDB<br/>Vector Memory]
+        Qdrant[Qdrant<br/>Vector Memory]
     end
     
-    subgraph FileComm["📁 FILE & COMMUNICATION"]
-        Nextcloud[Nextcloud<br/>Email, Files, Calendar, Contacts]
+    subgraph Storage["📁 FILE STORAGE"]
+        MinIO[MinIO<br/>S3-Compatible Object Storage]
+    end
+    
+    subgraph External["📧 EXTERNAL SERVICES"]
+        SMTP[SMTP Service<br/>SendGrid/Mailgun]
     end
     
     User --> TG
@@ -42,27 +46,31 @@ graph TB
     N8N --> OpenFang
     N8N --> LangGraph
     N8N --> CalCom
+    N8N --> SMTP
     OpenFang --> Obsidian
     OpenFang --> Qdrant
+    OpenFang --> MinIO
     LangGraph --> Obsidian
     LangGraph --> Qdrant
-    Obsidian --> Nextcloud
-    Qdrant --> Nextcloud
-    CalCom --> Nextcloud
+    LangGraph --> MinIO
+    Obsidian --> MinIO
+    CalCom --> SMTP
     
     classDef interfaceStyle fill:#e1f5ff,stroke:#01579b,stroke-width:2px,color:#000
     classDef orchestratorStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
     classDef aiStyle fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
     classDef scheduleStyle fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
     classDef knowledgeStyle fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
-    classDef fileStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
+    classDef storageStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
+    classDef externalStyle fill:#e0e0e0,stroke:#616161,stroke-width:2px,color:#000
     
     class TG,Matrix interfaceStyle
     class N8N orchestratorStyle
     class OpenFang,LangGraph aiStyle
     class CalCom scheduleStyle
     class Obsidian,Qdrant knowledgeStyle
-    class Nextcloud fileStyle
+    class MinIO storageStyle
+    class SMTP externalStyle
 ```
 
 ## 📋 Table of Contents
@@ -132,9 +140,9 @@ sudo usermod -aG docker $USER
 - **8090** - OpenFang
 - **6333, 6334** - Qdrant
 - **3000** - Cal.com
-- **8080** - Nextcloud
+- **9000** - MinIO API
+- **9001** - MinIO Console
 - **5432** - PostgreSQL
-- **3306** - MariaDB
 
 #### Firewall Setup
 
@@ -513,29 +521,28 @@ services:
       - secretary-net
 
   # ============================================
-  # NEXTCLOUD - Files, Email, Calendar
+  # FILE STORAGE - MinIO (S3-Compatible)
   # ============================================
-  nextcloud:
-    image: nextcloud:latest
-    container_name: nextcloud
+  minio:
+    image: minio/minio:latest
+    container_name: minio
     restart: always
     ports:
-      - "8080:80"
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
     environment:
-      - MYSQL_HOST=mariadb
-      - MYSQL_DATABASE=nextcloud
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - NEXTCLOUD_ADMIN_USER=${NC_ADMIN_USER}
-      - NEXTCLOUD_ADMIN_PASSWORD=${NC_ADMIN_PASSWORD}
-      - NEXTCLOUD_TRUSTED_DOMAINS=${NC_HOST}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
     volumes:
-      - nextcloud_data:/var/www/html
-      - ./nextcloud/custom_apps:/var/www/html/custom_apps
-    depends_on:
-      - mariadb
+      - minio_data:/data
     networks:
       - secretary-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
 
   # ============================================
   # TELEGRAM BOT
@@ -550,15 +557,19 @@ services:
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/telegram
       - OPENFANG_URL=http://openfang:8090
       - QDRANT_URL=http://qdrant:6333
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
     depends_on:
       - n8n
       - openfang
       - qdrant
+      - minio
     networks:
       - secretary-net
 
   # ============================================
-  # DATABASES
+  # DATABASE - PostgreSQL
   # ============================================
   postgres:
     image: postgres:15
@@ -572,18 +583,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - secretary-net
-
-  mariadb:
-    image: mariadb:10.11
-    container_name: mariadb
-    restart: always
-    environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-      - MYSQL_DATABASE=nextcloud
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-    volumes:
-      - mariadb_data:/var/lib/mysql
     networks:
       - secretary-net
 
@@ -608,9 +607,8 @@ volumes:
   n8n_data:
   openfang_data:
   qdrant_data:
-  nextcloud_data:
+  minio_data:
   postgres_data:
-  mariadb_data:
   caddy_data:
   caddy_config:
 
@@ -682,26 +680,33 @@ CALCOM_SECRET=your_calcom_secret
 CALCOM_ENCRYPTION_KEY=your_encryption_key
 
 # ============================================
-# Nextcloud
+# MinIO (S3-Compatible Storage)
 # ============================================
-NC_HOST=cloud.yourdomain.com
-NC_ADMIN_USER=admin
-NC_ADMIN_PASSWORD=your_secure_password
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=your_secure_minio_password
+MINIO_BUCKET=secretary-files
 
 # ============================================
-# Database
+# Database (PostgreSQL for Cal.com)
 # ============================================
 POSTGRES_USER=calcom
 POSTGRES_PASSWORD=your_postgres_password
-MYSQL_ROOT_PASSWORD=your_mysql_root_password
-MYSQL_USER=nextcloud
-MYSQL_PASSWORD=your_mysql_password
 
 # ============================================
 # Telegram
 # ============================================
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 TELEGRAM_ALLOWED_USERS=your_telegram_user_id
+
+# ============================================
+# External Services (Optional)
+# ============================================
+# SMTP for email notifications
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASSWORD=your_sendgrid_api_key
+SMTP_FROM=secretary@yourdomain.com
 ```
 
 ## ⚙️ Component Setup

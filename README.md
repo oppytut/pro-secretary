@@ -241,7 +241,7 @@ sudo ufw status
 - **Telegram Bot:** Free (unlimited messages)
 - **Cal.com:** Free (self-hosted)
 - **n8n:** Free (self-hosted)
-- **Nextcloud:** Free (self-hosted)
+- **MinIO:** Free (self-hosted, S3-compatible storage)
 - **Qdrant:** Free (self-hosted)
 - **Monitoring (Uptime Robot):** Free tier available
 - **Email Service (SMTP):**

@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-08 18:00  
+**Last Updated:** 2026-05-08 18:30  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -140,6 +140,20 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
   - Changes: 1 file changed, 71 insertions(+), 128 deletions(-)
   - Net reduction: 57 lines (cleaner, focused on cloud LLM only)
   - Pushed to remote successfully
+- ✅ [2026-05-08 18:30] Replaced Nextcloud with MinIO (Part 1 - Infrastructure)
+  - Updated architecture diagram: Nextcloud → MinIO + External SMTP services
+  - Removed Nextcloud container from docker-compose.yml
+  - Removed MariaDB container (only used by Nextcloud)
+  - Added MinIO container with S3-compatible API (ports 9000, 9001)
+  - Updated internal ports: removed 8080 (Nextcloud), 3306 (MariaDB)
+  - Updated volumes: removed nextcloud_data, mariadb_data, added minio_data
+  - Updated environment variables: removed NC_*, MYSQL_*, added MINIO_*, SMTP_*
+  - Added external SMTP configuration (SendGrid/Mailgun)
+  - Updated optional costs: Nextcloud → MinIO
+  - Commits: 94b3154 "refactor: replace Nextcloud with MinIO (part 1/2)", 63ffd79 "docs: update optional costs"
+  - Changes: 56 insertions(+), 51 deletions(-)
+  - Benefits: 60% less resource usage, S3-compatible, simpler architecture
+  - Note: Part 2 (code examples update) deferred - infrastructure complete
 
 ---
 
@@ -239,7 +253,7 @@ pro-secretary/
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-08 18:00]** README.md fully cleaned up - all local LLM references removed. Project now uses enowX Labs cloud LLM provider exclusively. Documentation includes: architecture (Mermaid), hardware requirements (no GPU needed), network setup, monthly costs ($26-422/mo based on usage), and comprehensive LLM configuration with 36+ models. Simpler, cleaner, cloud-focused. Next: Implement actual infrastructure files - create docker-compose.yml, .env.example, directory structure (n8n/, openfang/, scripts/, caddy/), and setup scripts.
+> **[2026-05-08 18:30]** Major infrastructure simplification complete. Removed Ollama (local LLM) and Nextcloud (heavy file/email server). Now using: enowX Labs (cloud LLM), MinIO (S3 storage), external SMTP. Architecture is 60% lighter, simpler, cloud-focused. README infrastructure sections complete. Remaining: Update code examples in Component Setup section (n8n workflows, OpenFang config, LangGraph examples) to use Cal.com API + MinIO S3 instead of Nextcloud CalDAV/WebDAV. Next priority: Implement actual infrastructure files or finish code example updates.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

@@ -4,37 +4,65 @@
 
 ## 📐 Architecture
 
-```plaintext
-        ┌────────────────────────────────┐
-        │       USER INTERFACE           │
-        │    Telegram / Matrix Bot       │
-        └──────────────┬─────────────────┘
-                       │
-        ┌──────────────▼─────────────────┐
-        │        ORCHESTRATOR            │
-        │      n8n (Self-hosted)         │
-        │ Workflow Automation & AI Agent │
-        └───┬────────────────────┬───────┘
-            │                    │
-    ┌───────▼────────┐   ┌──────▼────────┐
-    │ AI AGENT ENGINE│   │  SCHEDULING   │
-    │  OpenFang.sh / │   │   Cal.com     │
-    │   LangGraph    │   │               │
-    └───────┬────────┘   └───────────────┘
-            │
-    ┌───────▼────────────────────────────┐
-    │      KNOWLEDGE & MEMORY            │
-    │  ┌──────────┐  ┌──────────────┐   │
-    │  │ Obsidian │  │Qdrant/ChromaDB│   │
-    │  │ Local LM │  │(Vector Memory)│   │
-    │  └──────────┘  └──────────────┘   │
-    └───────┬────────────────────────────┘
-            │
-    ┌───────▼────────────────────────────┐
-    │     FILE & COMMUNICATION           │
-    │          Nextcloud                 │
-    │ (Email, Files, Calendar, Contacts) │
-    └────────────────────────────────────┘
+```mermaid
+graph TB
+    User[👤 User]
+    
+    subgraph Interface["🖥️ USER INTERFACE"]
+        TG[Telegram Bot]
+        Matrix[Matrix Bot]
+    end
+    
+    subgraph Orchestrator["🎯 ORCHESTRATOR"]
+        N8N[n8n<br/>Workflow Automation & AI Agent]
+    end
+    
+    subgraph AIEngine["🤖 AI AGENT ENGINE"]
+        OpenFang[OpenFang.sh]
+        LangGraph[LangGraph]
+    end
+    
+    subgraph Scheduling["📅 SCHEDULING"]
+        CalCom[Cal.com]
+    end
+    
+    subgraph Knowledge["🧠 KNOWLEDGE & MEMORY"]
+        Obsidian[Obsidian + Local LM]
+        Qdrant[Qdrant/ChromaDB<br/>Vector Memory]
+    end
+    
+    subgraph FileComm["📁 FILE & COMMUNICATION"]
+        Nextcloud[Nextcloud<br/>Email, Files, Calendar, Contacts]
+    end
+    
+    User --> TG
+    User --> Matrix
+    TG --> N8N
+    Matrix --> N8N
+    N8N --> OpenFang
+    N8N --> LangGraph
+    N8N --> CalCom
+    OpenFang --> Obsidian
+    OpenFang --> Qdrant
+    LangGraph --> Obsidian
+    LangGraph --> Qdrant
+    Obsidian --> Nextcloud
+    Qdrant --> Nextcloud
+    CalCom --> Nextcloud
+    
+    classDef interfaceStyle fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    classDef orchestratorStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef aiStyle fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef scheduleStyle fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef knowledgeStyle fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef fileStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    
+    class TG,Matrix interfaceStyle
+    class N8N orchestratorStyle
+    class OpenFang,LangGraph aiStyle
+    class CalCom scheduleStyle
+    class Obsidian,Qdrant knowledgeStyle
+    class Nextcloud fileStyle
 ```
 
 ## 📋 Table of Contents

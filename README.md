@@ -50,12 +50,12 @@ graph TB
     Qdrant --> Nextcloud
     CalCom --> Nextcloud
     
-    classDef interfaceStyle fill:#e1f5ff,stroke:#01579b,stroke-width:2px
-    classDef orchestratorStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    classDef aiStyle fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef scheduleStyle fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
-    classDef knowledgeStyle fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    classDef fileStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    classDef interfaceStyle fill:#e1f5ff,stroke:#01579b,stroke-width:2px,color:#000
+    classDef orchestratorStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+    classDef aiStyle fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
+    classDef scheduleStyle fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
+    classDef knowledgeStyle fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
+    classDef fileStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
     
     class TG,Matrix interfaceStyle
     class N8N orchestratorStyle

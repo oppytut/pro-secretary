@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-08 16:50  
+**Last Updated:** 2026-05-08 17:00  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -76,6 +76,14 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
   - Changes: 1046 insertions(+), 920 deletions(-)
   - Pushed to: git@github.com:oppytut/pro-secretary.git (main branch)
   - Status: Successfully pushed to remote
+- ✅ [2026-05-08 17:00] Moved TASK.md and .sisyphus into repository
+  - Moved TASK.md from /home/ubuntu/bench/ to /home/ubuntu/bench/pro-secretary/
+  - Moved .sisyphus/ directory into repository
+  - Updated all path references in TASK.md, .sisyphus/README.md, .sisyphus/AGENT_ONBOARDING.md
+  - Commit: ea060ec "docs: add task handoff system and agent rules"
+  - Changes: 4 files changed, 633 insertions(+)
+  - Pushed to remote successfully
+  - Now all project documentation is version controlled
 
 ---
 

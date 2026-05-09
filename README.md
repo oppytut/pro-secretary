@@ -92,41 +92,52 @@ AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelo
 
 ### Data Flow Architecture
 
+```mermaid
+flowchart TD
+    User[👤 USER<br/>Sends message/command<br/>via Telegram]
+    
+    TelegramBot[📱 TELEGRAM BOT<br/>Interface Layer<br/>━━━━━━━━━━━━━━<br/>✓ Authentication whitelist<br/>✓ Command parsing<br/>✓ Message routing]
+    
+    N8N[🎯 N8N<br/>Orchestration Layer<br/>━━━━━━━━━━━━━━<br/>✓ Route commands to services<br/>✓ Schedule automated tasks cron<br/>✓ Coordinate multi-service ops]
+    
+    AIAgent[🤖 OPENFANG / LANGGRAPH<br/>AI Agent Layer<br/>━━━━━━━━━━━━━━<br/>✓ Understand user intent<br/>✓ Retrieve context from memory<br/>✓ Execute tools calendar, search, tasks<br/>✓ Generate natural language responses]
+    
+    subgraph Backend["🔧 BACKEND SERVICES (Parallel Access)"]
+        Qdrant[💾 QDRANT<br/>Vector DB<br/>━━━━━━━━<br/>• Memories<br/>• Tasks<br/>• Knowledge]
+        
+        CalCom[📅 CAL.COM<br/>Calendar<br/>━━━━━━━━<br/>• Events<br/>• Bookings]
+        
+        PostgreSQL[🗄️ POSTGRESQL<br/>Database<br/>━━━━━━━━<br/>• Booking data<br/>• User data<br/>• Event types]
+        
+        R2[📦 CLOUDFLARE R2<br/>Storage<br/>━━━━━━━━<br/>• Files<br/>• Backups<br/>• Notes]
+    end
+    
+    User --> TelegramBot
+    TelegramBot --> N8N
+    N8N --> AIAgent
+    AIAgent --> Qdrant
+    AIAgent --> CalCom
+    AIAgent --> R2
+    CalCom --> PostgreSQL
+    
+    style User fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
+    style TelegramBot fill:#e1f5ff,stroke:#01579b,stroke-width:2px,color:#000
+    style N8N fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+    style AIAgent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
+    style Backend fill:#f5f5f5,stroke:#616161,stroke-width:2px
+    style Qdrant fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
+    style CalCom fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
+    style PostgreSQL fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
+    style R2 fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
 ```
-┌──────────────┐
-│     USER     │ Sends message/command via Telegram
-└──────┬───────┘
-       │
-       ↓
-┌──────────────┐
-│  TELEGRAM    │ Interface Layer
-│     BOT      │ - Authentication (whitelist)
-└──────┬───────┘ - Command parsing
-       │         - Message routing
-       ↓
-┌──────────────┐
-│     N8N      │ Orchestration Layer
-│ (Workflows)  │ - Route commands to appropriate services
-└──────┬───────┘ - Schedule automated tasks (cron)
-       │         - Coordinate multi-service operations
-       ↓
-┌──────────────┐
-│   OPENFANG   │ AI Agent Layer
-│  /LANGGRAPH  │ - Understand user intent
-└──────┬───────┘ - Retrieve relevant context from memory
-       │         - Execute tools (calendar, search, tasks)
-       │         - Generate natural language responses
-       ↓
-┌──────────────────────────────────────┐
-│  BACKEND SERVICES (Parallel Access)  │
-├──────────────┬───────────┬───────────┤
-│   QDRANT     │  CAL.COM  │    R2     │
-│ Vector DB    │  Calendar │  Storage  │
-│ - Memories   │ - Events  │ - Files   │
-│ - Tasks      │ - Bookings│ - Backups │
-│ - Knowledge  │           │ - Notes   │
-└──────────────┴───────────┴───────────┘
-```
+
+**Key Data Flows:**
+
+1. **User Input** → Telegram Bot → n8n → AI Agent → Backend Services
+2. **Proactive Tasks** → n8n (cron) → AI Agent → Backend Services → Telegram Bot → User
+3. **Calendar Operations** → Cal.com ↔ PostgreSQL (persistent storage)
+4. **Memory/Context** → Qdrant (vector search for relevant information)
+5. **File Operations** → Cloudflare R2 (S3-compatible object storage)
 
 ---
 

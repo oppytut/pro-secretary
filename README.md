@@ -178,9 +178,9 @@ sudo ufw status
   - Backblaze B2: $0.005/GB = ~$5 for 1TB
   - Wasabi: $6.99/TB/month
 
-**LLM Costs (enowX Labs):**
+**LLM Costs (OpenAI-compatible Provider):**
 - **Light Usage:** ~$10-30/month
-  - Using fast models (gemini-3.1-flash-lite, gpt-5.1-codex-mini)
+  - Using efficient models (gpt-3.5-turbo, claude-haiku)
   - ~1000-3000 requests/month
 
 **Total: $26-72/month** (minimal setup, cost-optimized)
@@ -201,11 +201,11 @@ sudo ufw status
   - Railway Pro: $20/month (8GB RAM, shared CPU)
 - **Backup Storage:** $5-10/month
 
-**LLM Costs (enowX Labs):**
+**LLM Costs (OpenAI-compatible Provider):**
 - **Moderate Usage:** ~$30-80/month
-  - Mix of fast and quality models
+  - Mix of efficient and quality models
   - ~5000-10000 requests/month
-  - Using enowx-default for auto-routing
+  - Using gpt-4, claude-sonnet, or similar
 
 **Total: $66-167/month** (production-ready, balanced)
 
@@ -224,11 +224,11 @@ sudo ufw status
   - AWS RDS: $50-200/month (db.t3.medium to db.m5.large)
 - **Backup Storage:** $10-20/month
 
-**LLM Costs (enowX Labs):**
+**LLM Costs (OpenAI-compatible Provider):**
 - **Heavy Usage:** ~$100-300/month
-  - High-quality models (claude-sonnet-4, gpt-5.3-codex)
+  - High-quality models (gpt-4, claude-opus)
   - ~20000-50000 requests/month
-  - Bulk processing with gemini-2.5-flash
+  - Production workloads
 
 **Total: $211-622/month** (enterprise-grade, high-volume)
 
@@ -242,7 +242,7 @@ sudo ufw status
 | **Domain + SSL** | $1-2 | $1-2 | $1-2 |
 | **PostgreSQL Database** | $0-10 | $10-25 | $50-200 |
 | **Backup Storage** | $5-10 | $5-10 | $10-20 |
-| **LLM API (enowX Labs)** | $10-30 | $30-80 | $100-300 |
+| **LLM API (Provider)** | $10-30 | $30-80 | $100-300 |
 | **Usage Level** | Light | Moderate | Heavy |
 | **Setup Complexity** | 🔧 Low | 🔧🔧 Medium | 🔧🔧🔧 High |
 | **TOTAL/month** | **$26-72** | **$66-167** | **$211-622** |
@@ -329,11 +329,13 @@ sudo ufw status
 1. **Start with Scenario 1** (Minimal) untuk testing, scale up sesuai kebutuhan
 2. **Use free tier databases** - Supabase/Neon free tier cukup untuk development
 3. **Use Hetzner Auction Server** - bisa dapat dedicated server mulai €30/month
-4. **Choose fast models** (gemini-3.1-flash-lite, gpt-5.1-codex-mini) untuk cost efficiency
-5. **Backblaze B2 + Cloudflare** - bandwidth gratis untuk backup
-6. **Annual domain purchase** - lebih murah daripada monthly
-7. **Use enowx-default** - auto-routing ke model paling cost-effective
-8. **Database connection pooling** - reduce database costs dengan PgBouncer
+4. **Choose efficient models** - gpt-3.5-turbo, claude-haiku untuk cost efficiency
+5. **Use OpenRouter** - pay-per-use pricing, no monthly commitment
+6. **Consider Groq** - free tier available for fast inference
+7. **Backblaze B2 + Cloudflare** - bandwidth gratis untuk backup
+8. **Annual domain purchase** - lebih murah daripada monthly
+9. **Database connection pooling** - reduce database costs dengan PgBouncer
+10. **Local LLM (Ollama)** - completely free if you have GPU
 
 ---
 
@@ -357,46 +359,48 @@ sudo ufw status
 
 ## 🤖 LLM Provider Configuration
 
-This project uses **enowX Labs** as the primary LLM provider, offering unified access to 36+ models via OpenAI-compatible API.
+## 🤖 LLM Provider Configuration
 
-### Why enowX Labs?
+This project supports any **OpenAI-compatible API provider**, giving you flexibility to choose based on your needs, budget, and privacy requirements.
 
-- ✅ **Single API** for multiple providers (OpenAI, Anthropic, Google, DeepSeek, etc.)
-- ✅ **94.4% success rate** (34/36 models working)
-- ✅ **No vendor lock-in** - switch models without code changes
-- ✅ **Cost optimization** - choose models by speed/quality/price
-- ✅ **OpenAI-compatible** - works with existing tools (LangChain, n8n, OpenFang)
+### Supported Providers
+
+Any provider with OpenAI-compatible API endpoints works out of the box:
+
+- **OpenAI** - Official GPT models (gpt-4, gpt-3.5-turbo)
+- **Anthropic** - Claude models via compatibility layer
+- **OpenRouter** - Access to 100+ models through single API
+- **Together AI** - Open source models (Llama, Mistral, etc.)
+- **Groq** - Ultra-fast inference for open models
+- **Azure OpenAI** - Enterprise OpenAI deployment
+- **Local (Ollama/LM Studio)** - Self-hosted for complete privacy
+- **Other aggregators** - Any service with `/v1/chat/completions` endpoint
 
 ### Getting Started
 
-1. **Get API Key:** Sign up at [enowX Labs](https://enowx.com)
+1. **Choose Your Provider** and get an API key
 2. **Set Environment Variables:**
    ```bash
-   export ENOWX_API_KEY="sk-enowx-xxxxxxxxxxxxxxxx"
-   export ENOWX_BASE_URL="https://api.enowx.com/v1"
-   export ENOWX_MODEL="gpt-5.2"  # or your preferred model
+   export LLM_API_KEY="your-api-key"
+   export LLM_BASE_URL="https://api.provider.com/v1"  # Provider's base URL
+   export LLM_MODEL="gpt-4"  # Your chosen model
    ```
 
 3. **Test Connection:**
    ```bash
-   curl https://api.enowx.com/v1/models \
-     -H "Authorization: Bearer $ENOWX_API_KEY"
+   curl $LLM_BASE_URL/models \
+     -H "Authorization: Bearer $LLM_API_KEY"
    ```
 
-### Model Selection Guide
+### Provider Comparison
 
-Choose models based on your use case:
-
-| Use Case | Recommended Model | TTFT | TPS | Notes |
-|----------|-------------------|------|-----|-------|
-| **Real-time Chat** | `gemini-3.1-flash-lite` | 1.3s | 94 | Fastest response |
-| **Code Completion** | `gpt-5.1-codex-mini` | 1.6s | 458 | Ultra-fast coding |
-| **Code Generation** | `gpt-5.3-codex` | 2.7s | 600 | Complex code |
-| **Complex Reasoning** | `claude-sonnet-4-thinking` | 2.8s | 22 | Best reasoning |
-| **General Assistant** | `enowx-default` | 3.2s | 478 | Auto-routing |
-| **Bulk Processing** | `gemini-2.5-flash` | 4.3s | 36,030 | Extreme throughput |
-
-> **💡 Tip:** Use `enowx-default` for automatic model selection based on request type, or manually select models for specific use cases.
+| Provider | Pros | Cons | Best For |
+|----------|------|------|----------|
+| **OpenAI** | Best quality, reliable | Most expensive | Production apps |
+| **OpenRouter** | 100+ models, pay-per-use | Slight latency overhead | Experimentation |
+| **Groq** | Extremely fast inference | Limited model selection | Real-time chat |
+| **Together AI** | Good pricing, open models | Variable quality | Cost optimization |
+| **Ollama** | Free, private, offline | Requires GPU, slower | Privacy-first |
 
 ### Configuration Examples
 
@@ -406,9 +410,9 @@ Choose models based on your use case:
 from langchain_openai import ChatOpenAI
 
 model = ChatOpenAI(
-    model="gpt-5.2",
-    base_url="https://api.enowx.com/v1",
-    api_key="your-enowx-api-key",
+    model=os.getenv("LLM_MODEL", "gpt-4"),
+    base_url=os.getenv("LLM_BASE_URL"),
+    api_key=os.getenv("LLM_API_KEY"),
     temperature=0.7,
 )
 ```
@@ -418,12 +422,12 @@ model = ChatOpenAI(
 ```json
 {
   "method": "POST",
-  "url": "https://api.enowx.com/v1/chat/completions",
+  "url": "{{$env.LLM_BASE_URL}}/chat/completions",
   "headers": {
-    "Authorization": "Bearer {{$env.ENOWX_API_KEY}}"
+    "Authorization": "Bearer {{$env.LLM_API_KEY}}"
   },
   "body": {
-    "model": "gpt-5.2",
+    "model": "{{$env.LLM_MODEL}}",
     "messages": [{"role": "user", "content": "Your prompt"}],
     "temperature": 0.7
   }
@@ -434,53 +438,48 @@ model = ChatOpenAI(
 
 ```toml
 [llm]
-provider = "openai"
-model = "gpt-5.2"
-base_url = "https://api.enowx.com/v1"
-api_key = "${ENOWX_API_KEY}"
+provider = "openai"  # Use OpenAI-compatible mode
+model = "${LLM_MODEL}"
+base_url = "${LLM_BASE_URL}"
+api_key = "${LLM_API_KEY}"
 ```
 
-### Performance Benchmark
+### Provider-Specific Setup
 
-Benchmark results (3 runs per model, 200 max tokens):
+#### OpenAI
+```bash
+LLM_API_KEY="sk-..."
+LLM_BASE_URL="https://api.openai.com/v1"
+LLM_MODEL="gpt-4"
+```
 
-#### ⚡ Fastest Response (TTFT)
+#### OpenRouter
+```bash
+LLM_API_KEY="sk-or-v1-..."
+LLM_BASE_URL="https://openrouter.ai/api/v1"
+LLM_MODEL="anthropic/claude-3.5-sonnet"
+```
 
-| Rank | Model | Avg TTFT | Use Case |
-|------|-------|----------|----------|
-| 🥇 | gemini-3.1-flash-lite | 1.31s | Real-time chat |
-| 🥈 | gpt-5.1-codex-mini | 1.56s | Code completion |
-| 🥉 | gpt-5.1-codex | 1.65s | Code assistance |
+#### Groq
+```bash
+LLM_API_KEY="gsk_..."
+LLM_BASE_URL="https://api.groq.com/openai/v1"
+LLM_MODEL="llama-3.1-70b-versatile"
+```
 
-#### 🚀 Highest Throughput (TPS)
+#### Together AI
+```bash
+LLM_API_KEY="..."
+LLM_BASE_URL="https://api.together.xyz/v1"
+LLM_MODEL="meta-llama/Llama-3-70b-chat-hf"
+```
 
-| Rank | Model | Avg TPS | Use Case |
-|------|-------|---------|----------|
-| 🥇 | gemini-2.5-flash | 36,030 | Bulk processing |
-| 🥈 | gemini-2.5-pro | 34,228 | High-volume |
-| 🥉 | minimax-m2.1-thinking | 32,531 | Reasoning at scale |
-
-#### 💻 Best for Coding
-
-| Model | TTFT | TPS | Notes |
-|-------|------|-----|-------|
-| gpt-5.1-codex-mini | 1.56s | 458 | Ultra-fast completion |
-| gpt-5.1-codex | 1.65s | 807 | High quality + speed |
-| gpt-5.3-codex | 2.73s | 600 | Complex generation |
-
-#### 🧠 Best for Reasoning
-
-| Model | TTFT | TPS | Notes |
-|-------|------|-----|-------|
-| claude-sonnet-4-thinking | 2.79s | 22 | Best reasoning quality |
-| claude-haiku-4.5-thinking | 2.94s | 40 | Fast reasoning |
-| claude-sonnet-4.5-thinking | 3.37s | 21 | Advanced reasoning |
-
-**Success Rate:** 34/36 models working (94.4%)
-
-**Failed Models:**
-- `deepseek-v3-2-volc` - HTTP 400 error
-- `gemini-3.1-pro` - Timeout
+#### Ollama (Local)
+```bash
+LLM_API_KEY="ollama"  # Any value works
+LLM_BASE_URL="http://localhost:11434/v1"
+LLM_MODEL="llama3.1:8b"
+```
 
 ---
 
@@ -666,31 +665,47 @@ N8N_PASSWORD=your_secure_password_here
 N8N_HOST=n8n.yourdomain.com
 
 # ============================================
-# LLM Configuration - enowX Labs
+# LLM Configuration - OpenAI-Compatible Provider
 # ============================================
-# enowX Labs provides unified access to 36+ LLM models via OpenAI-compatible API
-# Benchmark: 34/36 models working (94.4% success rate)
-# Get API key from: https://enowx.com
+# This project supports any OpenAI-compatible API provider
+# Choose based on your needs: cost, privacy, performance
 
-# Primary LLM Provider
-ENOWX_API_KEY=sk-enowx-xxxxxxxxxxxxxxxx
-ENOWX_BASE_URL=https://api.enowx.com/v1
-ENOWX_MODEL=gpt-5.2
+# Primary LLM Provider Configuration
+LLM_API_KEY=your-api-key-here
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4
 
-# Model Selection by Use Case:
-# - Real-time chat: gemini-3.1-flash-lite (1.3s TTFT)
-# - Code completion: gpt-5.1-codex-mini (1.6s TTFT, 458 TPS)
-# - Code generation: gpt-5.3-codex (2.7s TTFT, 600 TPS)
-# - Complex reasoning: claude-sonnet-4-thinking (2.8s TTFT)
-# - General purpose: enowx-default (auto-routing) or gpt-5.2
-# - Bulk processing: gemini-2.5-flash (36,030 TPS!)
+# Provider Examples:
+# 
+# OpenAI (Official):
+# LLM_API_KEY=sk-...
+# LLM_BASE_URL=https://api.openai.com/v1
+# LLM_MODEL=gpt-4
+#
+# OpenRouter (100+ models):
+# LLM_API_KEY=sk-or-v1-...
+# LLM_BASE_URL=https://openrouter.ai/api/v1
+# LLM_MODEL=anthropic/claude-3.5-sonnet
+#
+# Groq (Ultra-fast):
+# LLM_API_KEY=gsk_...
+# LLM_BASE_URL=https://api.groq.com/openai/v1
+# LLM_MODEL=llama-3.1-70b-versatile
+#
+# Together AI (Open models):
+# LLM_API_KEY=...
+# LLM_BASE_URL=https://api.together.xyz/v1
+# LLM_MODEL=meta-llama/Llama-3-70b-chat-hf
+#
+# Ollama (Local/Self-hosted):
+# LLM_API_KEY=ollama
+# LLM_BASE_URL=http://localhost:11434/v1
+# LLM_MODEL=llama3.1:8b
 
-# Legacy/Compatibility (for tools that expect these)
+# Legacy/Compatibility (for tools that expect these variable names)
 LLM_PROVIDER=openai
-LLM_API_KEY=${ENOWX_API_KEY}
-LLM_MODEL=${ENOWX_MODEL}
-OPENAI_API_KEY=${ENOWX_API_KEY}
-OPENAI_API_BASE=${ENOWX_BASE_URL}
+OPENAI_API_KEY=${LLM_API_KEY}
+OPENAI_API_BASE=${LLM_BASE_URL}
 
 # ============================================
 # OpenFang
@@ -850,18 +865,18 @@ Kamu memberikan reminder tanpa diminta jika ada deadline mendekat.
 """
 
 [llm]
-provider = "openai"  # Use OpenAI-compatible mode for enowX Labs
-model = "${ENOWX_MODEL}"
-base_url = "${ENOWX_BASE_URL}"
-api_key = "${ENOWX_API_KEY}"
+provider = "openai"  # Use OpenAI-compatible mode
+model = "${LLM_MODEL}"
+base_url = "${LLM_BASE_URL}"
+api_key = "${LLM_API_KEY}"
 temperature = 0.7
 max_tokens = 2048
 
 [llm.fallback]
 provider = "openai"
-model = "gpt-5.1-codex-mini"  # Fast fallback for coding tasks
-api_key = "${ENOWX_API_KEY}"
-base_url = "${ENOWX_BASE_URL}"
+model = "gpt-3.5-turbo"  # Fast fallback model
+api_key = "${LLM_API_KEY}"
+base_url = "${LLM_BASE_URL}"
 
 [memory]
 type = "qdrant"
@@ -1011,9 +1026,9 @@ def search_files(query: str) -> str:
 
 # Initialize LLM
 llm = ChatOpenAI(
-    model=os.getenv("ENOWX_MODEL", "gpt-5.2"),
-    base_url=os.getenv("ENOWX_BASE_URL"),
-    api_key=os.getenv("ENOWX_API_KEY"),
+    model=os.getenv("LLM_MODEL", "gpt-4"),
+    base_url=os.getenv("LLM_BASE_URL"),
+    api_key=os.getenv("LLM_API_KEY"),
     temperature=0.7,
 )
 
@@ -1816,10 +1831,10 @@ MIT License - Gunakan dan modifikasi sesuka hati.
 - n8n (https://n8n.io) - Workflow Automation
 - OpenFang (https://openfang.sh) - Agent OS
 - Qdrant (https://qdrant.tech) - Vector Database
-- enowX Labs (https://enowx.com) - LLM Provider
 - Cal.com (https://cal.com) - Scheduling
 - Cloudflare R2 (https://www.cloudflare.com/products/r2/) - S3-Compatible Object Storage
 - Obsidian (https://obsidian.md) - Knowledge Management
+- OpenAI, Anthropic, and other LLM providers - AI Models
 
 ---
 

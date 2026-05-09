@@ -500,19 +500,25 @@ fi
 
 ## 📋 Table of Contents
 
+- [Architecture](#-architecture)
 - [How It Works](#-how-it-works)
 - [AI Agent Engine: OpenFang vs LangGraph](#-ai-agent-engine-openfang-vs-langgraph)
-- [Prerequisites](#prerequisites)
+- [LLM Provider Configuration](#-llm-provider-configuration)
+- [Prerequisites](#-prerequisites)
 - [Monthly Cost Estimate](#-monthly-cost-estimate)
-- [Quick Start](#quick-start)
-- [Docker Compose](#docker-compose)
-- [Environment Variables](#environment-variables)
-- [Component Setup](#component-setup)
-- [Reverse Proxy](#reverse-proxy)
-- [Security](#security)
-- [Backup Strategy](#backup-strategy)
-- [Health Monitoring](#health-monitoring)
-- [Roadmap](#roadmap)
+- [Quick Start](#-quick-start)
+- [Docker Compose](#-docker-compose)
+- [Environment Variables](#-environment-variables)
+- [Component Setup](#-component-setup)
+- [Reverse Proxy](#-reverse-proxy)
+- [Security](#-security)
+- [Backup Strategy](#-backup-strategy)
+- [Health Monitoring](#-health-monitoring)
+- [Troubleshooting](#-troubleshooting)
+- [Post-Installation](#-post-installation)
+- [Roadmap](#-roadmap)
+- [License](#-license)
+- [Credits](#-credits)
 
 ## 🔧 Prerequisites
 
@@ -2082,13 +2088,13 @@ tags: [daily-note]
 
 ## Notes
 - 
+
+## Ideas
+- 
+
+## Tomorrow
+- 
 ```
-
-    ## Ideas
-    - 
-
-    ## Tomorrow
-    - 
 
 #### Script Sync Obsidian ke Qdrant (scripts/sync_obsidian.py):
 

@@ -1231,9 +1231,9 @@ services:
       - "8090:8090"
     environment:
       - OPENFANG_CONFIG=/etc/openfang/secretary.toml
-      - LM_PROVIDER=${LLM_PROVIDER}
-      - LM_API_KEY=${LLM_API_KEY}
-      - LM_MODEL=${LLM_MODEL}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
     volumes:
       - ./openfang/secretary.toml:/etc/openfang/secretary.toml
       - openfang_data:/var/lib/openfang

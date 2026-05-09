@@ -140,8 +140,8 @@ sudo usermod -aG docker $USER
 - **8090** - OpenFang
 - **6333, 6334** - Qdrant
 - **3000** - Cal.com
-- **5432** - PostgreSQL
 
+> **Note:** PostgreSQL menggunakan external provider (Supabase/Neon/Railway), tidak ada container lokal.
 > **Note:** File storage menggunakan Cloudflare R2 (external service), tidak ada port internal.
 
 #### Firewall Setup
@@ -170,6 +170,10 @@ sudo ufw status
 - **Domain + SSL:** $1-2/month
   - Domain (.com): ~$12/year = $1/month
   - SSL: Free (Let's Encrypt via Caddy)
+- **PostgreSQL Database:** $0-10/month
+  - Supabase: Free tier (500MB, 2GB bandwidth)
+  - Neon: Free tier (0.5GB storage, 3GB data transfer)
+  - Railway: $5/month (shared CPU, 512MB RAM)
 - **Backup Storage (Optional):** $5-10/month
   - Backblaze B2: $0.005/GB = ~$5 for 1TB
   - Wasabi: $6.99/TB/month
@@ -179,7 +183,7 @@ sudo ufw status
   - Using fast models (gemini-3.1-flash-lite, gpt-5.1-codex-mini)
   - ~1000-3000 requests/month
 
-**Total: $26-62/month** (minimal setup, cost-optimized)
+**Total: $26-72/month** (minimal setup, cost-optimized)
 
 ---
 
@@ -191,6 +195,10 @@ sudo ufw status
   - Contabo VPS L (10 cores, 60GB RAM): ~€27/month (~$29)
   - OVH Advance-2 (8 cores, 32GB RAM): ~$40/month
 - **Domain + SSL:** $1-2/month
+- **PostgreSQL Database:** $10-25/month
+  - Supabase Pro: $25/month (8GB storage, 50GB bandwidth)
+  - Neon Scale: $19/month (10GB storage, autoscaling)
+  - Railway Pro: $20/month (8GB RAM, shared CPU)
 - **Backup Storage:** $5-10/month
 
 **LLM Costs (enowX Labs):**
@@ -199,7 +207,7 @@ sudo ufw status
   - ~5000-10000 requests/month
   - Using enowx-default for auto-routing
 
-**Total: $56-142/month** (production-ready, balanced)
+**Total: $66-167/month** (production-ready, balanced)
 
 ---
 
@@ -210,6 +218,10 @@ sudo ufw status
   - Hetzner AX102 (Ryzen 9 5950X, 128GB RAM): ~€99/month (~$107)
   - OVH Scale-3 (16 cores, 64GB RAM): ~$80/month
 - **Domain + SSL:** $1-2/month
+- **PostgreSQL Database:** $50-200/month
+  - Supabase Team: $599/month (unlimited storage, dedicated resources)
+  - Neon Business: Custom pricing (dedicated compute)
+  - AWS RDS: $50-200/month (db.t3.medium to db.m5.large)
 - **Backup Storage:** $10-20/month
 
 **LLM Costs (enowX Labs):**
@@ -218,7 +230,7 @@ sudo ufw status
   - ~20000-50000 requests/month
   - Bulk processing with gemini-2.5-flash
 
-**Total: $161-422/month** (enterprise-grade, high-volume)
+**Total: $211-622/month** (enterprise-grade, high-volume)
 
 ---
 
@@ -228,11 +240,12 @@ sudo ufw status
 |-----------|--------------------------|-----------------------------|-----------------------------|
 | **Server/VPS** | $10-20 | $20-50 | $50-100 |
 | **Domain + SSL** | $1-2 | $1-2 | $1-2 |
+| **PostgreSQL Database** | $0-10 | $10-25 | $50-200 |
 | **Backup Storage** | $5-10 | $5-10 | $10-20 |
 | **LLM API (enowX Labs)** | $10-30 | $30-80 | $100-300 |
 | **Usage Level** | Light | Moderate | Heavy |
 | **Setup Complexity** | 🔧 Low | 🔧🔧 Medium | 🔧🔧🔧 High |
-| **TOTAL/month** | **$26-62** | **$56-142** | **$161-422** |
+| **TOTAL/month** | **$26-72** | **$66-167** | **$211-622** |
 
 ---
 
@@ -251,14 +264,76 @@ sudo ufw status
 
 ---
 
+### PostgreSQL Provider Recommendations
+
+#### Free Tier Options (Development/Testing)
+- **Supabase:** 500MB storage, 2GB bandwidth/month
+  - ✅ Generous free tier
+  - ✅ Built-in auth, storage, realtime
+  - ✅ Automatic backups
+  - 🔗 [supabase.com](https://supabase.com)
+
+- **Neon:** 0.5GB storage, 3GB data transfer/month
+  - ✅ Serverless PostgreSQL
+  - ✅ Instant branching
+  - ✅ Auto-scaling
+  - 🔗 [neon.tech](https://neon.tech)
+
+- **Railway:** $5 free credit/month
+  - ✅ Simple deployment
+  - ✅ Built-in monitoring
+  - ✅ Easy scaling
+  - 🔗 [railway.app](https://railway.app)
+
+#### Production Options
+- **Supabase Pro:** $25/month
+  - 8GB storage, 50GB bandwidth
+  - Daily backups, point-in-time recovery
+  - Dedicated resources
+
+- **Neon Scale:** $19/month
+  - 10GB storage, autoscaling compute
+  - Branch protection
+  - Read replicas
+
+- **Render:** $7-25/month
+  - Managed PostgreSQL
+  - Automatic backups
+  - Easy scaling
+
+- **DigitalOcean Managed Database:** $15/month
+  - 1GB RAM, 10GB storage
+  - Automated backups
+  - High availability options
+
+#### Enterprise Options
+- **AWS RDS:** $50-500+/month
+  - Full control, multiple instance types
+  - Multi-AZ deployment
+  - Advanced monitoring
+
+- **Google Cloud SQL:** $50-500+/month
+  - Automatic replication
+  - High availability
+  - Integration with GCP services
+
+- **Azure Database for PostgreSQL:** $50-500+/month
+  - Enterprise-grade security
+  - Built-in intelligence
+  - Flexible scaling
+
+---
+
 ### Cost Optimization Tips
 
 1. **Start with Scenario 1** (Minimal) untuk testing, scale up sesuai kebutuhan
-2. **Use Hetzner Auction Server** - bisa dapat dedicated server mulai €30/month
-3. **Choose fast models** (gemini-3.1-flash-lite, gpt-5.1-codex-mini) untuk cost efficiency
-4. **Backblaze B2 + Cloudflare** - bandwidth gratis untuk backup
-5. **Annual domain purchase** - lebih murah daripada monthly
-6. **Use enowx-default** - auto-routing ke model paling cost-effective
+2. **Use free tier databases** - Supabase/Neon free tier cukup untuk development
+3. **Use Hetzner Auction Server** - bisa dapat dedicated server mulai €30/month
+4. **Choose fast models** (gemini-3.1-flash-lite, gpt-5.1-codex-mini) untuk cost efficiency
+5. **Backblaze B2 + Cloudflare** - bandwidth gratis untuk backup
+6. **Annual domain purchase** - lebih murah daripada monthly
+7. **Use enowx-default** - auto-routing ke model paling cost-effective
+8. **Database connection pooling** - reduce database costs dengan PgBouncer
 
 ---
 
@@ -268,12 +343,13 @@ sudo ufw status
 - ChatGPT Plus: $20/month (limited features)
 - Claude Pro: $20/month (limited features)
 - Notion AI: $10/month (limited to Notion)
-- **This Stack (Scenario 1):** $26-62/month
+- **This Stack (Scenario 1):** $26-72/month
   - ✅ Unlimited usage
   - ✅ 36+ models to choose from
   - ✅ Complete customization
   - ✅ Integration with your entire workflow
   - ✅ Self-hosted infrastructure
+  - ✅ No vendor lock-in
 
 **Break-even:** If you use >1 AI service, self-hosting provides more value and flexibility.
 
@@ -511,12 +587,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/calcom
+      - DATABASE_URL=${DATABASE_URL}
       - NEXTAUTH_SECRET=${CALCOM_SECRET}
       - CALENDSO_ENCRYPTION_KEY=${CALCOM_ENCRYPTION_KEY}
       - NEXT_PUBLIC_WEBAPP_URL=https://${CALCOM_HOST}
-    depends_on:
-      - postgres
     networks:
       - secretary-net
 
@@ -545,22 +619,6 @@ services:
       - secretary-net
 
   # ============================================
-  # DATABASE - PostgreSQL
-  # ============================================
-  postgres:
-    image: postgres:15
-    container_name: postgres
-    restart: always
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=calcom
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - secretary-net
-
-  # ============================================
   # REVERSE PROXY - Caddy
   # ============================================
   caddy:
@@ -581,7 +639,6 @@ volumes:
   n8n_data:
   openfang_data:
   qdrant_data:
-  postgres_data:
   caddy_data:
   caddy_config:
 
@@ -653,24 +710,17 @@ CALCOM_SECRET=your_calcom_secret
 CALCOM_ENCRYPTION_KEY=your_encryption_key
 
 # ============================================
-# Cloudflare R2 (S3-Compatible Object Storage)
+# Database - External PostgreSQL Provider
 # ============================================
-# Get credentials from: https://dash.cloudflare.com → R2 → Manage R2 API Tokens
-R2_ACCOUNT_ID=your_cloudflare_account_id
-R2_ACCESS_KEY_ID=your_r2_access_key_id
-R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
-R2_BUCKET=secretary-files
-R2_ENDPOINT=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
-R2_PUBLIC_URL=https://files.yourdomain.com  # Optional: custom domain
+# Use external PostgreSQL provider (Supabase, Neon, Railway, etc.)
+# Format: postgresql://username:password@host:port/database?sslmode=require
+DATABASE_URL=postgresql://user:password@db.provider.com:5432/calcom?sslmode=require
 
-# Free tier: 10GB storage, unlimited egress
-# Pricing after free tier: $0.015/GB/month storage
-
-# ============================================
-# Database (PostgreSQL for Cal.com)
-# ============================================
-POSTGRES_USER=calcom
-POSTGRES_PASSWORD=your_postgres_password
+# Example providers:
+# - Supabase: postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+# - Neon: postgresql://[USER]:[PASSWORD]@[HOST]/[DATABASE]?sslmode=require
+# - Railway: postgresql://postgres:[PASSWORD]@[HOST]:[PORT]/railway
+# - Render: postgresql://[USER]:[PASSWORD]@[HOST]/[DATABASE]
 
 # ============================================
 # Telegram
@@ -1635,8 +1685,12 @@ docker run --rm -v qdrant_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
 
 # 3. Cloudflare R2 (external backup via rclone)
 
-# 4. Database (PostgreSQL)
-docker exec postgres pg_dump -U calcom calcom > $BACKUP_DIR/$DATE/postgres-calcom.sql
+# 4. Database (External PostgreSQL - use provider's backup tools)
+# For Supabase: Automatic daily backups included
+# For Neon: Point-in-time restore available
+# For Railway/Render: Use their backup features
+# Manual backup (if needed):
+# pg_dump $DATABASE_URL > $BACKUP_DIR/$DATE/postgres-calcom.sql
 
 # 5. Obsidian vault
 tar czf $BACKUP_DIR/$DATE/obsidian-vault.tar.gz /path/to/SecretaryVault

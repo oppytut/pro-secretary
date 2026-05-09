@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-08 19:30  
+**Last Updated:** 2026-05-09 01:30  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -30,15 +30,10 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **Setup Docker Compose infrastructure**
-  - Create `docker-compose.yml` with all services
-  - Configure networking between containers
-  - Setup volumes for data persistence
-
-- [ ] **Environment Configuration**
-  - Create `.env.example` template
-  - Document all required environment variables
-  - Add security best practices
+- [ ] **Testing & Deployment**
+  - Test all services with external PostgreSQL
+  - Verify Cal.com database migrations
+  - End-to-end integration testing
 
 - [ ] **Component Integration**
   - n8n workflow setup
@@ -203,17 +198,47 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
     - S3-compatible API (drop-in replacement)
     - Reduced infrastructure complexity
   - **Result:** 100% cloud-native storage, 0 self-hosted file storage
+- ✅ [2026-05-09 01:30] Migrated to External PostgreSQL Provider
+  - **Motivation:** User requirement to use external PostgreSQL provider (Supabase/Neon/Railway) instead of self-hosted container
+  - **Changes Made:**
+    - Removed postgres container from docker-compose.yml (saved 1 container)
+    - Removed postgres_data volume definition
+    - Updated calcom service: removed depends_on postgres, changed DATABASE_URL to use ${DATABASE_URL} env var
+    - Created .env.example with DATABASE_URL format and provider examples (Supabase, Neon, Railway, Render)
+    - Updated README.md cost estimates: added PostgreSQL Database row ($0-10 minimal, $10-25 production, $50-200 enterprise)
+    - Added comprehensive PostgreSQL Provider Recommendations section with 3 tiers (Free/Production/Enterprise)
+    - Updated internal ports documentation: removed port 5432, added note about external provider
+    - Updated backup script: replaced pg_dump with provider-specific backup notes
+    - Updated cost comparison table with new totals: $26-72 (minimal), $66-167 (production), $211-622 (enterprise)
+    - Added cost optimization tip: use free tier databases for development
+  - **Provider Options Documented:**
+    - Free tier: Supabase (500MB), Neon (0.5GB), Railway ($5 credit)
+    - Production: Supabase Pro ($25), Neon Scale ($19), Render ($7-25), DigitalOcean ($15)
+    - Enterprise: AWS RDS, Google Cloud SQL, Azure Database ($50-500+)
+  - **Files Modified:**
+    - README.md: docker-compose section, environment variables, cost breakdown, provider recommendations, backup script
+    - .env.example: created with DATABASE_URL and provider examples
+    - TASK.md: updated active tasks and next steps
+  - **Benefits:**
+    - No database container to manage (1 less service)
+    - Automatic backups handled by provider
+    - Better scalability and high availability options
+    - Free tier available for development/testing
+    - Reduced infrastructure complexity
+  - **Result:** 100% external database, 0 self-hosted PostgreSQL
 
 ---
 
 ## 📋 NEXT STEPS (Priority Order)
 
 1. **Immediate (This Session)**
-   - Create `.env.example` with all required variables
-   - Build complete `docker-compose.yml`
+   - ✅ Create `.env.example` with all required variables (including DATABASE_URL)
+   - ✅ Build complete `docker-compose.yml` (using external PostgreSQL)
    - Create directory structure (`/n8n`, `/openfang`, `/scripts`)
 
 2. **Short-term (Next 1-2 Sessions)**
+   - Setup external PostgreSQL database (Supabase/Neon/Railway)
+   - Run Cal.com database migrations
    - Telegram bot setup script (`scripts/setup_telegram_bot.py`)
    - n8n workflow templates
    - OpenFang configuration file (`openfang/secretary.toml`)
@@ -222,7 +247,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 3. **Medium-term (Next Week)**
    - Reverse proxy setup (Caddy/Traefik)
    - SSL certificate automation
-   - Backup strategy implementation
+   - Backup strategy implementation (excluding PostgreSQL - handled by provider)
    - Monitoring dashboard
 
 4. **Long-term (Roadmap)**

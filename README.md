@@ -315,6 +315,150 @@ AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelo
 
 ---
 
+### Example 5: Calendar Booking with PostgreSQL (`/jadwal`)
+
+**User Input:** `/jadwal buat meeting dengan tim engineering besok jam 2 siang`
+
+**Flow:**
+
+```
+1. TELEGRAM BOT parses command
+   └─ Intent: create_calendar_event
+   └─ Extracted data:
+       - Title: "Meeting dengan tim engineering"
+       - Date: tomorrow
+       - Time: 14:00
+
+2. N8N WORKFLOW processes request
+   ├─ Validate date/time
+   ├─ Check for conflicts
+   └─ Forward to Cal.com API
+
+3. CAL.COM API CALL
+   └─ POST http://calcom:3000/api/bookings
+       Headers: {
+         "Authorization": "Bearer ${CALCOM_API_KEY}"
+       }
+       Body: {
+         "eventTypeId": 123,
+         "start": "2026-05-10T14:00:00Z",
+         "end": "2026-05-10T15:00:00Z",
+         "responses": {
+           "name": "Meeting dengan tim engineering",
+           "email": "user@example.com"
+         }
+       }
+
+4. CAL.COM → POSTGRESQL (Database Operations)
+   ├─ BEGIN TRANSACTION
+   │
+   ├─ INSERT INTO bookings
+   │   └─ SQL: INSERT INTO "Booking" (
+   │              "uid", "userId", "eventTypeId",
+   │              "title", "startTime", "endTime",
+   │              "status", "createdAt"
+   │            ) VALUES (
+   │              'booking_abc123', 1, 123,
+   │              'Meeting dengan tim engineering',
+   │              '2026-05-10 14:00:00', '2026-05-10 15:00:00',
+   │              'ACCEPTED', NOW()
+   │            )
+   │
+   ├─ UPDATE user availability
+   │   └─ SQL: UPDATE "Availability" 
+   │            SET "isBooked" = true
+   │            WHERE "userId" = 1
+   │            AND "startTime" = '2026-05-10 14:00:00'
+   │
+   ├─ INSERT INTO event_logs
+   │   └─ SQL: INSERT INTO "EventLog" (
+   │              "bookingId", "action", "timestamp"
+   │            ) VALUES (
+   │              'booking_abc123', 'CREATED', NOW()
+   │            )
+   │
+   └─ COMMIT TRANSACTION
+
+5. POSTGRESQL → CAL.COM (Response)
+   └─ Returns: {
+       "id": "booking_abc123",
+       "uid": "booking_abc123",
+       "title": "Meeting dengan tim engineering",
+       "startTime": "2026-05-10T14:00:00Z",
+       "endTime": "2026-05-10T15:00:00Z",
+       "status": "ACCEPTED"
+     }
+
+6. CAL.COM → SMTP (Send Email Notification)
+   └─ POST to SendGrid/Mailgun
+       Subject: "Meeting Confirmed: Meeting dengan tim engineering"
+       Body: "Your meeting is scheduled for May 10, 2026 at 2:00 PM"
+
+7. N8N → QDRANT (Store in Memory)
+   └─ POST http://qdrant:6333/collections/agent_memory/points
+       {
+         "points": [{
+           "id": "memory_xyz789",
+           "vector": [0.123, 0.456, ...],
+           "payload": {
+             "type": "calendar_event",
+             "booking_id": "booking_abc123",
+             "title": "Meeting dengan tim engineering",
+             "datetime": "2026-05-10T14:00:00Z",
+             "created_via": "telegram"
+           }
+         }]
+       }
+
+8. TELEGRAM BOT sends confirmation
+   └─ Message: "✅ Meeting berhasil dijadwalkan!
+                
+                📅 Meeting dengan tim engineering
+                🕐 Besok, 10 Mei 2026 jam 14:00
+                📧 Email konfirmasi telah dikirim
+                
+                Booking ID: booking_abc123"
+```
+
+**PostgreSQL Tables Involved:**
+
+```sql
+-- Cal.com uses these tables
+Booking          -- Stores meeting details
+Availability     -- Tracks user availability slots
+EventType        -- Meeting types configuration
+User             -- User information
+EventLog         -- Audit trail
+Attendee         -- Meeting participants
+```
+
+**Database Query Example:**
+
+```sql
+-- Check for scheduling conflicts
+SELECT * FROM "Booking"
+WHERE "userId" = 1
+  AND "status" = 'ACCEPTED'
+  AND (
+    ("startTime" <= '2026-05-10 14:00:00' AND "endTime" > '2026-05-10 14:00:00')
+    OR
+    ("startTime" < '2026-05-10 15:00:00' AND "endTime" >= '2026-05-10 15:00:00')
+  );
+
+-- If no conflicts, proceed with booking
+```
+
+**Result:** Complete calendar booking flow with PostgreSQL transaction, email notification, and memory storage.
+
+**Key Points:**
+- ✅ **ACID Transactions** - PostgreSQL ensures data consistency
+- ✅ **Conflict Detection** - Prevents double-booking
+- ✅ **Audit Trail** - EventLog tracks all changes
+- ✅ **External Database** - Managed by Supabase/Neon/Railway
+- ✅ **Automatic Backups** - Handled by database provider
+
+---
+
 ## 🔄 Key Features & Workflows
 
 ### 1. **Context-Aware Conversations**

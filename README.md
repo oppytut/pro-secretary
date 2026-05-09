@@ -969,173 +969,109 @@ Response to User
 ✅ **Easy Testing** - Test each node independently
 ✅ **Visual Workflow** - Graph structure is easy to understand and debug
 
+#### Prerequisites
+
+Before implementing LangGraph agent, ensure you have:
+
+**System Requirements:**
+- Python 3.9 or higher
+- pip package manager
+- Virtual environment (recommended)
+
+**Installation:**
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or
+venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install langchain==0.1.0 \
+            langgraph==0.0.20 \
+            qdrant-client==1.7.0 \
+            langchain-openai==0.0.5 \
+            langchain-community==0.0.10 \
+            requests==2.31.0 \
+            boto3==1.34.0 \
+            sentence-transformers==2.2.2
+
+# Verify installation
+python -c "import langgraph; print(f'LangGraph version: {langgraph.__version__}')"
+python -c "import langchain; print(f'LangChain version: {langchain.__version__}')"
+```
+
+**Docker Setup (Alternative):**
+
+```dockerfile
+# langgraph/Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY agent.py .
+
+CMD ["python", "agent.py"]
+```
+
+```txt
+# langgraph/requirements.txt
+langchain==0.1.0
+langgraph==0.0.20
+qdrant-client==1.7.0
+langchain-openai==0.0.5
+langchain-community==0.0.10
+requests==2.31.0
+boto3==1.34.0
+sentence-transformers==2.2.2
+```
+
 #### Implementation Example
 
+> **📖 Full Implementation:** For complete LangGraph agent code with all tools and workflow nodes, see [Component Setup → LangGraph Agent](#alternatif-langgraph-agent-langgraphagentpy) section below.
+
+**Quick Overview - Workflow Structure:**
+
 ```python
-# langgraph/agent.py
-
 from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI
-from langchain_community.vectorstores import Qdrant
-from langchain.agents import tool
-from qdrant_client import QdrantClient
-import requests
-from datetime import datetime
-import os
 
-# Define state
+# 1. Define state
 class SecretaryState:
     messages: list
     context: str
     current_task: str
     tools_output: dict
 
-# Define tools (manual implementation)
-@tool
-def search_knowledge(query: str) -> str:
-    """Cari informasi dari knowledge base pribadi."""
-    client = QdrantClient(url="http://qdrant:6333")
-    results = client.search(
-        collection_name="knowledge",
-        query_vector=get_embedding(query),
-        limit=5
-    )
-    return "\n".join([r.payload["content"] for r in results])
-
-@tool
-def get_today_schedule() -> str:
-    """Ambil jadwal hari ini dari Cal.com API."""
-    response = requests.get(
-        "http://calcom:3000/api/bookings",
-        headers={"Authorization": f"Bearer {os.getenv('CALCOM_API_KEY')}"},
-        params={"startTime": datetime.now().isoformat()}
-    )
-    bookings = response.json()
-    return format_schedule(bookings)
-
-@tool
-def create_task(title: str, due_date: str, priority: str) -> str:
-    """Buat task baru di Qdrant."""
-    client = QdrantClient(url="http://qdrant:6333")
-    client.upsert(
-        collection_name="tasks",
-        points=[{
-            "id": generate_uuid(),
-            "vector": get_embedding(title),
-            "payload": {
-                "title": title,
-                "due_date": due_date,
-                "priority": priority,
-                "status": "pending",
-                "created_at": datetime.now().isoformat()
-            }
-        }]
-    )
-    return f"Task '{title}' berhasil dibuat"
-
-@tool
-def search_files(query: str) -> str:
-    """Cari file di Cloudflare R2 storage."""
-    import boto3
-    s3 = boto3.client(
-        's3',
-        endpoint_url=os.getenv('R2_ENDPOINT'),
-        aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
-        region_name='auto'
-    )
-    response = s3.list_objects_v2(
-        Bucket=os.getenv('R2_BUCKET', 'secretary-files'),
-        Prefix=query
-    )
-    files = [obj['Key'] for obj in response.get('Contents', [])]
-    return "\n".join(files) if files else "No files found"
-
-# Define workflow nodes
-def understand_intent(state: SecretaryState):
-    """Understand user intent from message."""
-    llm = ChatOpenAI(
-        model=os.getenv("LLM_MODEL", "gpt-4"),
-        base_url=os.getenv("LLM_BASE_URL"),
-        api_key=os.getenv("LLM_API_KEY")
-    )
-    # Extract intent and entities
-    intent = llm.invoke(f"Extract intent from: {state.messages[-1]}")
-    state.current_task = intent
-    return state
-
-def retrieve_context(state: SecretaryState):
-    """Retrieve relevant context from Qdrant."""
-    client = QdrantClient(url="http://qdrant:6333")
-    results = client.search(
-        collection_name="agent_memory",
-        query_vector=get_embedding(state.messages[-1]),
-        limit=5
-    )
-    state.context = "\n".join([r.payload["content"] for r in results])
-    return state
-
-def execute_tools(state: SecretaryState):
-    """Execute appropriate tools based on intent."""
-    tools_map = {
-        "check_schedule": get_today_schedule,
-        "search_knowledge": search_knowledge,
-        "create_task": create_task,
-        "search_files": search_files
-    }
-    
-    tool = tools_map.get(state.current_task)
-    if tool:
-        state.tools_output = tool.invoke(state.messages[-1])
-    return state
-
-def generate_response(state: SecretaryState):
-    """Generate natural language response."""
-    llm = ChatOpenAI(
-        model=os.getenv("LLM_MODEL", "gpt-4"),
-        base_url=os.getenv("LLM_BASE_URL"),
-        api_key=os.getenv("LLM_API_KEY")
-    )
-    
-    prompt = f"""
-    Context: {state.context}
-    Tools Output: {state.tools_output}
-    User Message: {state.messages[-1]}
-    
-    Generate a helpful response in Bahasa Indonesia.
-    """
-    
-    response = llm.invoke(prompt)
-    state.messages.append(response)
-    return state
-
-# Build workflow graph
+# 2. Build workflow graph
 workflow = StateGraph(SecretaryState)
-
-# Add nodes
 workflow.add_node("understand", understand_intent)
 workflow.add_node("retrieve_context", retrieve_context)
 workflow.add_node("execute_tools", execute_tools)
 workflow.add_node("generate_response", generate_response)
 
-# Define edges (flow)
+# 3. Define flow
 workflow.set_entry_point("understand")
 workflow.add_edge("understand", "retrieve_context")
 workflow.add_edge("retrieve_context", "execute_tools")
 workflow.add_edge("execute_tools", "generate_response")
 workflow.add_edge("generate_response", END)
 
-# Compile
+# 4. Compile and use
 app = workflow.compile()
-
-# Use
-result = app.invoke({
-    "messages": ["Apa jadwal saya hari ini?"],
-    "context": "",
-    "current_task": "",
-    "tools_output": {}
-})
+result = app.invoke({"messages": ["Apa jadwal saya hari ini?"]})
 ```
+
+**Key Components:**
+- **State Management:** SecretaryState tracks conversation flow
+- **Tools:** search_knowledge, get_today_schedule, create_task, search_files
+- **Workflow Nodes:** understand → retrieve_context → execute_tools → generate_response
+- **Graph-Based:** Each node is independently testable
+
+See full implementation with error handling, tool definitions, and deployment instructions in Component Setup section.
 
 #### Workflow
 
@@ -1342,7 +1278,7 @@ if (intent === "standard_query") {
 
 ---
 
-## 🤖 LLM Provider Configuration
+## 🧠 LLM Provider Configuration
 
 This project supports any **OpenAI-compatible API provider**, giving you flexibility to choose based on your needs, budget, and privacy requirements.
 
@@ -2723,6 +2659,153 @@ curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
 0 2 * * * /opt/ai-secretary/scripts/backup.sh >> /var/log/backup.log 2>&1
 ```
 
+### Testing Backup & Recovery
+
+#### Verify Backup Integrity
+
+```bash
+# Check backup file exists and is not corrupted
+BACKUP_FILE="$BACKUP_DIR/2026-05-09.tar.gz.gpg"
+
+# Test decryption
+gpg --decrypt $BACKUP_FILE > /dev/null 2>&1 && echo "✅ Backup decryption OK" || echo "❌ Backup corrupted"
+
+# List contents without extracting
+gpg --decrypt $BACKUP_FILE | tar -tzf - | head -20
+
+# Check backup size (should be > 100MB for full backup)
+du -h $BACKUP_FILE
+```
+
+#### Restore from Backup
+
+**⚠️ WARNING:** This will overwrite current data. Test in staging environment first.
+
+```bash
+# 1. Stop all services
+docker compose down
+
+# 2. Decrypt and extract backup
+RESTORE_DIR="/tmp/restore-$(date +%Y%m%d)"
+mkdir -p $RESTORE_DIR
+
+gpg --decrypt $BACKUP_FILE | tar -xzf - -C $RESTORE_DIR
+
+# 3. Restore n8n data
+docker volume create n8n_data
+docker run --rm \
+  -v n8n_data:/data \
+  -v $RESTORE_DIR/n8n:/backup \
+  alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
+
+# 4. Restore Qdrant data
+docker volume create qdrant_data
+docker run --rm \
+  -v qdrant_data:/data \
+  -v $RESTORE_DIR/qdrant:/backup \
+  alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
+
+# 5. Restore OpenFang data
+docker volume create openfang_data
+docker run --rm \
+  -v openfang_data:/data \
+  -v $RESTORE_DIR/openfang:/backup \
+  alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
+
+# 6. Restore database (if using self-hosted PostgreSQL)
+# Skip if using external provider (Supabase/Neon)
+psql $DATABASE_URL < $RESTORE_DIR/postgres-calcom.sql
+
+# 7. Restore Obsidian vault
+tar -xzf $RESTORE_DIR/obsidian-vault.tar.gz -C /path/to/SecretaryVault
+
+# 8. Restore configuration files
+cp $RESTORE_DIR/configs/.env .env
+cp $RESTORE_DIR/configs/docker-compose.yml docker-compose.yml
+
+# 9. Start services
+docker compose up -d
+
+# 10. Verify restoration
+docker compose ps
+bash scripts/health_check.sh
+
+# 11. Test functionality
+# Send test message to Telegram bot
+# Verify n8n workflows are present
+# Check Qdrant collections exist
+```
+
+#### Automated Restore Script
+
+```bash
+# scripts/restore.sh
+#!/bin/bash
+set -e
+
+BACKUP_FILE=$1
+RESTORE_DIR="/tmp/restore-$(date +%Y%m%d)"
+
+if [ -z "$BACKUP_FILE" ]; then
+    echo "Usage: $0 <backup-file.tar.gz.gpg>"
+    exit 1
+fi
+
+echo "🔄 Starting restore from: $BACKUP_FILE"
+
+# Stop services
+echo "⏸️  Stopping services..."
+docker compose down
+
+# Extract backup
+echo "📦 Extracting backup..."
+mkdir -p $RESTORE_DIR
+gpg --decrypt $BACKUP_FILE | tar -xzf - -C $RESTORE_DIR
+
+# Restore volumes
+echo "💾 Restoring volumes..."
+for volume in n8n_data qdrant_data openfang_data; do
+    echo "  - Restoring $volume..."
+    docker volume create $volume
+    docker run --rm \
+      -v $volume:/data \
+      -v $RESTORE_DIR/${volume%_data}:/backup \
+      alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
+done
+
+# Start services
+echo "🚀 Starting services..."
+docker compose up -d
+
+# Wait for services to be ready
+echo "⏳ Waiting for services..."
+sleep 30
+
+# Verify
+echo "✅ Verifying restoration..."
+docker compose ps
+bash scripts/health_check.sh
+
+echo "✅ Restore completed successfully!"
+echo "📝 Restored from: $BACKUP_FILE"
+echo "📁 Temporary files in: $RESTORE_DIR"
+echo "🗑️  Clean up: rm -rf $RESTORE_DIR"
+```
+
+#### Recovery Time Objective (RTO)
+
+| Component | Restore Time | Data Loss (RPO) |
+|-----------|--------------|-----------------|
+| n8n workflows | 5 minutes | Last backup (daily) |
+| Qdrant vectors | 10 minutes | Last backup (daily) |
+| OpenFang data | 5 minutes | Last backup (daily) |
+| Database | 15 minutes | Last backup (daily) |
+| Obsidian vault | 5 minutes | Last backup (daily) |
+| **Total RTO** | **~40 minutes** | **24 hours** |
+
+**Recommendation:** For production, reduce RPO to 1 hour by increasing backup frequency.
+```
+
 ---
 
 ## 🏥 Health Monitoring
@@ -2768,21 +2851,210 @@ curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
 
 Setelah semua service running:
 
-    # 1. Inisialisasi Qdrant collections
-    python3 scripts/init_qdrant.py
+```bash
+# 0. Verify all services are running
+docker compose ps
+# All services should show "Up" status
 
-    # 2. Sync Obsidian vault pertama kali
-    python3 scripts/sync_obsidian.py
+# 1. Inisialisasi Qdrant collections
+python3 scripts/init_qdrant.py
 
-    # 4. Test Telegram bot
-    # Buka Telegram, cari bot Anda, kirim /start
+# 2. Sync Obsidian vault pertama kali
+python3 scripts/sync_obsidian.py
 
-    # 5. Setup n8n workflows
-    # Buka https://n8n.yourdomain.com
-    # Import workflow dari n8n/workflows/
+# 3. Setup external PostgreSQL database
+# Test connection
+psql $DATABASE_URL -c "SELECT 1"
 
-    # 6. Verifikasi semua koneksi
-    bash scripts/health_check.sh
+# Create database if not exists
+psql $DATABASE_URL -c "CREATE DATABASE IF NOT EXISTS calcom"
+
+# Run Cal.com migrations
+docker exec calcom npm run db:migrate
+
+# 4. Test Telegram bot
+# Buka Telegram, cari bot Anda, kirim /start
+# Bot should respond with welcome message
+
+# 5. Setup n8n workflows
+# Buka https://n8n.yourdomain.com
+# Login with N8N_USER and N8N_PASSWORD
+# Import workflow dari n8n/workflows/
+
+# 6. Verifikasi semua koneksi
+bash scripts/health_check.sh
+
+# 7. Test end-to-end flow
+# Send message to Telegram bot: "Apa jadwal saya hari ini?"
+# Bot should query Cal.com and respond
+```
+
+### Verification Checklist
+
+After post-installation, verify:
+
+- [ ] All Docker containers running (`docker compose ps`)
+- [ ] n8n accessible at configured URL
+- [ ] Qdrant dashboard accessible at `http://localhost:6333/dashboard`
+- [ ] Cal.com accessible at `http://localhost:3000`
+- [ ] Telegram bot responds to `/start` command
+- [ ] Database migrations completed successfully
+- [ ] Health check script passes all tests
+- [ ] End-to-end message flow works (Telegram → n8n → OpenFang → Response)
+
+---
+
+## 🔧 Troubleshooting
+
+### Docker Compose Won't Start
+
+**Symptom:** `docker compose up -d` fails with port conflicts
+
+**Solution:**
+```bash
+# Check if ports are already in use
+netstat -tulpn | grep -E '5678|8090|6333|3000'
+
+# If ports are in use, either:
+# 1. Stop the conflicting service
+# 2. Change ports in docker-compose.yml
+
+# Check Docker daemon status
+systemctl status docker
+
+# View detailed logs
+docker compose logs
+```
+
+---
+
+### Qdrant Connection Refused
+
+**Symptom:** `Connection refused to http://qdrant:6333`
+
+**Solution:**
+```bash
+# Verify Qdrant is running
+docker ps | grep qdrant
+
+# Check Qdrant logs
+docker logs qdrant
+
+# Test connection from host
+curl http://localhost:6333/healthz
+
+# Test connection from another container
+docker exec n8n curl http://qdrant:6333/healthz
+```
+
+---
+
+### Telegram Bot Not Responding
+
+**Symptom:** Bot doesn't reply to messages
+
+**Solution:**
+```bash
+# 1. Verify bot token is valid
+curl https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getMe
+
+# 2. Check if your user ID is in whitelist
+echo $TELEGRAM_ALLOWED_USERS
+# Should contain your Telegram user ID
+
+# 3. Get your Telegram user ID
+# Send message to @userinfobot on Telegram
+
+# 4. Check bot logs
+docker logs telegram-bot
+
+# 5. Verify webhook is set correctly
+curl https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo
+```
+
+---
+
+### Cal.com API Authentication Fails
+
+**Symptom:** `401 Unauthorized` when calling Cal.com API
+
+**Solution:**
+```bash
+# 1. Verify CALCOM_API_KEY is set (NOT CALCOM_SECRET)
+echo $CALCOM_API_KEY
+
+# 2. Get API key from Cal.com
+# Login to Cal.com → Settings → API Keys → Create New API Key
+
+# 3. Test API key
+curl -H "Authorization: Bearer $CALCOM_API_KEY" \
+     http://localhost:3000/api/bookings
+
+# 4. Check Cal.com logs
+docker logs calcom
+```
+
+---
+
+### LLM API Rate Limits
+
+**Symptom:** `429 Too Many Requests` from LLM provider
+
+**Solution:**
+```bash
+# 1. Check your provider's rate limits
+# OpenAI: 3 RPM (free tier), 60 RPM (paid)
+# OpenRouter: varies by model
+
+# 2. Implement exponential backoff in code
+# 3. Use fallback model (gpt-3.5-turbo)
+# 4. Reduce request frequency
+
+# 5. Monitor usage
+# OpenAI: https://platform.openai.com/usage
+# OpenRouter: https://openrouter.ai/activity
+```
+
+---
+
+### Database Connection Failed
+
+**Symptom:** Cal.com can't connect to PostgreSQL
+
+**Solution:**
+```bash
+# 1. Test DATABASE_URL
+psql $DATABASE_URL -c "SELECT 1"
+
+# 2. Verify database exists
+psql $DATABASE_URL -c "\l"
+
+# 3. Run migrations
+docker exec calcom npm run db:migrate
+
+# 4. Check PostgreSQL provider status
+# Supabase: https://app.supabase.com/project/_/settings/database
+# Neon: https://console.neon.tech/
+```
+
+---
+
+### Qdrant Out of Memory
+
+**Symptom:** Qdrant crashes or becomes slow
+
+**Solution:**
+```bash
+# 1. Check Qdrant memory usage
+docker stats qdrant
+
+# 2. Reduce vector dimensions
+# Edit embedding model to use smaller dimensions (384 instead of 768)
+
+# 3. Enable quantization in Qdrant config
+# 4. Increase Docker memory limit
+# 5. Use Qdrant Cloud for production
+```
 
 ---
 

@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-09 04:24  
+**Last Updated:** 2026-05-09 05:27  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -14,11 +14,11 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ### Tech Stack
 - **Orchestrator:** n8n (workflow automation)
 - **AI Engine:** OpenFang.sh / LangGraph
-- **Interface:** Telegram/Matrix bot
+- **Interface:** Telegram bot
 - **Scheduling:** Cal.com
 - **Knowledge:** Obsidian + Local LM
 - **Memory:** Qdrant/ChromaDB (vector DB)
-- **Files:** Nextcloud (email, calendar, contacts)
+- **Files:** Cloudflare R2 (S3-compatible object storage)
 
 ### Repository
 - **Location:** `/home/ubuntu/bench/pro-secretary/`
@@ -256,6 +256,30 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
     - Support for local LLMs (Ollama) for complete privacy
     - Clear provider comparison for informed decision-making
   - **Result:** 100% provider-agnostic, supports any OpenAI-compatible API
+- ✅ [2026-05-09 05:27] Removed Matrix Bot from Project
+  - **Motivation:** Simplify architecture, focus on single interface (Telegram) for MVP
+  - **Changes Made:**
+    - Updated README.md architecture diagram: removed Matrix Bot node and connections
+    - Updated Mermaid diagram: removed Matrix from Interface subgraph
+    - Updated classDef: changed `class TG,Matrix` to `class TG` only
+    - Updated TASK.md Tech Stack: "Telegram/Matrix bot" → "Telegram bot"
+    - Updated TASK.md Key Decisions: "Telegram bot sebagai MVP (Matrix sebagai future enhancement)" → "Telegram bot only (Matrix removed - unnecessary complexity for MVP)"
+    - Added 2 new key decisions: LLM Strategy (OpenAI-compatible) and Storage (Cloudflare R2)
+    - Verified no other Matrix references in documentation
+  - **Rationale:**
+    - Matrix adds unnecessary complexity for MVP
+    - Requires additional infrastructure (Matrix homeserver)
+    - Telegram is more popular and easier to setup
+    - Can be added later if there's demand for federated/self-hosted messaging
+  - **Files Modified:**
+    - README.md: architecture diagram (removed 3 lines: Matrix node, User→Matrix, Matrix→N8N)
+    - TASK.md: tech stack and key decisions sections
+  - **Benefits:**
+    - Simpler architecture (1 interface instead of 2)
+    - Reduced infrastructure complexity
+    - Faster MVP deployment
+    - Clear focus on Telegram bot implementation
+  - **Result:** Single interface (Telegram only), cleaner architecture
 
 ---
 
@@ -318,9 +342,11 @@ pro-secretary/
 
 1. **Architecture:** Microservices dengan Docker Compose (bukan Kubernetes - terlalu complex untuk self-hosted)
 2. **AI Engine:** OpenFang.sh sebagai primary (fallback ke LangGraph jika perlu)
-3. **Interface:** Telegram bot sebagai MVP (Matrix sebagai future enhancement)
-4. **LLM Strategy:** Hybrid - local Ollama untuk privacy, cloud API untuk complex tasks
+3. **Interface:** Telegram bot only (Matrix removed - unnecessary complexity for MVP)
+4. **LLM Strategy:** OpenAI-compatible provider (flexible, no vendor lock-in)
 5. **Vector DB:** Qdrant (lebih lightweight vs Weaviate, lebih mature vs ChromaDB)
+6. **Storage:** Cloudflare R2 (S3-compatible, no egress fees, 10GB free tier)
+7. **Database:** External PostgreSQL provider (Supabase/Neon/Railway - managed, automatic backups)
 
 ---
 

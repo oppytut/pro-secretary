@@ -10,7 +10,6 @@ graph TB
     
     subgraph Interface["🖥️ USER INTERFACE"]
         TG[Telegram Bot]
-        Matrix[Matrix Bot]
     end
     
     subgraph Orchestrator["🎯 ORCHESTRATOR"]
@@ -40,9 +39,7 @@ graph TB
     end
     
     User --> TG
-    User --> Matrix
     TG --> N8N
-    Matrix --> N8N
     N8N --> OpenFang
     N8N --> LangGraph
     N8N --> CalCom
@@ -64,7 +61,7 @@ graph TB
     classDef storageStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
     classDef externalStyle fill:#e0e0e0,stroke:#616161,stroke-width:2px,color:#000
     
-    class TG,Matrix interfaceStyle
+    class TG interfaceStyle
     class N8N orchestratorStyle
     class OpenFang,LangGraph aiStyle
     class CalCom scheduleStyle

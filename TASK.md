@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-09 05:27  
+**Last Updated:** 2026-05-09 07:06  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -280,6 +280,44 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
     - Faster MVP deployment
     - Clear focus on Telegram bot implementation
   - **Result:** Single interface (Telegram only), cleaner architecture
+- ✅ [2026-05-09 07:06] Added "How It Works" Section to README.md
+  - **Motivation:** Improve user understanding of system architecture and workflows before deployment
+  - **Changes Made:**
+    - Added comprehensive "How It Works" section after architecture diagram (429 lines)
+    - Created component roles table with technology stack and ports
+    - Added detailed data flow architecture diagram (ASCII art)
+    - Documented 4 workflow examples with step-by-step explanations:
+      1. User sends chat message (intent understanding → context retrieval → tool execution → LLM response)
+      2. Command execution `/task` (command parsing → n8n routing → Qdrant storage)
+      3. Daily briefing (scheduled cron → parallel data collection → AI generation → proactive notification)
+      4. Knowledge base search `/cari` (semantic search → vector similarity → result formatting)
+    - Added key features documentation:
+      - Context-aware conversations (vector memory)
+      - Proactive reminders (daemon mode)
+      - Multi-tool orchestration (parallel execution)
+      - Knowledge base auto-sync (cron job)
+    - Added security & authentication flow (3 layers: user auth, service-to-service, network security)
+    - Added monitoring & health checks documentation
+    - Added use case examples (4 categories: personal assistant, project management, knowledge management, calendar management)
+    - Updated table of contents with new section link
+  - **Content Structure:**
+    - System Overview (component roles table)
+    - Data Flow Architecture (visual diagram)
+    - Workflow Examples (4 detailed scenarios with code)
+    - Key Features & Workflows (4 features explained)
+    - Security & Authentication Flow (3-layer security)
+    - Monitoring & Health Checks (automated checks)
+    - Use Case Examples (real-world scenarios)
+  - **Files Modified:**
+    - README.md: added 429 lines (1838 → 2267 lines)
+    - Table of contents: added "How It Works" link
+  - **Benefits:**
+    - Users understand system architecture before deployment
+    - Clear explanation of data flow between components
+    - Real-world examples help users visualize usage
+    - Easier troubleshooting with component interaction knowledge
+    - Better customization guidance with workflow understanding
+  - **Result:** Comprehensive workflow documentation, improved README completeness from 100% to 110% (added missing "how it works" section)
 
 ---
 

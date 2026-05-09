@@ -70,8 +70,437 @@ graph TB
     class SMTP externalStyle
 ```
 
+## 🔄 How It Works
+
+### System Overview
+
+AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelola pekerjaan, jadwal, tasks, dan knowledge base Anda. Sistem ini menggunakan arsitektur microservices dengan 7 komponen utama yang saling terintegrasi.
+
+### Component Roles
+
+| Component | Role | Technology | Port |
+|-----------|------|------------|------|
+| **Telegram Bot** | User interface | Python Telegram Bot API | External |
+| **n8n** | Workflow orchestrator & router | n8n (low-code automation) | 5678 |
+| **OpenFang/LangGraph** | AI reasoning & decision making | OpenFang.sh / LangGraph | 8090 |
+| **Cal.com** | Calendar & appointment management | Cal.com (self-hosted) | 3000 |
+| **Qdrant** | Vector database & semantic search | Qdrant | 6333, 6334 |
+| **Obsidian** | Knowledge base (notes & docs) | Obsidian Markdown | - |
+| **Cloudflare R2** | Object storage (files, backups) | S3-compatible storage | External |
+
+### Data Flow Architecture
+
+```
+┌──────────────┐
+│     USER     │ Sends message/command via Telegram
+└──────┬───────┘
+       │
+       ↓
+┌──────────────┐
+│  TELEGRAM    │ Interface Layer
+│     BOT      │ - Authentication (whitelist)
+└──────┬───────┘ - Command parsing
+       │         - Message routing
+       ↓
+┌──────────────┐
+│     N8N      │ Orchestration Layer
+│ (Workflows)  │ - Route commands to appropriate services
+└──────┬───────┘ - Schedule automated tasks (cron)
+       │         - Coordinate multi-service operations
+       ↓
+┌──────────────┐
+│   OPENFANG   │ AI Agent Layer
+│  /LANGGRAPH  │ - Understand user intent
+└──────┬───────┘ - Retrieve relevant context from memory
+       │         - Execute tools (calendar, search, tasks)
+       │         - Generate natural language responses
+       ↓
+┌──────────────────────────────────────┐
+│  BACKEND SERVICES (Parallel Access)  │
+├──────────────┬───────────┬───────────┤
+│   QDRANT     │  CAL.COM  │    R2     │
+│ Vector DB    │  Calendar │  Storage  │
+│ - Memories   │ - Events  │ - Files   │
+│ - Tasks      │ - Bookings│ - Backups │
+│ - Knowledge  │           │ - Notes   │
+└──────────────┴───────────┴───────────┘
+```
+
+---
+
+## 📖 Workflow Examples
+
+### Example 1: User Sends Chat Message
+
+**User Input:** "Apa jadwal saya hari ini?"
+
+**Flow:**
+
+```
+1. TELEGRAM BOT receives message
+   ├─ Check authorization (ALLOWED_USERS)
+   └─ Forward to OpenFang AI Agent
+
+2. OPENFANG AI AGENT processes request
+   ├─ Step 1: Understand Intent
+   │   └─ Detected: "check_schedule", date="today"
+   │
+   ├─ Step 2: Retrieve Context (Qdrant)
+   │   └─ Query vector DB for relevant past conversations
+   │
+   ├─ Step 3: Execute Tools
+   │   └─ GET http://calcom:3000/api/bookings?startTime=today
+   │       Response: [
+   │         { "title": "Team Standup", "time": "09:00" },
+   │         { "title": "Client Meeting", "time": "14:00" }
+   │       ]
+   │
+   ├─ Step 4: Generate Response (LLM)
+   │   └─ POST https://api.openai.com/v1/chat/completions
+   │       Prompt: "Format this schedule naturally: [data]"
+   │       Response: "Hari ini Anda punya 2 jadwal:
+   │                 1. Team Standup jam 09:00
+   │                 2. Client Meeting jam 14:00"
+   │
+   └─ Step 5: Store Memory
+       └─ Save conversation to Qdrant for future context
+
+3. TELEGRAM BOT sends response to user
+```
+
+**Result:** User receives formatted schedule in natural language.
+
+---
+
+### Example 2: Command Execution (`/task`)
+
+**User Input:** `/task Buat proposal untuk Client B`
+
+**Flow:**
+
+```
+1. TELEGRAM BOT detects command
+   ├─ Parse: command="/task", args="Buat proposal untuk Client B"
+   └─ Route to n8n webhook
+
+2. N8N WORKFLOW (Message Router)
+   ├─ Receive: POST http://n8n:5678/webhook/tasks
+   │   Body: { "action": "create", "title": "Buat proposal..." }
+   │
+   ├─ Switch Node: Route based on action type
+   │   └─ Branch: "create_task"
+   │
+   └─ Execute Task Creation
+       ├─ Generate embedding for task
+       └─ Store in Qdrant "tasks" collection
+
+3. QDRANT stores task
+   └─ POST http://qdrant:6333/collections/tasks/points
+       {
+         "id": "task-uuid-456",
+         "vector": [0.234, 0.567, ...],
+         "payload": {
+           "title": "Buat proposal untuk Client B",
+           "status": "pending",
+           "created_at": "2026-05-09T10:35:00"
+         }
+       }
+
+4. N8N sends confirmation
+   └─ Telegram: "✅ Task ditambahkan: Buat proposal untuk Client B"
+```
+
+**Result:** Task stored in vector DB, searchable by semantic similarity.
+
+---
+
+### Example 3: Daily Briefing (Scheduled/Proactive)
+
+**Trigger:** Cron job at 07:00 AM every day
+
+**Flow:**
+
+```
+1. N8N CRON TRIGGER activates
+   └─ Workflow: "Daily Briefing"
+
+2. PARALLEL DATA COLLECTION
+   ├─ Fetch Today's Calendar
+   │   └─ GET http://calcom:3000/api/bookings?startTime=today
+   │       Response: [meetings for today]
+   │
+   └─ Fetch Pending Tasks
+       └─ POST http://qdrant:6333/collections/tasks/points/scroll
+           Filter: { "status": "pending" }
+           Response: [pending tasks]
+
+3. AI GENERATES BRIEFING
+   └─ POST https://api.openai.com/v1/chat/completions
+       Prompt: "Create morning briefing from this data:
+                Calendar: [meetings]
+                Tasks: [pending tasks]"
+       
+       Response:
+       "Selamat pagi! Berikut briefing Anda hari ini:
+        
+        📅 JADWAL:
+        - 09:00 Team Standup
+        - 14:00 Client Meeting
+        
+        ✅ TASKS PENDING:
+        - Buat proposal untuk Client B (urgent)
+        - Review dokumen kontrak
+        
+        💡 REKOMENDASI:
+        Prioritaskan proposal sebelum meeting jam 14:00."
+
+4. SEND TO TELEGRAM
+   └─ User receives briefing automatically at 07:00 AM
+```
+
+**Result:** Proactive daily briefing without user request.
+
+---
+
+### Example 4: Knowledge Base Search (`/cari`)
+
+**User Input:** `/cari cara setup docker compose`
+
+**Flow:**
+
+```
+1. TELEGRAM BOT extracts query
+   └─ Query: "cara setup docker compose"
+
+2. OPENFANG SEMANTIC SEARCH
+   ├─ Generate embedding from query
+   │   └─ Vector: [0.345, 0.678, 0.912, ...]
+   │
+   └─ Search in Qdrant "knowledge" collection
+       └─ POST http://qdrant:6333/collections/knowledge/points/search
+           {
+             "vector": [0.345, 0.678, ...],
+             "limit": 5,
+             "with_payload": true
+           }
+
+3. QDRANT returns similar documents
+   └─ Results: [
+       {
+         "score": 0.92,
+         "payload": {
+           "content": "Docker Compose adalah tool untuk...",
+           "source_file": "DevOps/Docker-Setup.md"
+         }
+       },
+       ...
+     ]
+
+4. FETCH FULL CONTENT (if needed)
+   └─ GET https://r2.cloudflarestorage.com/secretary-files/DevOps/Docker-Setup.md
+
+5. FORMAT AND SEND RESULTS
+   └─ Telegram: "Hasil pencarian: cara setup docker compose
+                 
+                 1. Docker Compose adalah tool untuk define...
+                    Sumber: DevOps/Docker-Setup.md
+                 
+                 2. Untuk setup, install dengan: apt install...
+                    Sumber: DevOps/Installation-Guide.md"
+```
+
+**Result:** Semantic search finds relevant docs even with different wording.
+
+---
+
+## 🔄 Key Features & Workflows
+
+### 1. **Context-Aware Conversations**
+
+Setiap percakapan disimpan di Qdrant sebagai vector embeddings. Ketika user bertanya, sistem:
+- Retrieve 5 percakapan paling relevan dari history
+- Gunakan sebagai context untuk LLM
+- Generate response yang aware terhadap percakapan sebelumnya
+
+**Example:**
+```
+User: "Kapan meeting dengan Client A?"
+Bot: "Meeting dengan Client A dijadwalkan jam 14:00 hari ini."
+
+[2 hours later]
+User: "Apa yang perlu saya siapkan?"
+Bot: "Untuk meeting Client A jam 14:00, saya sarankan:
+      - Review proposal yang sudah dibuat
+      - Siapkan demo produk
+      - Bawa kontrak untuk ditandatangani"
+```
+
+Bot ingat context "meeting Client A" dari percakapan sebelumnya.
+
+---
+
+### 2. **Proactive Reminders**
+
+OpenFang berjalan dalam **daemon mode**, checking deadlines setiap 5 menit:
+
+```toml
+[daemon]
+enabled = true
+check_interval = "5m"
+proactive_hours = { start = 7, end = 22 }
+
+[daemon.routines]
+morning_briefing = "0 7 * * *"      # 07:00 daily
+task_reminder = "0 */2 * * *"       # Every 2 hours
+eod_summary = "0 21 * * *"          # 21:00 daily
+```
+
+**Reminder Logic:**
+- 1 hour before meeting → Send reminder + preparation suggestions
+- Task deadline approaching → Notify with priority level
+- End of day → Summary of completed/pending tasks
+
+---
+
+### 3. **Multi-Tool Orchestration**
+
+Single user query dapat trigger multiple tools secara parallel:
+
+**User:** "Siapkan meeting dengan Client B minggu depan"
+
+**AI Agent executes:**
+```python
+# Parallel execution
+results = await asyncio.gather(
+    check_calendar(next_week),           # Cal.com API
+    search_client_info("Client B"),      # Qdrant search
+    get_previous_meetings("Client B"),   # Qdrant history
+    create_task("Prepare meeting agenda") # Qdrant tasks
+)
+
+# Generate response with all context
+response = llm.generate(
+    f"Schedule meeting considering: {results}"
+)
+```
+
+**Result:** AI suggests optimal time slot based on calendar availability, previous meeting notes, and creates preparation tasks automatically.
+
+---
+
+### 4. **Knowledge Base Auto-Sync**
+
+Cron job runs every 30 minutes to sync Obsidian vault:
+
+```bash
+# scripts/sync_obsidian.py
+*/30 * * * * python3 /opt/ai-secretary/scripts/sync_obsidian.py
+```
+
+**Sync Process:**
+1. Scan Obsidian vault for new/modified `.md` files
+2. Extract text content and metadata
+3. Generate embeddings using LLM
+4. Upsert to Qdrant "knowledge" collection
+5. Upload original files to Cloudflare R2 for backup
+
+**Result:** Knowledge base always up-to-date, searchable by semantic similarity.
+
+---
+
+## 🔐 Security & Authentication Flow
+
+### Layer 1: User Authentication
+```
+Telegram Bot
+├─ Whitelist: ALLOWED_USER_IDS=[123456789, 987654321]
+└─ Reject: Any user not in whitelist
+```
+
+### Layer 2: Service-to-Service Auth
+```
+Internal Services (Docker Network)
+├─ n8n → OpenFang: No auth (isolated network)
+├─ OpenFang → Qdrant: API Key (QDRANT_API_KEY)
+├─ OpenFang → Cal.com: Bearer Token (CALCOM_API_KEY)
+└─ OpenFang → R2: AWS Signature V4 (R2_ACCESS_KEY_ID + SECRET)
+
+External Services
+├─ LLM Provider: Bearer Token (LLM_API_KEY)
+└─ SMTP: Username/Password (SMTP_USER + PASSWORD)
+```
+
+### Layer 3: Network Security
+```
+Caddy Reverse Proxy (HTTPS/TLS)
+├─ n8n.yourdomain.com → http://n8n:5678
+├─ cal.yourdomain.com → http://calcom:3000
+└─ All traffic encrypted with Let's Encrypt SSL
+```
+
+---
+
+## 📊 Monitoring & Health Checks
+
+Health check script runs every 5 minutes via cron:
+
+```bash
+# scripts/health_check.sh
+*/5 * * * * /opt/ai-secretary/scripts/health_check.sh
+```
+
+**Checks:**
+```bash
+# Check each service
+curl -f http://localhost:5678/healthz    # n8n
+curl -f http://localhost:6333/healthz    # Qdrant
+curl -f http://localhost:3000/api/health # Cal.com
+curl -f http://localhost:8090/health     # OpenFang
+
+# If any fails
+if [ $? -ne 0 ]; then
+    # Send alert to Telegram
+    curl -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+         -d "chat_id=$ADMIN_ID" \
+         -d "text=⚠️ Service DOWN: $service_name"
+fi
+```
+
+**Result:** Immediate notification if any service goes down.
+
+---
+
+## 🎯 Use Case Examples
+
+### Personal Assistant
+- "Apa yang harus saya kerjakan hari ini?"
+- "Ingatkan saya 1 jam sebelum meeting"
+- "Cari notes tentang project X"
+- "Buatkan summary dari meeting kemarin"
+
+### Project Management
+- "Buat task: Review PR #123"
+- "Apa status project Alpha?"
+- "Siapa yang handle feature authentication?"
+- "Deadline apa yang mendekat minggu ini?"
+
+### Knowledge Management
+- "Cari dokumentasi tentang API integration"
+- "Bagaimana cara setup CI/CD pipeline?"
+- "Apa yang kita diskusikan tentang database migration?"
+- "Simpan notes ini ke project Beta"
+
+### Calendar Management
+- "Jadwalkan meeting dengan tim engineering"
+- "Reschedule meeting Client A ke besok"
+- "Apa jadwal saya minggu depan?"
+- "Block calendar saya untuk focus time"
+
+---
+
 ## 📋 Table of Contents
 
+- [How It Works](#-how-it-works)
 - [Prerequisites](#prerequisites)
 - [Monthly Cost Estimate](#-monthly-cost-estimate)
 - [Quick Start](#quick-start)

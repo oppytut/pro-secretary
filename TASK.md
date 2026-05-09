@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-09 07:06  
+**Last Updated:** 2026-05-09 07:19  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -318,6 +318,53 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
     - Easier troubleshooting with component interaction knowledge
     - Better customization guidance with workflow understanding
   - **Result:** Comprehensive workflow documentation, improved README completeness from 100% to 110% (added missing "how it works" section)
+- ✅ [2026-05-09 07:19] Added "OpenFang vs LangGraph" Comparison Section to README.md
+  - **Motivation:** Users need to understand the difference between two AI agent engines to make informed deployment decisions
+  - **Changes Made:**
+    - Added comprehensive 551-line section comparing OpenFang.sh and LangGraph
+    - Created detailed comparison table (12 aspects: approach, complexity, flexibility, production-readiness, etc.)
+    - Documented OpenFang.sh features:
+      * Configuration-based approach (TOML)
+      * Daemon mode (24/7 background service)
+      * Built-in tools (calendar, email, tasks, search)
+      * Proactive features (cron, reminders, briefings)
+      * Multi-channel support (Telegram, webhook, HTTP)
+      * Production-ready with monitoring
+    - Documented LangGraph features:
+      * Code-based approach (Python)
+      * Graph-based workflow (state machine)
+      * Full customization and control
+      * Flexible logic for complex decision trees
+      * Manual implementation of all features
+    - Added complete configuration examples:
+      * OpenFang: 100+ line TOML config with all sections
+      * LangGraph: 200+ line Python implementation with tools and workflow
+    - Created decision matrix: when to use OpenFang vs LangGraph
+    - Documented 3 deployment options:
+      1. OpenFang only (recommended for MVP)
+      2. LangGraph only (custom implementation)
+      3. Hybrid (best of both worlds with n8n routing)
+    - Added analogy: OpenFang = WordPress, LangGraph = Custom Django/Flask
+    - Included summary table with setup time, maintenance, and best use cases
+  - **Content Structure:**
+    - Overview (comparison table)
+    - OpenFang.sh section (features, config example, workflow, when to use)
+    - LangGraph section (features, code example, workflow, when to use)
+    - Decision matrix (choose OpenFang if / choose LangGraph if)
+    - Project decision (why OpenFang as primary)
+    - Deployment options (3 scenarios with docker-compose examples)
+    - Analogy (WordPress vs Custom App)
+    - Summary table
+  - **Files Modified:**
+    - README.md: added 551 lines (2267 → 2818 lines)
+    - Table of contents: added "AI Agent Engine: OpenFang vs LangGraph" link
+  - **Benefits:**
+    - Clear understanding of two agent approaches
+    - Users can make informed decisions based on needs
+    - Complete configuration examples for both
+    - Deployment guidance for different scenarios
+    - Reduces confusion about which engine to use
+  - **Result:** Comprehensive AI agent engine comparison, users understand trade-offs between configuration-based (OpenFang) and code-based (LangGraph) approaches
 
 ---
 

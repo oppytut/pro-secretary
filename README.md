@@ -501,6 +501,7 @@ fi
 ## 📋 Table of Contents
 
 - [How It Works](#-how-it-works)
+- [AI Agent Engine: OpenFang vs LangGraph](#-ai-agent-engine-openfang-vs-langgraph)
 - [Prerequisites](#prerequisites)
 - [Monthly Cost Estimate](#-monthly-cost-estimate)
 - [Quick Start](#quick-start)
@@ -783,7 +784,557 @@ sudo ufw status
 
 ---
 
-## 🤖 LLM Provider Configuration
+## 🤖 AI Agent Engine: OpenFang vs LangGraph
+
+This project supports two AI agent engines with different approaches. Understanding the differences helps you choose the right one for your needs.
+
+### Overview
+
+Both **OpenFang.sh** and **LangGraph** serve as the "brain" of the AI Personal Secretary, but with different philosophies:
+
+| Aspect | OpenFang.sh | LangGraph |
+|--------|-------------|-----------|
+| **Approach** | Configuration-based (TOML) | Code-based (Python) |
+| **Setup Complexity** | Low (edit config file) | Medium-High (write code) |
+| **Flexibility** | Medium (limited by config options) | High (full control over logic) |
+| **Production Ready** | ✅ Yes (built-in features) | ⚠️ Depends (need to build features) |
+| **Daemon Mode** | ✅ Built-in (24/7 background service) | ❌ Need to implement |
+| **Proactive Features** | ✅ Built-in (cron, reminders) | ❌ Need to implement |
+| **Multi-channel** | ✅ Built-in (Telegram, webhook, HTTP) | ❌ Need to implement |
+| **Pre-built Tools** | ✅ Calendar, email, tasks, search | ❌ Need to implement each tool |
+| **Monitoring** | ✅ Built-in health checks | ❌ Need to implement |
+| **Learning Curve** | Low (just configuration) | Medium (Python skills required) |
+| **Maintenance** | Low (update config) | High (maintain code) |
+| **Best For** | Production, MVP, Quick deploy | Custom logic, Prototyping, R&D |
+
+---
+
+### OpenFang.sh - Configuration-Based Agent
+
+**Type:** Production-ready AI Agent OS (Operating System for AI Agents)
+
+**Philosophy:** Configure, don't code. Define agent behavior through declarative configuration.
+
+#### Key Features
+
+✅ **Daemon Mode** - Runs 24/7 as background service, proactively checking for tasks
+✅ **Built-in Tools** - Calendar, email, file management, task tracking out-of-the-box
+✅ **Multi-channel** - Telegram, webhook, HTTP API support included
+✅ **Proactive Reminders** - Automatically sends reminders based on schedule
+✅ **Production Ready** - Auth, rate limiting, monitoring built-in
+
+#### Configuration Example
+
+```toml
+# openfang/secretary.toml
+
+[agent]
+name = "Secretary"
+description = "Personal AI Secretary yang tahu semua pekerjaan saya"
+mode = "daemon"  # Runs continuously in background
+personality = """
+Kamu adalah sekretaris pribadi AI yang sangat efisien dan proaktif.
+Kamu tahu semua jadwal, task, project, dan konteks pekerjaan saya.
+Kamu berkomunikasi dalam Bahasa Indonesia yang natural.
+Kamu memberikan reminder tanpa diminta jika ada deadline mendekat.
+"""
+
+[llm]
+provider = "openai"
+model = "${LLM_MODEL}"
+base_url = "${LLM_BASE_URL}"
+api_key = "${LLM_API_KEY}"
+temperature = 0.7
+max_tokens = 2048
+
+[llm.fallback]
+provider = "openai"
+model = "gpt-3.5-turbo"  # Fast fallback for simple queries
+api_key = "${LLM_API_KEY}"
+base_url = "${LLM_BASE_URL}"
+
+[memory]
+type = "qdrant"
+url = "http://qdrant:6333"
+collection = "agent_memory"
+api_key = "${QDRANT_API_KEY}"
+
+[hands]  # Built-in tools - just enable them
+enabled = [
+  "web_search",
+  "calendar_read",
+  "calendar_write",
+  "file_read",
+  "task_manage",
+  "email_send",
+  "reminder_set"
+]
+
+[hands.calendar]
+provider = "calcom"
+api_url = "http://calcom:3000/api"
+api_key = "${CALCOM_API_KEY}"
+
+[hands.email]
+provider = "smtp"
+smtp_host = "${SMTP_HOST}"
+smtp_port = "${SMTP_PORT}"
+smtp_user = "${SMTP_USER}"
+smtp_password = "${SMTP_PASSWORD}"
+from_email = "${SMTP_FROM}"
+
+[hands.storage]
+provider = "s3"
+endpoint = "${R2_ENDPOINT}"
+access_key = "${R2_ACCESS_KEY_ID}"
+secret_key = "${R2_SECRET_ACCESS_KEY}"
+bucket = "${R2_BUCKET}"
+region = "auto"
+
+[hands.tasks]
+provider = "qdrant"
+collection = "tasks"
+
+[channels]
+enabled = ["telegram", "webhook"]
+
+[channels.telegram]
+token = "${TELEGRAM_BOT_TOKEN}"
+allowed_users = ["${TELEGRAM_ALLOWED_USERS}"]
+
+[channels.webhook]
+port = 8090
+secret = "${OPENFANG_SECRET}"
+
+[daemon]  # Proactive features
+enabled = true
+check_interval = "5m"  # Check for tasks every 5 minutes
+proactive_hours = { start = 7, end = 22 }  # Active hours
+
+[daemon.routines]
+morning_briefing = "0 7 * * *"      # 07:00 daily
+task_reminder = "0 */2 * * *"       # Every 2 hours
+eod_summary = "0 21 * * *"          # 21:00 daily
+```
+
+#### Workflow
+
+```
+User Message
+    ↓
+OpenFang Daemon (always running)
+    ↓
+[agent] → Apply personality & mode
+    ↓
+[llm] → Call LLM for reasoning
+    ↓
+[memory] → Retrieve context from Qdrant
+    ↓
+[hands] → Execute tools (calendar, email, etc.)
+    ↓
+Response to User
+    ↓
+[daemon] → Check for proactive tasks (reminders, briefings)
+```
+
+**Everything is handled automatically based on configuration.**
+
+#### When to Use OpenFang
+
+✅ **Production deployment** - Need stable, reliable agent
+✅ **Quick MVP** - Want to deploy fast without writing code
+✅ **Proactive assistant** - Need automatic reminders and briefings
+✅ **Standard workflows** - Common use cases (calendar, tasks, email)
+✅ **Low maintenance** - Prefer configuration over code maintenance
+
+---
+
+### LangGraph - Code-Based Agent
+
+**Type:** Python framework for building custom AI agents with graph-based workflows
+
+**Philosophy:** Code everything. Full control over agent behavior through Python.
+
+#### Key Features
+
+✅ **Full Customization** - Control every detail of agent behavior
+✅ **Graph-Based Workflow** - Define agent as state machine with nodes and edges
+✅ **Flexible Logic** - Implement complex decision trees and conditional routing
+✅ **Easy Testing** - Test each node independently
+✅ **Visual Workflow** - Graph structure is easy to understand and debug
+
+#### Implementation Example
+
+```python
+# langgraph/agent.py
+
+from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+from langchain_community.vectorstores import Qdrant
+from langchain.agents import tool
+from qdrant_client import QdrantClient
+import requests
+from datetime import datetime
+import os
+
+# Define state
+class SecretaryState:
+    messages: list
+    context: str
+    current_task: str
+    tools_output: dict
+
+# Define tools (manual implementation)
+@tool
+def search_knowledge(query: str) -> str:
+    """Cari informasi dari knowledge base pribadi."""
+    client = QdrantClient(url="http://qdrant:6333")
+    results = client.search(
+        collection_name="knowledge",
+        query_vector=get_embedding(query),
+        limit=5
+    )
+    return "\n".join([r.payload["content"] for r in results])
+
+@tool
+def get_today_schedule() -> str:
+    """Ambil jadwal hari ini dari Cal.com API."""
+    response = requests.get(
+        "http://calcom:3000/api/bookings",
+        headers={"Authorization": f"Bearer {os.getenv('CALCOM_API_KEY')}"},
+        params={"startTime": datetime.now().isoformat()}
+    )
+    bookings = response.json()
+    return format_schedule(bookings)
+
+@tool
+def create_task(title: str, due_date: str, priority: str) -> str:
+    """Buat task baru di Qdrant."""
+    client = QdrantClient(url="http://qdrant:6333")
+    client.upsert(
+        collection_name="tasks",
+        points=[{
+            "id": generate_uuid(),
+            "vector": get_embedding(title),
+            "payload": {
+                "title": title,
+                "due_date": due_date,
+                "priority": priority,
+                "status": "pending",
+                "created_at": datetime.now().isoformat()
+            }
+        }]
+    )
+    return f"Task '{title}' berhasil dibuat"
+
+@tool
+def search_files(query: str) -> str:
+    """Cari file di Cloudflare R2 storage."""
+    import boto3
+    s3 = boto3.client(
+        's3',
+        endpoint_url=os.getenv('R2_ENDPOINT'),
+        aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
+        region_name='auto'
+    )
+    response = s3.list_objects_v2(
+        Bucket=os.getenv('R2_BUCKET', 'secretary-files'),
+        Prefix=query
+    )
+    files = [obj['Key'] for obj in response.get('Contents', [])]
+    return "\n".join(files) if files else "No files found"
+
+# Define workflow nodes
+def understand_intent(state: SecretaryState):
+    """Understand user intent from message."""
+    llm = ChatOpenAI(
+        model=os.getenv("LLM_MODEL", "gpt-4"),
+        base_url=os.getenv("LLM_BASE_URL"),
+        api_key=os.getenv("LLM_API_KEY")
+    )
+    # Extract intent and entities
+    intent = llm.invoke(f"Extract intent from: {state.messages[-1]}")
+    state.current_task = intent
+    return state
+
+def retrieve_context(state: SecretaryState):
+    """Retrieve relevant context from Qdrant."""
+    client = QdrantClient(url="http://qdrant:6333")
+    results = client.search(
+        collection_name="agent_memory",
+        query_vector=get_embedding(state.messages[-1]),
+        limit=5
+    )
+    state.context = "\n".join([r.payload["content"] for r in results])
+    return state
+
+def execute_tools(state: SecretaryState):
+    """Execute appropriate tools based on intent."""
+    tools_map = {
+        "check_schedule": get_today_schedule,
+        "search_knowledge": search_knowledge,
+        "create_task": create_task,
+        "search_files": search_files
+    }
+    
+    tool = tools_map.get(state.current_task)
+    if tool:
+        state.tools_output = tool.invoke(state.messages[-1])
+    return state
+
+def generate_response(state: SecretaryState):
+    """Generate natural language response."""
+    llm = ChatOpenAI(
+        model=os.getenv("LLM_MODEL", "gpt-4"),
+        base_url=os.getenv("LLM_BASE_URL"),
+        api_key=os.getenv("LLM_API_KEY")
+    )
+    
+    prompt = f"""
+    Context: {state.context}
+    Tools Output: {state.tools_output}
+    User Message: {state.messages[-1]}
+    
+    Generate a helpful response in Bahasa Indonesia.
+    """
+    
+    response = llm.invoke(prompt)
+    state.messages.append(response)
+    return state
+
+# Build workflow graph
+workflow = StateGraph(SecretaryState)
+
+# Add nodes
+workflow.add_node("understand", understand_intent)
+workflow.add_node("retrieve_context", retrieve_context)
+workflow.add_node("execute_tools", execute_tools)
+workflow.add_node("generate_response", generate_response)
+
+# Define edges (flow)
+workflow.set_entry_point("understand")
+workflow.add_edge("understand", "retrieve_context")
+workflow.add_edge("retrieve_context", "execute_tools")
+workflow.add_edge("execute_tools", "generate_response")
+workflow.add_edge("generate_response", END)
+
+# Compile
+app = workflow.compile()
+
+# Use
+result = app.invoke({
+    "messages": ["Apa jadwal saya hari ini?"],
+    "context": "",
+    "current_task": "",
+    "tools_output": {}
+})
+```
+
+#### Workflow
+
+```python
+User Message
+    ↓
+app.invoke({"messages": [user_message]})
+    ↓
+understand_intent(state)      # ← You implement this
+    ↓
+retrieve_context(state)       # ← You implement this
+    ↓
+execute_tools(state)          # ← You implement this
+    ↓
+generate_response(state)      # ← You implement this
+    ↓
+Response to User
+```
+
+**Every step must be manually implemented in Python code.**
+
+#### When to Use LangGraph
+
+✅ **Custom workflows** - Need very specific agent behavior
+✅ **Complex logic** - Conditional routing, multi-step reasoning
+✅ **Prototyping** - Experimenting with new ideas
+✅ **Research & Development** - Testing different approaches
+✅ **Full control** - Need to customize every detail
+✅ **Integration challenges** - Services that don't work with OpenFang
+
+---
+
+### Decision Matrix
+
+#### Choose **OpenFang** if:
+
+- ✅ You want **quick deployment** (MVP, production)
+- ✅ You need **proactive features** (reminders, briefings)
+- ✅ You prefer **configuration over code**
+- ✅ You want **built-in tools** (calendar, email, tasks)
+- ✅ You need **daemon mode** (24/7 background service)
+- ✅ You want **low maintenance**
+- ✅ Standard use cases are sufficient
+
+#### Choose **LangGraph** if:
+
+- ✅ You need **custom workflow logic**
+- ✅ You want **full control** over agent behavior
+- ✅ You're **prototyping** new ideas
+- ✅ You need **complex decision trees**
+- ✅ You have **Python development skills**
+- ✅ OpenFang configuration is not flexible enough
+- ✅ You're doing **research & development**
+
+---
+
+### Project Decision
+
+**From TASK.md:**
+> **AI Engine:** OpenFang.sh sebagai primary (fallback ke LangGraph jika perlu)
+
+#### Why OpenFang as Primary?
+
+1. **Production-Ready** - All features needed for AI secretary are built-in
+2. **Quick MVP** - No coding required, just configuration
+3. **Daemon Mode** - Proactive reminders work out-of-the-box
+4. **Low Maintenance** - Update config vs maintain code
+5. **Built-in Features** - Calendar, email, tasks, multi-channel support
+
+#### When to Use LangGraph?
+
+LangGraph is used as **fallback** or **alternative** when:
+
+1. **Custom Logic Needed** - OpenFang config is not flexible enough
+2. **Complex Decision Trees** - Need conditional routing beyond config
+3. **Prototyping** - Testing new ideas before implementing in OpenFang
+4. **Integration Challenges** - Service doesn't work with OpenFang
+
+---
+
+### Deployment Options
+
+#### Option 1: OpenFang Only (Recommended for MVP)
+
+```yaml
+# docker-compose.yml
+services:
+  openfang:
+    image: ghcr.io/rightnow-ai/openfang:latest
+    container_name: openfang
+    restart: always
+    ports:
+      - "8090:8090"
+    environment:
+      - OPENFANG_CONFIG=/etc/openfang/secretary.toml
+      - LM_PROVIDER=${LLM_PROVIDER}
+      - LM_API_KEY=${LLM_API_KEY}
+      - LM_MODEL=${LLM_MODEL}
+    volumes:
+      - ./openfang/secretary.toml:/etc/openfang/secretary.toml
+      - openfang_data:/var/lib/openfang
+    networks:
+      - secretary-net
+```
+
+**Use Case:** Standard AI secretary with proactive features.
+
+---
+
+#### Option 2: LangGraph Only (Custom Implementation)
+
+```yaml
+# docker-compose.yml
+services:
+  langgraph-agent:
+    build: ./langgraph
+    container_name: langgraph-agent
+    restart: always
+    ports:
+      - "8090:8090"
+    environment:
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - QDRANT_URL=http://qdrant:6333
+      - CALCOM_API_KEY=${CALCOM_API_KEY}
+    volumes:
+      - ./langgraph/agent.py:/app/agent.py
+    networks:
+      - secretary-net
+```
+
+**Use Case:** Highly customized workflow that requires full control.
+
+---
+
+#### Option 3: Hybrid (Best of Both Worlds)
+
+```yaml
+# docker-compose.yml
+services:
+  openfang:
+    image: ghcr.io/rightnow-ai/openfang:latest
+    ports:
+      - "8090:8090"
+    # For standard operations (reminders, briefings, daily tasks)
+  
+  langgraph-agent:
+    build: ./langgraph
+    ports:
+      - "8091:8091"
+    # For custom workflows (complex analysis, special tasks)
+  
+  n8n:
+    image: n8nio/n8n:latest
+    # Routes requests to appropriate agent based on type
+```
+
+**Use Case:** 
+- OpenFang handles daily operations (reminders, briefings, standard queries)
+- LangGraph handles custom workflows (complex analysis, special tasks)
+- n8n routes requests based on intent
+
+**Routing Logic:**
+```javascript
+// n8n Switch Node
+if (intent === "standard_query") {
+    route_to("http://openfang:8090");
+} else if (intent === "complex_analysis") {
+    route_to("http://langgraph-agent:8091");
+}
+```
+
+---
+
+### Analogy
+
+**OpenFang = WordPress**
+- Install, configure via dashboard, done
+- Many plugins/features built-in
+- Production-ready out-of-the-box
+- Trade-off: Less flexible for custom logic
+
+**LangGraph = Custom Django/Flask App**
+- Build from scratch with code
+- Full control over every detail
+- Flexible for custom requirements
+- Trade-off: More effort and maintenance
+
+---
+
+### Summary
+
+| Criteria | OpenFang | LangGraph |
+|----------|----------|-----------|
+| **Setup Time** | 30 minutes (config) | 4-8 hours (coding) |
+| **Production Ready** | ✅ Immediate | ⚠️ After building features |
+| **Proactive Features** | ✅ Built-in | ❌ Need to implement |
+| **Maintenance** | Low (config updates) | High (code maintenance) |
+| **Flexibility** | Medium (config options) | High (full control) |
+| **Best For** | 80% of use cases | 20% custom needs |
+
+**Recommendation:** Start with **OpenFang** for MVP. Add **LangGraph** later if you need custom workflows that OpenFang can't handle.
+
+---
 
 ## 🤖 LLM Provider Configuration
 

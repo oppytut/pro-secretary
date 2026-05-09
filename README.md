@@ -36,6 +36,7 @@ graph TB
     
     subgraph External["📧 EXTERNAL SERVICES"]
         SMTP[SMTP Service<br/>SendGrid/Mailgun]
+        PostgreSQL[PostgreSQL<br/>Supabase/Neon/Railway]
     end
     
     User --> TG
@@ -52,6 +53,7 @@ graph TB
     LangGraph --> R2
     Obsidian --> R2
     CalCom --> SMTP
+    CalCom --> PostgreSQL
     
     classDef interfaceStyle fill:#e1f5ff,stroke:#01579b,stroke-width:2px,color:#000
     classDef orchestratorStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
@@ -67,7 +69,7 @@ graph TB
     class CalCom scheduleStyle
     class Obsidian,Qdrant knowledgeStyle
     class R2 storageStyle
-    class SMTP externalStyle
+    class SMTP,PostgreSQL externalStyle
 ```
 
 ## 🔄 How It Works

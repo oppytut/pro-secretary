@@ -470,6 +470,74 @@ WHERE "userId" = 1
 
 ---
 
+### Sequence Diagram: Calendar Booking Flow
+
+Visual representation of the complete booking workflow:
+
+```mermaid
+sequenceDiagram
+    participant U as 👤 User
+    participant T as 📱 Telegram Bot
+    participant N as 🎯 n8n
+    participant C as 📅 Cal.com
+    participant P as 🗄️ PostgreSQL
+    participant S as 📧 SMTP
+    participant Q as 🧠 Qdrant
+    
+    U->>T: /jadwal Meeting besok 14:00
+    activate T
+    T->>N: POST /webhook/calendar
+    deactivate T
+    
+    activate N
+    Note over N: Parse natural language<br/>"besok 14:00" → 2026-05-10 14:00
+    N->>C: POST /api/bookings
+    deactivate N
+    
+    activate C
+    C->>P: BEGIN TRANSACTION
+    activate P
+    C->>P: SELECT * FROM bookings<br/>WHERE start_time = '2026-05-10 14:00'
+    P-->>C: [] (no conflicts)
+    C->>P: INSERT INTO bookings (...)
+    P-->>C: booking_id: 123
+    C->>P: COMMIT
+    deactivate P
+    
+    C->>S: Send confirmation email
+    activate S
+    S-->>C: Email sent
+    deactivate S
+    
+    C-->>N: {booking_id: 123, uid: "abc123"}
+    deactivate C
+    
+    activate N
+    N->>Q: Store booking in memory
+    activate Q
+    Q-->>N: Stored
+    deactivate Q
+    
+    N->>T: Format confirmation message
+    deactivate N
+    
+    activate T
+    T->>U: ✅ Event berhasil dibuat!<br/>Meeting dengan tim engineering<br/>📅 2026-05-10 14:00-15:00<br/>🔗 cal.yourdomain.com/booking/abc123
+    deactivate T
+```
+
+**Timeline:**
+- **0-100ms:** Telegram → n8n (webhook)
+- **100-200ms:** n8n parses natural language
+- **200-500ms:** Cal.com → PostgreSQL (transaction)
+- **500-800ms:** Email notification sent
+- **800-900ms:** Memory storage (Qdrant)
+- **900-1000ms:** Confirmation to user
+
+**Total Response Time:** ~1 second
+
+---
+
 ## 🔄 Key Features & Workflows
 
 ### 1. **Context-Aware Conversations**

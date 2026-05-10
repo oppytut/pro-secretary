@@ -538,6 +538,70 @@ sequenceDiagram
 
 ---
 
+### Database Schema: PostgreSQL ERD
+
+Entity Relationship Diagram showing Cal.com database structure:
+
+```mermaid
+erDiagram
+    USERS ||--o{ BOOKINGS : creates
+    USERS ||--o{ EVENT_TYPES : owns
+    EVENT_TYPES ||--o{ BOOKINGS : "has type"
+    BOOKINGS ||--o{ EVENT_LOGS : tracks
+    
+    USERS {
+        int id PK
+        string email UK
+        string name
+        string timezone
+        timestamp created_at
+    }
+    
+    EVENT_TYPES {
+        int id PK
+        int user_id FK
+        string title
+        int duration_minutes
+        string description
+        boolean active
+    }
+    
+    BOOKINGS {
+        int id PK
+        string uid UK
+        string title
+        text description
+        timestamp start_time
+        timestamp end_time
+        int user_id FK
+        int event_type_id FK
+        string status
+        timestamp created_at
+    }
+    
+    EVENT_LOGS {
+        int id PK
+        int booking_id FK
+        string action
+        text metadata
+        timestamp created_at
+    }
+```
+
+**Table Relationships:**
+- **USERS** → **BOOKINGS**: One user can create many bookings
+- **USERS** → **EVENT_TYPES**: One user can define many event types
+- **EVENT_TYPES** → **BOOKINGS**: One event type can have many bookings
+- **BOOKINGS** → **EVENT_LOGS**: One booking can have many audit log entries
+
+**Key Constraints:**
+- `USERS.email` - Unique constraint (UK)
+- `BOOKINGS.uid` - Unique identifier for external references
+- Foreign keys ensure referential integrity
+- `EVENT_LOGS` provides complete audit trail
+
+---
+
 ## 🔄 Key Features & Workflows
 
 ### 1. **Context-Aware Conversations**
@@ -1037,6 +1101,65 @@ Both **OpenFang.sh** and **LangGraph** serve as the "brain" of the AI Personal S
 | **Learning Curve** | Low (just configuration) | Medium (Python skills required) |
 | **Maintenance** | Low (update config) | High (maintain code) |
 | **Best For** | Production, MVP, Quick deploy | Custom logic, Prototyping, R&D |
+
+---
+
+### AI Agent Workflow State Machine
+
+Both OpenFang and LangGraph follow a similar state-based workflow for processing user requests:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Understand: User message received
+    
+    Understand --> RetrieveContext: Intent extracted
+    note right of Understand
+        • Parse user intent
+        • Extract entities
+        • Classify task type
+    end note
+    
+    RetrieveContext --> ExecuteTools: Context loaded
+    note right of RetrieveContext
+        • Query Qdrant vector DB
+        • Get conversation history
+        • Load relevant memories
+    end note
+    
+    ExecuteTools --> GenerateResponse: Tools executed
+    note right of ExecuteTools
+        • Call calendar API
+        • Search knowledge base
+        • Create/update tasks
+        • Upload/retrieve files
+    end note
+    
+    GenerateResponse --> StoreMemory: Response generated
+    note right of GenerateResponse
+        • Format with LLM
+        • Natural language output
+        • Bahasa Indonesia
+    end note
+    
+    StoreMemory --> [*]: Complete
+    note right of StoreMemory
+        • Save to Qdrant
+        • Update context
+        • Log interaction
+    end note
+    
+    ExecuteTools --> ExecuteTools: Multiple tools needed
+    Understand --> [*]: Invalid/unclear intent
+```
+
+**State Transitions:**
+- **Understand** → **RetrieveContext**: Intent successfully parsed
+- **RetrieveContext** → **ExecuteTools**: Relevant context retrieved
+- **ExecuteTools** → **ExecuteTools**: Multiple tools need to be called sequentially
+- **ExecuteTools** → **GenerateResponse**: All tools executed successfully
+- **GenerateResponse** → **StoreMemory**: Response formatted
+- **StoreMemory** → **[*]**: Interaction complete
+- **Understand** → **[*]**: Invalid intent (error handling)
 
 ---
 

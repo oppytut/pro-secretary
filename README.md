@@ -2106,26 +2106,88 @@ LLM_MODEL="llama3.1:8b"
 
 ## 🚀 Quick Start
 
+### Option 1: Low-Resource Setup (4 cores / 8GB RAM) - Recommended
+
+For budget VPS with limited resources. Uses Qdrant Cloud (external) to save 3-5 GB RAM.
+
 ```bash
 # 1. Clone repository
 git clone https://github.com/yourusername/ai-secretary-stack.git
 cd ai-secretary-stack
 
-# 2. Copy environment file
+# 2. Setup swap space (CRITICAL for 8GB RAM)
+chmod +x scripts/setup_swap.sh
+sudo ./scripts/setup_swap.sh 8G
+
+# 3. Sign up for Qdrant Cloud (free tier)
+# Visit: https://cloud.qdrant.io
+# Get: Cluster URL and API Key
+
+# 4. Copy and configure environment
 cp .env.example .env
-
-# 3. Edit konfigurasi
 nano .env
+# Set QDRANT_URL and QDRANT_API_KEY from Qdrant Cloud
 
-# 4. Jalankan semua services
+# 5. Deploy stack
 docker compose up -d
 
-# 5. Cek status
+# 6. Check status
 docker compose ps
+docker stats
 
-# 6. Setup Telegram bot
-python3 scripts/setup_telegram_bot.py
+# 7. Verify resource usage (should be under 6GB)
+free -h
 ```
+
+**See detailed guide:** [DEPLOYMENT_LOW_RESOURCE.md](DEPLOYMENT_LOW_RESOURCE.md)
+
+**Cost:** $19.50-48.50/month (VPS + free tier services)
+
+---
+
+### Option 2: Full Self-Hosted (6+ cores / 24GB+ RAM)
+
+For servers with sufficient resources. Everything runs locally.
+
+```bash
+# 1. Clone repository
+git clone https://github.com/yourusername/ai-secretary-stack.git
+cd ai-secretary-stack
+
+# 2. Setup swap space (recommended)
+chmod +x scripts/setup_swap.sh
+sudo ./scripts/setup_swap.sh 16G
+
+# 3. Copy environment file
+cp .env.example .env
+
+# 4. Edit configuration
+nano .env
+# Use local Qdrant: QDRANT_URL=http://qdrant:6333
+
+# 5. Uncomment Qdrant service in docker-compose.yml
+# (See docker-compose.yml comments)
+
+# 6. Deploy stack
+docker compose up -d
+
+# 7. Check status
+docker compose ps
+```
+
+**Cost:** $27-77/month (VPS + external services)
+
+---
+
+### Which Option Should I Choose?
+
+| Your Server | Recommended Option | Why |
+|-------------|-------------------|-----|
+| **4 cores / 8GB RAM** | Option 1 (Qdrant Cloud) | Saves 3-5 GB RAM, prevents OOM |
+| **6 cores / 16-24GB RAM** | Option 1 or 2 | Both work, Option 1 cheaper |
+| **8+ cores / 32GB+ RAM** | Option 2 (Full Self-Hosted) | Full control, no external dependencies |
+
+---
 
 ## 🐳 Docker Compose
 

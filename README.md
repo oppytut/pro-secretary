@@ -607,6 +607,271 @@ erDiagram
 - Foreign keys ensure referential integrity
 - `EVENT_LOGS` provides complete audit trail
 
+### Example 6: Knowledge Retrieval from Obsidian (`/tanya`)
+
+**User Input:** `/tanya Apa yang sudah kita diskusikan tentang project Alpha minggu lalu?`
+
+**Flow:**
+
+```
+1. TELEGRAM BOT receives question
+   └─ Intent: knowledge_retrieval
+   └─ Query: "diskusi project Alpha minggu lalu"
+
+2. OPENFANG AI AGENT processes request
+   ├─ Step 1: Generate Query Embedding
+   │   └─ POST to LLM embedding endpoint
+   │       Input: "diskusi project Alpha minggu lalu"
+   │       Output: vector [0.234, 0.567, 0.891, ...]
+   │
+   ├─ Step 2: Search Qdrant (Indexed Obsidian Content)
+   │   └─ POST http://qdrant:6333/collections/knowledge/points/search
+   │       {
+   │         "vector": [0.234, 0.567, ...],
+   │         "limit": 5,
+   │         "filter": {
+   │           "must": [
+   │             { "key": "source", "match": { "value": "obsidian" } },
+   │             { "key": "created_at", "range": { "gte": "2026-05-04" } }
+   │           ]
+   │         }
+   │       }
+   │
+   │       Response: [
+   │         {
+   │           "score": 0.94,
+   │           "payload": {
+   │             "title": "Project Alpha - Weekly Sync",
+   │             "file_path": "Projects/Alpha/2026-05-05-weekly-sync.md",
+   │             "content": "Discussed timeline delays...",
+   │             "tags": ["project-alpha", "meeting-notes"],
+   │             "created_at": "2026-05-05T10:00:00Z"
+   │           }
+   │         },
+   │         {
+   │           "score": 0.87,
+   │           "payload": {
+   │             "title": "Alpha - Technical Decisions",
+   │             "file_path": "Projects/Alpha/technical-decisions.md",
+   │             "content": "Decided to use PostgreSQL...",
+   │             "tags": ["project-alpha", "architecture"],
+   │             "created_at": "2026-05-06T14:30:00Z"
+   │           }
+   │         }
+   │       ]
+   │
+   └─ Step 3: Fetch Full Content from Obsidian/R2
+       ├─ Option A: Read from local Obsidian vault
+       │   └─ File: /vault/Projects/Alpha/2026-05-05-weekly-sync.md
+       │
+       └─ Option B: Fetch from R2 backup
+           └─ GET https://r2.cloudflarestorage.com/secretary-files/
+                   obsidian/Projects/Alpha/2026-05-05-weekly-sync.md
+
+3. AI SYNTHESIZES ANSWER
+   └─ POST https://api.openai.com/v1/chat/completions
+       System: "You are a personal secretary. Summarize these notes."
+       Context: [Full content from Obsidian notes]
+       User Query: "Apa yang sudah kita diskusikan tentang project Alpha?"
+       
+       Response:
+       "Berdasarkan notes minggu lalu tentang Project Alpha:
+        
+        📝 WEEKLY SYNC (5 Mei):
+        - Timeline mengalami delay 2 minggu karena dependency issue
+        - Tim engineering butuh tambahan resource
+        - Client sudah informed dan setuju dengan revised timeline
+        
+        🏗️ TECHNICAL DECISIONS (6 Mei):
+        - Memutuskan pakai PostgreSQL untuk database
+        - Architecture: microservices dengan n8n orchestration
+        - Deployment: Docker Compose di VPS
+        
+        📎 Sumber: Projects/Alpha/2026-05-05-weekly-sync.md"
+
+4. TELEGRAM BOT sends synthesized answer
+   └─ User receives contextual answer with source references
+```
+
+**Result:** AI retrieves and synthesizes information from Obsidian notes with source attribution.
+
+**Key Points:**
+- ✅ **Semantic Search** - Finds relevant notes even with different wording
+- ✅ **Source Attribution** - Shows which Obsidian files were used
+- ✅ **Time Filtering** - Can filter by date range
+- ✅ **Tag Support** - Leverages Obsidian tags for better filtering
+- ✅ **Dual Storage** - Reads from local vault or R2 backup
+
+---
+
+### Example 7: Meeting Preparation with Obsidian Context
+
+**User Input:** `/siapkan meeting dengan Client B besok`
+
+**Flow:**
+
+```
+1. TELEGRAM BOT parses command
+   └─ Intent: meeting_preparation
+   └─ Entity: "Client B", date: "tomorrow"
+
+2. OPENFANG AI AGENT orchestrates preparation
+   ├─ PARALLEL DATA COLLECTION (4 sources)
+   │
+   ├─ [1] Fetch Calendar Info
+   │   └─ GET http://calcom:3000/api/bookings?client=Client+B
+   │       Response: {
+   │         "title": "Client B - Q2 Review",
+   │         "time": "2026-05-12T10:00:00Z",
+   │         "duration": "60 minutes"
+   │       }
+   │
+   ├─ [2] Search Obsidian for Client B History
+   │   └─ POST http://qdrant:6333/collections/knowledge/points/search
+   │       Filter: tags contains "client-b"
+   │       Response: [
+   │         "Clients/Client-B/profile.md",
+   │         "Clients/Client-B/2026-Q1-review.md",
+   │         "Clients/Client-B/contract-details.md"
+   │       ]
+   │
+   ├─ [3] Search Past Meeting Notes
+   │   └─ POST http://qdrant:6333/collections/knowledge/points/search
+   │       Filter: tags contains "client-b" AND "meeting-notes"
+   │       Response: [
+   │         "Meetings/2026-02-15-client-b-kickoff.md",
+   │         "Meetings/2026-03-20-client-b-progress.md"
+   │       ]
+   │
+   └─ [4] Search Pending Tasks Related to Client B
+       └─ POST http://qdrant:6333/collections/tasks/points/search
+           Filter: payload.client = "Client B" AND status = "pending"
+           Response: [
+             { "title": "Finalize Q2 report for Client B", "status": "pending" },
+             { "title": "Prepare demo environment", "status": "in_progress" }
+           ]
+
+3. FETCH FULL CONTENT FROM OBSIDIAN
+   ├─ Read: Clients/Client-B/profile.md
+   │   Content:
+   │   ---
+   │   # Client B Profile
+   │   - Industry: FinTech
+   │   - Contact: John Doe (CTO)
+   │   - Contract: $50k/year, expires Dec 2026
+   │   - Pain Points: Legacy system migration
+   │   - Tech Stack: Java, PostgreSQL, AWS
+   │   ---
+   │
+   ├─ Read: Clients/Client-B/2026-Q1-review.md
+   │   Content:
+   │   ---
+   │   # Q1 Review - Client B
+   │   - Delivered: API integration module
+   │   - Feedback: Very satisfied with performance
+   │   - Concerns: Timeline for Phase 2
+   │   - Next Steps: Discuss Q2 roadmap
+   │   ---
+   │
+   └─ Read: Meetings/2026-03-20-client-b-progress.md
+       Content:
+       ---
+       # Progress Meeting - Client B
+       - Discussed: Phase 1 completion
+       - Action Items: Prepare Phase 2 proposal
+       - Client requested: Cost breakdown for scaling
+       ---
+
+4. AI GENERATES MEETING BRIEF
+   └─ POST https://api.openai.com/v1/chat/completions
+       System: "You are a personal secretary preparing a meeting brief."
+       Context: [All fetched Obsidian content + calendar + tasks]
+       
+       Response:
+       "📋 MEETING PREPARATION: Client B - Q2 Review
+        
+        🗓️ MEETING DETAILS:
+        - Date: Besok, 12 Mei 2026
+        - Time: 10:00 AM
+        - Duration: 60 minutes
+        - Topic: Q2 Review
+        
+        👤 CLIENT PROFILE:
+        - Company: Client B (FinTech)
+        - Contact: John Doe (CTO)
+        - Contract: $50k/year (expires Dec 2026)
+        - Tech Stack: Java, PostgreSQL, AWS
+        
+        📊 Q1 RECAP:
+        - ✅ Delivered: API integration module
+        - 😊 Feedback: Very satisfied with performance
+        - ⚠️ Concern: Timeline for Phase 2
+        
+        📝 LAST MEETING (20 Mar):
+        - Discussed Phase 1 completion
+        - Client requested cost breakdown for scaling
+        
+        ✅ PENDING TASKS:
+        - [ ] Finalize Q2 report for Client B
+        - [⏳] Prepare demo environment (in progress)
+        
+        💡 TALKING POINTS:
+        1. Present Q2 roadmap
+        2. Address Phase 2 timeline concerns
+        3. Provide scaling cost breakdown (from last meeting)
+        4. Discuss contract renewal (expires Dec 2026)
+        
+        📎 Reference Files:
+        - Clients/Client-B/profile.md
+        - Clients/Client-B/2026-Q1-review.md
+        - Meetings/2026-03-20-client-b-progress.md"
+
+5. CREATE PREPARATION NOTE IN OBSIDIAN
+   └─ Write new file: Meetings/2026-05-12-client-b-prep.md
+       Content: [Generated meeting brief above]
+       
+   └─ Sync to R2 for backup
+       └─ PUT https://r2.cloudflarestorage.com/secretary-files/
+               obsidian/Meetings/2026-05-12-client-b-prep.md
+
+6. INDEX NEW NOTE TO QDRANT
+   └─ POST http://qdrant:6333/collections/knowledge/points
+       {
+         "points": [{
+           "id": "note_prep_client_b_20260512",
+           "vector": [0.345, 0.678, ...],
+           "payload": {
+             "title": "Meeting Prep: Client B Q2 Review",
+             "file_path": "Meetings/2026-05-12-client-b-prep.md",
+             "tags": ["client-b", "meeting-prep", "q2-review"],
+             "created_at": "2026-05-11T15:30:00Z",
+             "source": "obsidian"
+           }
+         }]
+       }
+
+7. TELEGRAM BOT sends preparation brief
+   └─ Message: [Full meeting brief with formatting]
+   └─ Attachment: Link to Obsidian note
+```
+
+**Result:** Comprehensive meeting preparation by aggregating data from Obsidian, calendar, and tasks.
+
+**Obsidian Workflow:**
+```
+Obsidian Vault → Qdrant (search) → AI (synthesize) → New Note → Obsidian → R2 (backup)
+     ↓                                                                ↓
+  (read)                                                          (write)
+```
+
+**Key Points:**
+- ✅ **Context Aggregation** - Pulls from multiple Obsidian notes
+- ✅ **Automatic Note Creation** - Saves preparation brief back to Obsidian
+- ✅ **Bidirectional Sync** - Reads from and writes to Obsidian
+- ✅ **Tag-Based Filtering** - Uses Obsidian tags for precise search
+- ✅ **Source Tracking** - Shows which notes were referenced
+- ✅ **Backup Integration** - Auto-syncs new notes to R2
+
 ---
 
 ## 🔄 Key Features & Workflows

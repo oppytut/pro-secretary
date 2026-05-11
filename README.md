@@ -1085,23 +1085,70 @@ fi
 
 ### Hardware Requirements
 
-#### Minimum (Small Team/Personal Use)
-- **CPU:** 4 cores (x86_64)
-- **RAM:** 16 GB
-- **Storage:** 100 GB SSD
-- **Network:** 10 Mbps upload/download
+> **Important:** PostgreSQL dan Cloudflare R2 adalah external services yang TIDAK berjalan di server Anda. Resource requirements di bawah hanya untuk 6 containers lokal: n8n, OpenFang, Qdrant, Cal.com, Telegram Bot, dan Caddy.
 
-#### Recommended (Production Use)
+#### Minimum (Personal Use - Single User)
+- **CPU:** 6 cores (x86_64)
+- **RAM:** 24 GB
+- **Storage:** 250 GB NVMe SSD
+- **Network:** 10 Mbps upload/download
+- **Swap:** 16 GB (for OOM protection)
+- **Disk I/O:** 3000+ IOPS, 100+ MB/s throughput
+
+**Why these specs:**
+- 16GB RAM causes OOM during Qdrant vector indexing
+- 100GB storage fills up in 2-3 months (logs + vectors + backups)
+- 4 cores bottleneck during concurrent AI operations
+- NVMe required for Qdrant performance (SATA too slow)
+
+#### Recommended (Production Use - Small Team)
 - **CPU:** 8 cores (x86_64)
 - **RAM:** 32 GB
 - **Storage:** 500 GB NVMe SSD
-- **Network:** 50 Mbps upload/download
+- **Network:** 25 Mbps upload/download
+- **Swap:** 16 GB
+- **Disk I/O:** 5000+ IOPS, 200+ MB/s throughput
 
 #### Optimal (High-Volume/Enterprise)
 - **CPU:** 16 cores (x86_64)
 - **RAM:** 64 GB
 - **Storage:** 1 TB NVMe SSD
 - **Network:** 100 Mbps upload/download
+- **Swap:** 32 GB
+- **Disk I/O:** 10000+ IOPS, 500+ MB/s throughput
+
+#### Resource Breakdown (Minimum Tier)
+
+**What runs on YOUR server (6 containers):**
+- n8n: ~1.5-2 GB RAM, 1 core
+- Qdrant: ~3-5 GB RAM, 1-2 cores (vector database - biggest consumer)
+- Cal.com: ~1-1.5 GB RAM, 0.5-1 core (app only, database is external)
+- OpenFang: ~1-2 GB RAM, 1 core
+- Telegram Bot: ~0.3-0.5 GB RAM, negligible CPU
+- Caddy: ~0.2-0.3 GB RAM, negligible CPU
+- OS + Docker: ~2-3 GB RAM, 0.5-1 core
+
+**Total baseline:** 10-14 GB RAM, spikes to 16-18 GB during vector indexing/LLM inference
+
+**What runs EXTERNALLY (not on your server):**
+- PostgreSQL: Hosted by Supabase/Neon/Railway (only network bandwidth)
+- Cloudflare R2: Object storage (only network bandwidth)
+- LLM Provider: API calls to OpenAI/Groq/etc (only network bandwidth)
+
+#### Important Notes
+
+- **NVMe SSD required** (not SATA) - Qdrant + Cal.com are I/O-intensive
+- **Enable swap space** to prevent OOM crashes during vector indexing:
+  ```bash
+  sudo fallocate -l 16G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+  ```
+- **Allocate 8GB minimum to Qdrant container** for 100k+ vector collections
+- **Plan for 20-30% headroom** - LLM inference and vector indexing cause 2-3x CPU/RAM spikes
+- **Storage grows over time:** Plan for 50-100 GB growth per year (logs, vectors, backups)
 
 ### Software Prerequisites
 
@@ -1154,46 +1201,68 @@ sudo ufw status
 
 ## 💰 Monthly Cost Estimate
 
-### Scenario 1: Minimal Setup (Small Team/Personal)
+### Scenario 1: Minimal Setup (Personal Use - Single User)
+
+> **Note:** Hardware requirements updated to 6 cores, 24GB RAM, 250GB storage. VPS pricing below reflects OLD specs (4 cores, 16GB). See updated recommendations in comments.
 
 **Infrastructure:**
-- **VPS:** $10-20/month
-  - DigitalOcean Droplet (4 cores, 16GB): $96/year = $8/month
-  - Linode Dedicated 16GB: $96/month = $8/month
-  - Hetzner CX31 (4 cores, 16GB): €13/month = ~$14/month
+- **VPS:** $15-25/month
+  - Hetzner CX41 (8 cores, 32GB): €25/month = ~$27/month ← **Recommended** (exceeds minimum for headroom)
+  - Contabo VPS M (6 cores, 16GB): €12/month = ~$13/month ← **Tight but workable**
+  - OVH Essential (4 cores, 16GB): ~$18/month ← **Below minimum, not recommended**
+  
 - **Domain + SSL:** $1-2/month
   - Domain (.com): ~$12/year = $1/month
   - SSL: Free (Let's Encrypt via Caddy)
-- **PostgreSQL Database:** $0-10/month
-  - Supabase: Free tier (500MB, 2GB bandwidth)
+  
+- **PostgreSQL Database (External):** $0-10/month
+  - Supabase: Free tier (500MB, 2GB bandwidth) ← **Sufficient for personal use**
   - Neon: Free tier (0.5GB storage, 3GB data transfer)
   - Railway: $5/month (shared CPU, 512MB RAM)
-- **Backup Storage (Optional):** $5-10/month
-  - Backblaze B2: $0.005/GB = ~$5 for 1TB
-  - Wasabi: $6.99/TB/month
+  - **Note:** Database runs on provider, NOT on your VPS
+  
+- **Cloudflare R2 (External):** $0-5/month
+  - Free tier: 10GB storage, unlimited egress
+  - Paid: $0.015/GB/month beyond 10GB
+  - **Note:** File storage runs on Cloudflare, NOT on your VPS
+  
+- **Backup Storage (Optional):** $1-5/month
+  - Backblaze B2: $0.005/GB = ~$1.25 for 250GB
+  - Wasabi: $6.99/TB/month (minimum, overkill for this tier)
 
 **LLM Costs (OpenAI-compatible Provider):**
 - **Light Usage:** ~$10-30/month
   - Using efficient models (gpt-3.5-turbo, claude-haiku)
   - ~1000-3000 requests/month
 
-**Total: $26-72/month** (minimal setup, cost-optimized)
+**Total: $27-72/month** (personal use, cost-optimized)
 
 ---
 
-### Scenario 2: Production Setup (Recommended)
+### Scenario 2: Production Setup (Small Team)
 
 **Infrastructure:**
-- **VPS/Dedicated Server:** $20-50/month
-  - Hetzner AX41 (Ryzen 5 3600, 64GB RAM): ~€39/month (~$42)
-  - Contabo VPS L (10 cores, 60GB RAM): ~€27/month (~$29)
-  - OVH Advance-2 (8 cores, 32GB RAM): ~$40/month
+- **VPS/Dedicated Server:** $25-45/month
+  - Hetzner AX41 (Ryzen 5 3600, 64GB RAM): ~€39/month (~$42) ← **Exceeds spec (64GB vs 32GB), but good value**
+  - OVH Advance-2 (8 cores, 32GB RAM): ~$40/month ← **Matches spec exactly**
+  - Contabo VPS L (10 cores, 60GB RAM): ~€27/month (~$29) ← **Exceeds spec, best value**
+  
 - **Domain + SSL:** $1-2/month
-- **PostgreSQL Database:** $10-25/month
+
+- **PostgreSQL Database (External):** $10-25/month
   - Supabase Pro: $25/month (8GB storage, 50GB bandwidth)
   - Neon Scale: $19/month (10GB storage, autoscaling)
   - Railway Pro: $20/month (8GB RAM, shared CPU)
-- **Backup Storage:** $5-10/month
+  - **Note:** Database runs on provider, NOT on your VPS
+  
+- **Cloudflare R2 (External):** $5-15/month
+  - Free tier: 10GB storage
+  - Typical usage: 50-100GB = $0.75-1.50/month
+  - **Note:** File storage runs on Cloudflare, NOT on your VPS
+  
+- **Backup Storage:** $2-7/month
+  - Backblaze B2: $0.005/GB = ~$2.50 for 500GB
+  - Wasabi: $6.99/TB/month
 
 **LLM Costs (OpenAI-compatible Provider):**
 - **Moderate Usage:** ~$30-80/month
@@ -1201,22 +1270,34 @@ sudo ufw status
   - ~5000-10000 requests/month
   - Using gpt-4, claude-sonnet, or similar
 
-**Total: $66-167/month** (production-ready, balanced)
+**Total: $73-174/month** (production-ready, small team)
 
 ---
 
 ### Scenario 3: High-Volume/Enterprise
 
 **Infrastructure:**
-- **Dedicated Server:** $50-100/month
-  - Hetzner AX102 (Ryzen 9 5950X, 128GB RAM): ~€99/month (~$107)
-  - OVH Scale-3 (16 cores, 64GB RAM): ~$80/month
+- **Dedicated Server:** $80-110/month
+  - Hetzner AX102 (Ryzen 9 5950X, 128GB RAM): ~€99/month (~$107) ← **Exceeds spec (128GB vs 64GB)**
+  - OVH Scale-3 (16 cores, 64GB RAM): ~$80/month ← **Matches spec exactly**
+  - Hetzner AX61 (Ryzen 7 3700X, 64GB RAM): ~€59/month (~$64) ← **Matches spec, best value**
+  
 - **Domain + SSL:** $1-2/month
-- **PostgreSQL Database:** $50-200/month
-  - Supabase Team: $599/month (unlimited storage, dedicated resources)
+
+- **PostgreSQL Database (External):** $50-200/month
+  - Supabase Team: $599/month (unlimited storage, dedicated resources) ← **Overkill for most**
   - Neon Business: Custom pricing (dedicated compute)
   - AWS RDS: $50-200/month (db.t3.medium to db.m5.large)
-- **Backup Storage:** $10-20/month
+  - Supabase Pro: $25/month (often sufficient for enterprise)
+  - **Note:** Database runs on provider, NOT on your VPS
+  
+- **Cloudflare R2 (External):** $10-30/month
+  - Typical usage: 500GB-1TB = $7.50-15/month
+  - **Note:** File storage runs on Cloudflare, NOT on your VPS
+  
+- **Backup Storage:** $5-15/month
+  - Backblaze B2: $0.005/GB = ~$5 for 1TB
+  - Wasabi: $6.99/TB/month (flat rate)
 
 **LLM Costs (OpenAI-compatible Provider):**
 - **Heavy Usage:** ~$100-300/month
@@ -1224,22 +1305,23 @@ sudo ufw status
   - ~20000-50000 requests/month
   - Production workloads
 
-**Total: $211-622/month** (enterprise-grade, high-volume)
+**Total: $246-657/month** (enterprise-grade, high-volume)
 
 ---
 
 ### Cost Comparison Table
 
-| Component | Scenario 1<br/>(Minimal) | Scenario 2<br/>(Production) | Scenario 3<br/>(Enterprise) |
+| Component | Scenario 1<br/>(Personal) | Scenario 2<br/>(Small Team) | Scenario 3<br/>(Enterprise) |
 |-----------|--------------------------|-----------------------------|-----------------------------|
-| **Server/VPS** | $10-20 | $20-50 | $50-100 |
+| **Server/VPS** | $15-25 | $25-45 | $80-110 |
 | **Domain + SSL** | $1-2 | $1-2 | $1-2 |
-| **PostgreSQL Database** | $0-10 | $10-25 | $50-200 |
-| **Backup Storage** | $5-10 | $5-10 | $10-20 |
+| **PostgreSQL (External)** | $0-10 | $10-25 | $50-200 |
+| **Cloudflare R2 (External)** | $0-5 | $5-15 | $10-30 |
+| **Backup Storage** | $1-5 | $2-7 | $5-15 |
 | **LLM API (Provider)** | $10-30 | $30-80 | $100-300 |
 | **Usage Level** | Light | Moderate | Heavy |
 | **Setup Complexity** | 🔧 Low | 🔧🔧 Medium | 🔧🔧🔧 High |
-| **TOTAL/month** | **$26-72** | **$66-167** | **$211-622** |
+| **TOTAL/month** | **$27-77** | **$73-174** | **$246-657** |
 
 ---
 

@@ -103,21 +103,26 @@ flowchart TD
     AIAgent[🤖 OPENFANG / LANGGRAPH<br/>AI Agent Layer<br/>━━━━━━━━━━━━━━<br/>✓ Understand user intent<br/>✓ Retrieve context from memory<br/>✓ Execute tools calendar, search, tasks<br/>✓ Generate natural language responses]
     
     subgraph Backend["🔧 BACKEND SERVICES (Parallel Access)"]
+        Obsidian[📝 OBSIDIAN<br/>Knowledge Base<br/>━━━━━━━━<br/>• Notes<br/>• Docs<br/>• Wiki]
+        
         Qdrant[💾 QDRANT<br/>Vector DB<br/>━━━━━━━━<br/>• Memories<br/>• Tasks<br/>• Knowledge]
         
         CalCom[📅 CAL.COM<br/>Calendar<br/>━━━━━━━━<br/>• Events<br/>• Bookings]
         
         PostgreSQL[🗄️ POSTGRESQL<br/>Database<br/>━━━━━━━━<br/>• Booking data<br/>• User data<br/>• Event types]
         
-        R2[📦 CLOUDFLARE R2<br/>Storage<br/>━━━━━━━━<br/>• Files<br/>• Backups<br/>• Notes]
+        R2[📦 CLOUDFLARE R2<br/>Storage<br/>━━━━━━━━<br/>• Files<br/>• Backups<br/>• Archives]
     end
     
     User --> TelegramBot
     TelegramBot --> N8N
     N8N --> AIAgent
+    AIAgent --> Obsidian
     AIAgent --> Qdrant
     AIAgent --> CalCom
     AIAgent --> R2
+    Obsidian --> Qdrant
+    Obsidian --> R2
     CalCom --> PostgreSQL
     
     style User fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
@@ -125,6 +130,7 @@ flowchart TD
     style N8N fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
     style AIAgent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
     style Backend fill:#f5f5f5,stroke:#616161,stroke-width:2px
+    style Obsidian fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px,color:#000
     style Qdrant fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
     style CalCom fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
     style PostgreSQL fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
@@ -137,7 +143,8 @@ flowchart TD
 2. **Proactive Tasks** → n8n (cron) → AI Agent → Backend Services → Telegram Bot → User
 3. **Calendar Operations** → Cal.com ↔ PostgreSQL (persistent storage)
 4. **Memory/Context** → Qdrant (vector search for relevant information)
-5. **File Operations** → Cloudflare R2 (S3-compatible object storage)
+5. **Knowledge Base** → Obsidian (notes/docs) → Qdrant (indexing) + R2 (backup)
+6. **File Operations** → Cloudflare R2 (S3-compatible object storage)
 
 ---
 

@@ -49,54 +49,55 @@ services:
       start_period: 30s
 
   # ============================================
-  # AI AGENT ENGINE - OpenFang
+  # AI AGENT ENGINE - OpenFang (DISABLED - image unavailable)
   # ============================================
-  openfang:
-    image: ghcr.io/rightnow-ai/openfang:latest
-    container_name: openfang
-    restart: unless-stopped
-    ports:
-      - "8090:8090"
-    environment:
-      - OPENFANG_CONFIG=/etc/openfang/secretary.toml
-      - LLM_PROVIDER=${LLM_PROVIDER}
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - LLM_MODEL=${LLM_MODEL}
-      - QDRANT_URL=${QDRANT_URL}
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - CALCOM_API_KEY=${CALCOM_API_KEY}
-      - R2_ENDPOINT=${R2_ENDPOINT}
-      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
-      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
-      - R2_BUCKET=${R2_BUCKET}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - SMTP_FROM=${SMTP_FROM}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
-      - TZ=${TIMEZONE}
-    volumes:
-      - ./openfang/secretary.toml:/etc/openfang/secretary.toml:ro
-      - openfang_data:/var/lib/openfang
-    networks:
-      - secretary-net
-    deploy:
-      resources:
-        limits:
-          memory: 2048M
-          cpus: '1.5'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+  # Uncomment when ghcr.io/rightnow-ai/openfang:latest becomes available
+  # openfang:
+  #   image: ghcr.io/rightnow-ai/openfang:latest
+  #   container_name: openfang
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8090:8090"
+  #   environment:
+  #     - OPENFANG_CONFIG=/etc/openfang/secretary.toml
+  #     - LLM_PROVIDER=${LLM_PROVIDER}
+  #     - LLM_API_KEY=${LLM_API_KEY}
+  #     - LLM_BASE_URL=${LLM_BASE_URL}
+  #     - LLM_MODEL=${LLM_MODEL}
+  #     - QDRANT_URL=${QDRANT_URL}
+  #     - QDRANT_API_KEY=${QDRANT_API_KEY}
+  #     - CALCOM_API_KEY=${CALCOM_API_KEY}
+  #     - R2_ENDPOINT=${R2_ENDPOINT}
+  #     - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+  #     - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+  #     - R2_BUCKET=${R2_BUCKET}
+  #     - SMTP_HOST=${SMTP_HOST}
+  #     - SMTP_PORT=${SMTP_PORT}
+  #     - SMTP_USER=${SMTP_USER}
+  #     - SMTP_PASSWORD=${SMTP_PASSWORD}
+  #     - SMTP_FROM=${SMTP_FROM}
+  #     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+  #     - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+  #     - TZ=${TIMEZONE}
+  #   volumes:
+  #     - ./openfang/secretary.toml:/etc/openfang/secretary.toml:ro
+  #     - openfang_data:/var/lib/openfang
+  #   networks:
+  #     - secretary-net
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 2048M
+  #         cpus: '1.5'
+  #       reservations:
+  #         memory: 512M
+  #         cpus: '0.5'
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 15s
 
   # ============================================
   # VECTOR MEMORY - Qdrant Cloud (External)
@@ -164,8 +165,6 @@ services:
     depends_on:
       n8n:
         condition: service_healthy
-      openfang:
-        condition: service_healthy
     networks:
       - secretary-net
     deploy:
@@ -209,6 +208,5 @@ networks:
 
 volumes:
   n8n_data:
-  openfang_data:
   caddy_data:
   caddy_config:

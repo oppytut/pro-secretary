@@ -503,6 +503,51 @@ pro-secretary/
 6. **Storage:** Cloudflare R2 (S3-compatible, no egress fees, 10GB free tier)
 7. **Database:** External PostgreSQL provider (Supabase/Neon/Railway - managed, automatic backups)
 8. **Deployment Target:** VPS 4 vCPU / 8 GB RAM / 160 GB SSD / 5 TB Transfer (Scenario 1 - Minimal/Personal Use, swap 8GB wajib)
+9. **CI/CD:** GitHub Actions → SSH deploy on push to main (docker compose pull/up)
+
+---
+
+## 🚀 CI/CD: GitHub Actions Deploy
+
+**Workflow:** `.github/workflows/deploy.yml`
+**Trigger:** Push to `main` branch (or manual via workflow_dispatch)
+
+### Required GitHub Secrets
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `VPS_HOST` | VPS IP address or hostname | `203.0.113.10` |
+| `VPS_USER` | SSH username | `ubuntu` |
+| `VPS_SSH_KEY` | Private SSH key (ed25519/rsa) | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
+| `VPS_PORT` | SSH port (optional, default: 22) | `22` |
+| `DEPLOY_PATH` | Project path on VPS (optional, default: `/opt/ai-secretary`) | `/opt/ai-secretary` |
+
+### VPS Setup (One-time)
+
+```bash
+# 1. Clone repo ke VPS
+git clone git@github.com:oppytut/pro-secretary.git /opt/ai-secretary
+cd /opt/ai-secretary
+
+# 2. Copy dan isi .env
+cp .env.example .env
+nano .env
+
+# 3. Setup swap
+sudo ./scripts/setup_swap.sh 8G
+
+# 4. First deploy
+docker compose up -d
+
+# 5. Init Qdrant collections
+python3 scripts/init_qdrant.py
+```
+
+### Deploy Flow
+
+```
+Push to main → GitHub Actions → SSH to VPS → git pull → docker compose pull → build telegram-bot → up -d → prune old images
+```
 
 ---
 

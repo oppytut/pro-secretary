@@ -1,23 +1,17 @@
 # 🚀 Low-Resource Deployment Guide
 
-> Deployment guide for servers with **4 cores / 8GB RAM** using Qdrant Cloud
+> Deployment guide for servers with **4 cores / 8GB RAM** (minimum spec)
 
 ## 📋 Overview
 
-This guide helps you deploy AI Personal Secretary Stack on budget VPS with limited resources by using **Qdrant Cloud** (external vector database) instead of self-hosting Qdrant.
+This guide helps you deploy AI Personal Secretary Stack on budget VPS. All heavy stateful services (Qdrant, PostgreSQL) run externally as managed cloud services.
 
-**Resource Savings:**
-- **RAM:** 3-5 GB saved (Qdrant moved to cloud)
-- **CPU:** 1-2 cores freed up
-- **Storage:** 20-40 GB saved (vector data on cloud)
-
-**What runs locally (6 containers):**
+**What runs locally (5 containers):**
 1. n8n (workflow orchestrator)
 2. OpenFang (AI agent)
 3. Cal.com (calendar app)
 4. Telegram Bot (interface)
 5. Caddy (reverse proxy)
-6. ~~Qdrant~~ → **Qdrant Cloud (external)**
 
 **What runs externally:**
 - PostgreSQL (Supabase/Neon/Railway)
@@ -433,20 +427,21 @@ TOTAL:                     $19.50-48.50/month
 When you outgrow 4 cores / 8GB RAM:
 
 ### Option 1: Upgrade VPS
-- Move to 8 cores / 32GB RAM
-- Self-host Qdrant locally
-- Cost: $25-45/month
+- Move to 6 cores / 16GB RAM
+- More headroom for concurrent operations
+- Cost: $15-30/month
 
-### Option 2: Keep Hybrid Setup
+### Option 2: Upgrade External Services
 - Upgrade to Qdrant Cloud Starter ($25/month)
+- Upgrade to Supabase Pro ($25/month)
 - Keep current VPS
-- Cost: $33.50-73.50/month
+- Cost: $58-83/month
 
 ### Option 3: Full Cloud
 - Move n8n to n8n Cloud ($20/month)
 - Keep Qdrant Cloud
 - Minimal VPS for Cal.com + Telegram
-- Cost: $48.50-93.50/month
+- Cost: $48-93/month
 
 ---
 

@@ -27,7 +27,10 @@ graph TB
     
     subgraph Knowledge["🧠 KNOWLEDGE & MEMORY"]
         Obsidian[Obsidian Notes]
-        Qdrant[Qdrant<br/>Vector Memory]
+    end
+    
+    subgraph VectorDB["💾 VECTOR DATABASE"]
+        Qdrant[Qdrant Cloud<br/>Vector Memory]
     end
     
     subgraph Storage["📁 FILE STORAGE"]
@@ -62,21 +65,23 @@ graph TB
     classDef knowledgeStyle fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
     classDef storageStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
     classDef externalStyle fill:#e0e0e0,stroke:#616161,stroke-width:2px,color:#000
+    classDef vectordbStyle fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
     
     class TG interfaceStyle
     class N8N orchestratorStyle
     class OpenFang,LangGraph aiStyle
     class CalCom scheduleStyle
-    class Obsidian,Qdrant knowledgeStyle
+    class Obsidian knowledgeStyle
     class R2 storageStyle
     class SMTP,PostgreSQL externalStyle
+    class Qdrant vectordbStyle
 ```
 
 ## 🔄 How It Works
 
 ### System Overview
 
-AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelola pekerjaan, jadwal, tasks, dan knowledge base Anda. Sistem ini menggunakan arsitektur microservices dengan 7 komponen utama yang saling terintegrasi.
+AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelola pekerjaan, jadwal, tasks, dan knowledge base Anda. Sistem ini menggunakan arsitektur microservices dengan 5 containers lokal dan 3 external services yang saling terintegrasi.
 
 ### Component Roles
 
@@ -86,7 +91,7 @@ AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelo
 | **n8n** | Workflow orchestrator & router | n8n (low-code automation) | 5678 |
 | **OpenFang/LangGraph** | AI reasoning & decision making | OpenFang.sh / LangGraph | 8090 |
 | **Cal.com** | Calendar & appointment management | Cal.com (self-hosted) | 3000 |
-| **Qdrant** | Vector database & semantic search | Qdrant | 6333, 6334 |
+| **Qdrant Cloud** | Vector database & semantic search | Qdrant (managed cloud) | External |
 | **Obsidian** | Knowledge base (notes & docs) | Obsidian Markdown | - |
 | **Cloudflare R2** | Object storage (files, backups) | S3-compatible storage | External |
 
@@ -105,7 +110,7 @@ flowchart TD
     subgraph Backend["🔧 BACKEND SERVICES (Parallel Access)"]
         Obsidian[📝 OBSIDIAN<br/>Knowledge Base<br/>━━━━━━━━<br/>• Notes<br/>• Docs<br/>• Wiki]
         
-        Qdrant[💾 QDRANT<br/>Vector DB<br/>━━━━━━━━<br/>• Memories<br/>• Tasks<br/>• Knowledge]
+        Qdrant[💾 QDRANT CLOUD<br/>Vector DB<br/>━━━━━━━━<br/>• Memories<br/>• Tasks<br/>• Knowledge]
         
         CalCom[📅 CAL.COM<br/>Calendar<br/>━━━━━━━━<br/>• Events<br/>• Bookings]
         
@@ -131,7 +136,7 @@ flowchart TD
     style AIAgent fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
     style Backend fill:#f5f5f5,stroke:#616161,stroke-width:2px
     style Obsidian fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px,color:#000
-    style Qdrant fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
+    style Qdrant fill:#e0e0e0,stroke:#616161,stroke-width:2px,color:#000
     style CalCom fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
     style PostgreSQL fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
     style R2 fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
@@ -142,8 +147,8 @@ flowchart TD
 1. **User Input** → Telegram Bot → n8n → AI Agent → Backend Services
 2. **Proactive Tasks** → n8n (cron) → AI Agent → Backend Services → Telegram Bot → User
 3. **Calendar Operations** → Cal.com ↔ PostgreSQL (persistent storage)
-4. **Memory/Context** → Qdrant (vector search for relevant information)
-5. **Knowledge Base** → Obsidian (notes/docs) → Qdrant (indexing) + R2 (backup)
+4. **Memory/Context** → Qdrant Cloud (vector search for relevant information)
+5. **Knowledge Base** → Obsidian (notes/docs) → Qdrant Cloud (indexing) + R2 (backup)
 6. **File Operations** → Cloudflare R2 (S3-compatible object storage)
 
 ---
@@ -214,8 +219,8 @@ flowchart TD
        ├─ Generate embedding for task
        └─ Store in Qdrant "tasks" collection
 
-3. QDRANT stores task
-   └─ POST http://qdrant:6333/collections/tasks/points
+3. QDRANT CLOUD stores task
+   └─ POST ${QDRANT_URL}/collections/tasks/points
        {
          "id": "task-uuid-456",
          "vector": [0.234, 0.567, ...],
@@ -250,7 +255,7 @@ flowchart TD
    │       Response: [meetings for today]
    │
    └─ Fetch Pending Tasks
-       └─ POST http://qdrant:6333/collections/tasks/points/scroll
+       └─ POST ${QDRANT_URL}/collections/tasks/points/scroll
            Filter: { "status": "pending" }
            Response: [pending tasks]
 
@@ -296,8 +301,8 @@ flowchart TD
    ├─ Generate embedding from query
    │   └─ Vector: [0.345, 0.678, 0.912, ...]
    │
-   └─ Search in Qdrant "knowledge" collection
-       └─ POST http://qdrant:6333/collections/knowledge/points/search
+   └─ Search in Qdrant Cloud "knowledge" collection
+       └─ POST ${QDRANT_URL}/collections/knowledge/points/search
            {
              "vector": [0.345, 0.678, ...],
              "limit": 5,
@@ -412,8 +417,8 @@ flowchart TD
        Subject: "Meeting Confirmed: Meeting dengan tim engineering"
        Body: "Your meeting is scheduled for May 10, 2026 at 2:00 PM"
 
-7. N8N → QDRANT (Store in Memory)
-   └─ POST http://qdrant:6333/collections/agent_memory/points
+7. N8N → QDRANT CLOUD (Store in Memory)
+   └─ POST ${QDRANT_URL}/collections/agent_memory/points
        {
          "points": [{
            "id": "memory_xyz789",
@@ -624,8 +629,8 @@ erDiagram
    │       Input: "diskusi project Alpha minggu lalu"
    │       Output: vector [0.234, 0.567, 0.891, ...]
    │
-   ├─ Step 2: Search Qdrant (Indexed Obsidian Content)
-   │   └─ POST http://qdrant:6333/collections/knowledge/points/search
+   ├─ Step 2: Search Qdrant Cloud (Indexed Obsidian Content)
+   │   └─ POST ${QDRANT_URL}/collections/knowledge/points/search
    │       {
    │         "vector": [0.234, 0.567, ...],
    │         "limit": 5,
@@ -727,7 +732,7 @@ erDiagram
    │       }
    │
    ├─ [2] Search Obsidian for Client B History
-   │   └─ POST http://qdrant:6333/collections/knowledge/points/search
+   │   └─ POST ${QDRANT_URL}/collections/knowledge/points/search
    │       Filter: tags contains "client-b"
    │       Response: [
    │         "Clients/Client-B/profile.md",
@@ -736,7 +741,7 @@ erDiagram
    │       ]
    │
    ├─ [3] Search Past Meeting Notes
-   │   └─ POST http://qdrant:6333/collections/knowledge/points/search
+   │   └─ POST ${QDRANT_URL}/collections/knowledge/points/search
    │       Filter: tags contains "client-b" AND "meeting-notes"
    │       Response: [
    │         "Meetings/2026-02-15-client-b-kickoff.md",
@@ -744,7 +749,7 @@ erDiagram
    │       ]
    │
    └─ [4] Search Pending Tasks Related to Client B
-       └─ POST http://qdrant:6333/collections/tasks/points/search
+       └─ POST ${QDRANT_URL}/collections/tasks/points/search
            Filter: payload.client = "Client B" AND status = "pending"
            Response: [
              { "title": "Finalize Q2 report for Client B", "status": "pending" },
@@ -835,7 +840,7 @@ erDiagram
                obsidian/Meetings/2026-05-12-client-b-prep.md
 
 6. INDEX NEW NOTE TO QDRANT
-   └─ POST http://qdrant:6333/collections/knowledge/points
+   └─ POST ${QDRANT_URL}/collections/knowledge/points
        {
          "points": [{
            "id": "note_prep_client_b_20260512",
@@ -982,11 +987,11 @@ Telegram Bot
 ```
 Internal Services (Docker Network)
 ├─ n8n → OpenFang: No auth (isolated network)
-├─ OpenFang → Qdrant: API Key (QDRANT_API_KEY)
-├─ OpenFang → Cal.com: Bearer Token (CALCOM_API_KEY)
-└─ OpenFang → R2: AWS Signature V4 (R2_ACCESS_KEY_ID + SECRET)
 
 External Services
+├─ OpenFang → Qdrant Cloud: API Key (QDRANT_API_KEY)
+├─ OpenFang → Cal.com: Bearer Token (CALCOM_API_KEY)
+├─ OpenFang → R2: AWS Signature V4 (R2_ACCESS_KEY_ID + SECRET)
 ├─ LLM Provider: Bearer Token (LLM_API_KEY)
 └─ SMTP: Username/Password (SMTP_USER + PASSWORD)
 ```
@@ -1014,9 +1019,11 @@ Health check script runs every 5 minutes via cron:
 ```bash
 # Check each service
 curl -f http://localhost:5678/healthz    # n8n
-curl -f http://localhost:6333/healthz    # Qdrant
 curl -f http://localhost:3000/api/health # Cal.com
 curl -f http://localhost:8090/health     # OpenFang
+
+# Check external services
+curl -f "${QDRANT_URL}/healthz" -H "api-key: ${QDRANT_API_KEY}"  # Qdrant Cloud
 
 # If any fails
 if [ $? -ne 0 ]; then
@@ -1085,70 +1092,69 @@ fi
 
 ### Hardware Requirements
 
-> **Important:** PostgreSQL dan Cloudflare R2 adalah external services yang TIDAK berjalan di server Anda. Resource requirements di bawah hanya untuk 6 containers lokal: n8n, OpenFang, Qdrant, Cal.com, Telegram Bot, dan Caddy.
+> **Important:** PostgreSQL, Qdrant, dan Cloudflare R2 adalah external services yang TIDAK berjalan di server Anda. Resource requirements di bawah hanya untuk 5 containers lokal: n8n, OpenFang, Cal.com, Telegram Bot, dan Caddy.
 
 #### Minimum (Personal Use - Single User)
-- **CPU:** 6 cores (x86_64)
-- **RAM:** 24 GB
-- **Storage:** 250 GB NVMe SSD
+- **CPU:** 4 cores (x86_64)
+- **RAM:** 8 GB
+- **Storage:** 100 GB SSD
 - **Network:** 10 Mbps upload/download
-- **Swap:** 16 GB (for OOM protection)
-- **Disk I/O:** 3000+ IOPS, 100+ MB/s throughput
+- **Swap:** 8 GB (for OOM protection)
+- **Disk I/O:** 1000+ IOPS, 50+ MB/s throughput
 
 **Why these specs:**
-- 16GB RAM causes OOM during Qdrant vector indexing
-- 100GB storage fills up in 2-3 months (logs + vectors + backups)
-- 4 cores bottleneck during concurrent AI operations
-- NVMe required for Qdrant performance (SATA too slow)
+- 8GB RAM sufficient since Qdrant runs externally (saves 3-5 GB)
+- 100GB storage sufficient (no local vector data)
+- 4 cores handles concurrent AI operations with external services
+- SSD recommended for Cal.com and n8n performance
 
 #### Recommended (Production Use - Small Team)
+- **CPU:** 6 cores (x86_64)
+- **RAM:** 16 GB
+- **Storage:** 200 GB SSD
+- **Network:** 25 Mbps upload/download
+- **Swap:** 8 GB
+- **Disk I/O:** 3000+ IOPS, 100+ MB/s throughput
+
+#### Optimal (High-Volume/Enterprise)
 - **CPU:** 8 cores (x86_64)
 - **RAM:** 32 GB
-- **Storage:** 500 GB NVMe SSD
-- **Network:** 25 Mbps upload/download
+- **Storage:** 500 GB SSD
+- **Network:** 100 Mbps upload/download
 - **Swap:** 16 GB
 - **Disk I/O:** 5000+ IOPS, 200+ MB/s throughput
 
-#### Optimal (High-Volume/Enterprise)
-- **CPU:** 16 cores (x86_64)
-- **RAM:** 64 GB
-- **Storage:** 1 TB NVMe SSD
-- **Network:** 100 Mbps upload/download
-- **Swap:** 32 GB
-- **Disk I/O:** 10000+ IOPS, 500+ MB/s throughput
-
 #### Resource Breakdown (Minimum Tier)
 
-**What runs on YOUR server (6 containers):**
+**What runs on YOUR server (5 containers):**
 - n8n: ~1.5-2 GB RAM, 1 core
-- Qdrant: ~3-5 GB RAM, 1-2 cores (vector database - biggest consumer)
 - Cal.com: ~1-1.5 GB RAM, 0.5-1 core (app only, database is external)
 - OpenFang: ~1-2 GB RAM, 1 core
 - Telegram Bot: ~0.3-0.5 GB RAM, negligible CPU
 - Caddy: ~0.2-0.3 GB RAM, negligible CPU
 - OS + Docker: ~2-3 GB RAM, 0.5-1 core
 
-**Total baseline:** 10-14 GB RAM, spikes to 16-18 GB during vector indexing/LLM inference
+**Total baseline:** 6-9 GB RAM, spikes to 10-12 GB during LLM inference
 
 **What runs EXTERNALLY (not on your server):**
 - PostgreSQL: Hosted by Supabase/Neon/Railway (only network bandwidth)
+- Qdrant: Hosted by Qdrant Cloud (only network bandwidth)
 - Cloudflare R2: Object storage (only network bandwidth)
 - LLM Provider: API calls to OpenAI/Groq/etc (only network bandwidth)
 
 #### Important Notes
 
-- **NVMe SSD required** (not SATA) - Qdrant + Cal.com are I/O-intensive
-- **Enable swap space** to prevent OOM crashes during vector indexing:
+- **SSD recommended** (NVMe not required since Qdrant runs externally)
+- **Enable swap space** to prevent OOM crashes during LLM inference:
   ```bash
-  sudo fallocate -l 16G /swapfile
+  sudo fallocate -l 8G /swapfile
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
   sudo swapon /swapfile
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
   ```
-- **Allocate 8GB minimum to Qdrant container** for 100k+ vector collections
-- **Plan for 20-30% headroom** - LLM inference and vector indexing cause 2-3x CPU/RAM spikes
-- **Storage grows over time:** Plan for 50-100 GB growth per year (logs, vectors, backups)
+- **Plan for 20-30% headroom** - LLM inference causes 2-3x CPU/RAM spikes
+- **Storage grows over time:** Plan for 20-50 GB growth per year (logs, backups)
 
 ### Software Prerequisites
 
@@ -1179,10 +1185,10 @@ sudo usermod -aG docker $USER
 #### Internal Ports (Docker network only)
 - **5678** - n8n
 - **8090** - OpenFang
-- **6333, 6334** - Qdrant
 - **3000** - Cal.com
 
 > **Note:** PostgreSQL menggunakan external provider (Supabase/Neon/Railway), tidak ada container lokal.
+> **Note:** Qdrant menggunakan Qdrant Cloud (external service), tidak ada container lokal.
 > **Note:** File storage menggunakan Cloudflare R2 (external service), tidak ada port internal.
 
 #### Firewall Setup
@@ -1203,13 +1209,13 @@ sudo ufw status
 
 ### Scenario 1: Minimal Setup (Personal Use - Single User)
 
-> **Note:** Hardware requirements updated to 6 cores, 24GB RAM, 250GB storage. VPS pricing below reflects OLD specs (4 cores, 16GB). See updated recommendations in comments.
+> **Note:** Hardware requirements: 4 cores, 8GB RAM, 100GB storage. All heavy services (Qdrant, PostgreSQL) run externally.
 
 **Infrastructure:**
-- **VPS:** $15-25/month
-  - Hetzner CX41 (8 cores, 32GB): €25/month = ~$27/month ← **Recommended** (exceeds minimum for headroom)
-  - Contabo VPS M (6 cores, 16GB): €12/month = ~$13/month ← **Tight but workable**
-  - OVH Essential (4 cores, 16GB): ~$18/month ← **Below minimum, not recommended**
+- **VPS:** $8-15/month
+  - Hetzner CX21 (4 cores, 8GB): €9/month = ~$10/month ← **Recommended** (matches minimum spec)
+  - Contabo VPS S (4 cores, 8GB): €7/month = ~$8/month ← **Budget option**
+  - OVH Starter (4 cores, 8GB): ~$12/month ← **Alternative**
   
 - **Domain + SSL:** $1-2/month
   - Domain (.com): ~$12/year = $1/month
@@ -1220,6 +1226,10 @@ sudo ufw status
   - Neon: Free tier (0.5GB storage, 3GB data transfer)
   - Railway: $5/month (shared CPU, 512MB RAM)
   - **Note:** Database runs on provider, NOT on your VPS
+  
+- **Qdrant Cloud (External):** $0/month
+  - Free tier: 1GB storage, 1M vectors ← **Sufficient for personal use**
+  - **Note:** Vector database runs on Qdrant Cloud, NOT on your VPS
   
 - **Cloudflare R2 (External):** $0-5/month
   - Free tier: 10GB storage, unlimited egress
@@ -1235,17 +1245,17 @@ sudo ufw status
   - Using efficient models (gpt-3.5-turbo, claude-haiku)
   - ~1000-3000 requests/month
 
-**Total: $27-72/month** (personal use, cost-optimized)
+**Total: $19-52/month** (personal use, cost-optimized)
 
 ---
 
 ### Scenario 2: Production Setup (Small Team)
 
 **Infrastructure:**
-- **VPS/Dedicated Server:** $25-45/month
-  - Hetzner AX41 (Ryzen 5 3600, 64GB RAM): ~€39/month (~$42) ← **Exceeds spec (64GB vs 32GB), but good value**
-  - OVH Advance-2 (8 cores, 32GB RAM): ~$40/month ← **Matches spec exactly**
-  - Contabo VPS L (10 cores, 60GB RAM): ~€27/month (~$29) ← **Exceeds spec, best value**
+- **VPS/Dedicated Server:** $15-30/month
+  - Hetzner CX31 (6 cores, 16GB): €15/month = ~$16/month ← **Recommended**
+  - Contabo VPS M (6 cores, 16GB): €12/month = ~$13/month ← **Budget option**
+  - OVH Advance-1 (6 cores, 16GB): ~$25/month ← **Alternative**
   
 - **Domain + SSL:** $1-2/month
 
@@ -1254,6 +1264,11 @@ sudo ufw status
   - Neon Scale: $19/month (10GB storage, autoscaling)
   - Railway Pro: $20/month (8GB RAM, shared CPU)
   - **Note:** Database runs on provider, NOT on your VPS
+  
+- **Qdrant Cloud (External):** $0-25/month
+  - Free tier: 1GB storage, 1M vectors
+  - Starter: $25/month (5GB storage, 5M vectors)
+  - **Note:** Vector database runs on Qdrant Cloud, NOT on your VPS
   
 - **Cloudflare R2 (External):** $5-15/month
   - Free tier: 10GB storage
@@ -1270,17 +1285,17 @@ sudo ufw status
   - ~5000-10000 requests/month
   - Using gpt-4, claude-sonnet, or similar
 
-**Total: $73-174/month** (production-ready, small team)
+**Total: $58-172/month** (production-ready, small team)
 
 ---
 
 ### Scenario 3: High-Volume/Enterprise
 
 **Infrastructure:**
-- **Dedicated Server:** $80-110/month
-  - Hetzner AX102 (Ryzen 9 5950X, 128GB RAM): ~€99/month (~$107) ← **Exceeds spec (128GB vs 64GB)**
-  - OVH Scale-3 (16 cores, 64GB RAM): ~$80/month ← **Matches spec exactly**
-  - Hetzner AX61 (Ryzen 7 3700X, 64GB RAM): ~€59/month (~$64) ← **Matches spec, best value**
+- **Dedicated Server:** $40-80/month
+  - Hetzner AX41 (Ryzen 5 3600, 32GB RAM): ~€39/month (~$42) ← **Recommended**
+  - OVH Scale-2 (8 cores, 32GB RAM): ~$60/month ← **Alternative**
+  - Hetzner AX61 (Ryzen 7 3700X, 64GB RAM): ~€59/month (~$64) ← **High headroom**
   
 - **Domain + SSL:** $1-2/month
 
@@ -1290,6 +1305,11 @@ sudo ufw status
   - AWS RDS: $50-200/month (db.t3.medium to db.m5.large)
   - Supabase Pro: $25/month (often sufficient for enterprise)
   - **Note:** Database runs on provider, NOT on your VPS
+  
+- **Qdrant Cloud (External):** $25-95/month
+  - Starter: $25/month (5GB storage, 5M vectors)
+  - Standard: $95/month (20GB storage, 20M vectors)
+  - **Note:** Vector database runs on Qdrant Cloud, NOT on your VPS
   
 - **Cloudflare R2 (External):** $10-30/month
   - Typical usage: 500GB-1TB = $7.50-15/month
@@ -1305,7 +1325,7 @@ sudo ufw status
   - ~20000-50000 requests/month
   - Production workloads
 
-**Total: $246-657/month** (enterprise-grade, high-volume)
+**Total: $230-620/month** (enterprise-grade, high-volume)
 
 ---
 
@@ -1313,15 +1333,16 @@ sudo ufw status
 
 | Component | Scenario 1<br/>(Personal) | Scenario 2<br/>(Small Team) | Scenario 3<br/>(Enterprise) |
 |-----------|--------------------------|-----------------------------|-----------------------------|
-| **Server/VPS** | $15-25 | $25-45 | $80-110 |
+| **Server/VPS** | $8-15 | $15-30 | $40-80 |
 | **Domain + SSL** | $1-2 | $1-2 | $1-2 |
 | **PostgreSQL (External)** | $0-10 | $10-25 | $50-200 |
+| **Qdrant Cloud (External)** | $0 | $0-25 | $25-95 |
 | **Cloudflare R2 (External)** | $0-5 | $5-15 | $10-30 |
 | **Backup Storage** | $1-5 | $2-7 | $5-15 |
 | **LLM API (Provider)** | $10-30 | $30-80 | $100-300 |
 | **Usage Level** | Light | Moderate | Heavy |
 | **Setup Complexity** | 🔧 Low | 🔧🔧 Medium | 🔧🔧🔧 High |
-| **TOTAL/month** | **$27-77** | **$73-174** | **$246-657** |
+| **TOTAL/month** | **$19-52** | **$58-172** | **$230-620** |
 
 ---
 
@@ -1330,8 +1351,8 @@ sudo ufw status
 - **Telegram Bot:** Free (unlimited messages)
 - **Cal.com:** Free (self-hosted)
 - **n8n:** Free (self-hosted)
+- **Qdrant Cloud:** Free tier (1GB storage, 1M vectors)
 - **Cloudflare R2:** Free 10GB, $0.015/GB after (S3-compatible, no egress fees)
-- **Qdrant:** Free (self-hosted)
 - **Monitoring (Uptime Robot):** Free tier available
 - **Email Service (SMTP):**
   - SendGrid: Free (100 emails/day)
@@ -1400,10 +1421,51 @@ sudo ufw status
 
 ---
 
+### Qdrant Cloud Provider Recommendations
+
+#### Free Tier (Development/Personal Use)
+- **Qdrant Cloud Free:** 1GB storage, 1M vectors
+  - ✅ Generous free tier for personal use
+  - ✅ Fully managed, no maintenance
+  - ✅ Automatic backups and updates
+  - ✅ Multiple regions available
+  - 🔗 [cloud.qdrant.io](https://cloud.qdrant.io)
+
+#### Production Options
+- **Qdrant Cloud Starter:** $25/month
+  - 5GB storage, 5M vectors
+  - Dedicated resources
+  - Priority support
+
+- **Qdrant Cloud Standard:** $95/month
+  - 20GB storage, 20M vectors
+  - High availability
+  - Advanced monitoring
+
+#### Enterprise Options
+- **Qdrant Cloud Enterprise:** Custom pricing
+  - Unlimited storage
+  - Dedicated cluster
+  - SLA guarantees
+  - Custom configurations
+
+#### Alternative Providers
+- **Pinecone:** $70+/month (serverless vector DB)
+  - ✅ Serverless, auto-scaling
+  - ❌ Different API (not Qdrant-compatible)
+  
+- **Weaviate Cloud:** $25+/month
+  - ✅ Managed vector DB
+  - ❌ Different API (not Qdrant-compatible)
+
+> **Recommendation:** Use **Qdrant Cloud** for direct compatibility with this project. Free tier is sufficient for personal use (10k-50k documents).
+
+---
+
 ### Cost Optimization Tips
 
 1. **Start with Scenario 1** (Minimal) untuk testing, scale up sesuai kebutuhan
-2. **Use free tier databases** - Supabase/Neon free tier cukup untuk development
+2. **Use free tier services** - Supabase/Neon + Qdrant Cloud free tier cukup untuk development
 3. **Use Hetzner Auction Server** - bisa dapat dedicated server mulai €30/month
 4. **Choose efficient models** - gpt-3.5-turbo, claude-haiku untuk cost efficiency
 5. **Use OpenRouter** - pay-per-use pricing, no monthly commitment
@@ -1421,7 +1483,7 @@ sudo ufw status
 - ChatGPT Plus: $20/month (limited features)
 - Claude Pro: $20/month (limited features)
 - Notion AI: $10/month (limited to Notion)
-- **This Stack (Scenario 1):** $26-72/month
+- **This Stack (Scenario 1):** $19-52/month
   - ✅ Unlimited usage
   - ✅ 36+ models to choose from
   - ✅ Complete customization
@@ -1563,7 +1625,7 @@ base_url = "${LLM_BASE_URL}"
 
 [memory]
 type = "qdrant"
-url = "http://qdrant:6333"
+url = "${QDRANT_URL}"
 collection = "agent_memory"
 api_key = "${QDRANT_API_KEY}"
 
@@ -1898,7 +1960,8 @@ services:
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_BASE_URL=${LLM_BASE_URL}
       - LLM_MODEL=${LLM_MODEL}
-      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
       - CALCOM_API_KEY=${CALCOM_API_KEY}
     volumes:
       - ./langgraph/agent.py:/app/agent.py
@@ -2106,27 +2169,28 @@ LLM_MODEL="llama3.1:8b"
 
 ## 🚀 Quick Start
 
-### Option 1: Low-Resource Setup (4 cores / 8GB RAM) - Recommended
+### Setup (4 cores / 8GB RAM minimum)
 
-For budget VPS with limited resources. Uses Qdrant Cloud (external) to save 3-5 GB RAM.
+All heavy services (Qdrant, PostgreSQL) run externally. Your server only runs 5 lightweight containers.
 
 ```bash
 # 1. Clone repository
 git clone https://github.com/yourusername/ai-secretary-stack.git
 cd ai-secretary-stack
 
-# 2. Setup swap space (CRITICAL for 8GB RAM)
+# 2. Setup swap space (recommended for 8GB RAM)
 chmod +x scripts/setup_swap.sh
 sudo ./scripts/setup_swap.sh 8G
 
-# 3. Sign up for Qdrant Cloud (free tier)
-# Visit: https://cloud.qdrant.io
-# Get: Cluster URL and API Key
+# 3. Sign up for external services (free tiers available)
+# - Qdrant Cloud: https://cloud.qdrant.io (1GB free)
+# - PostgreSQL: https://supabase.com or https://neon.tech (free tier)
+# - Cloudflare R2: https://dash.cloudflare.com (10GB free)
 
 # 4. Copy and configure environment
 cp .env.example .env
 nano .env
-# Set QDRANT_URL and QDRANT_API_KEY from Qdrant Cloud
+# Set QDRANT_URL, QDRANT_API_KEY, DATABASE_URL from providers above
 
 # 5. Deploy stack
 docker compose up -d
@@ -2141,51 +2205,17 @@ free -h
 
 **See detailed guide:** [DEPLOYMENT_LOW_RESOURCE.md](DEPLOYMENT_LOW_RESOURCE.md)
 
-**Cost:** $19.50-48.50/month (VPS + free tier services)
+**Cost:** $19-52/month (VPS + free tier services)
 
 ---
 
-### Option 2: Full Self-Hosted (6+ cores / 24GB+ RAM)
+### Which VPS Should I Choose?
 
-For servers with sufficient resources. Everything runs locally.
-
-```bash
-# 1. Clone repository
-git clone https://github.com/yourusername/ai-secretary-stack.git
-cd ai-secretary-stack
-
-# 2. Setup swap space (recommended)
-chmod +x scripts/setup_swap.sh
-sudo ./scripts/setup_swap.sh 16G
-
-# 3. Copy environment file
-cp .env.example .env
-
-# 4. Edit configuration
-nano .env
-# Use local Qdrant: QDRANT_URL=http://qdrant:6333
-
-# 5. Uncomment Qdrant service in docker-compose.yml
-# (See docker-compose.yml comments)
-
-# 6. Deploy stack
-docker compose up -d
-
-# 7. Check status
-docker compose ps
-```
-
-**Cost:** $27-77/month (VPS + external services)
-
----
-
-### Which Option Should I Choose?
-
-| Your Server | Recommended Option | Why |
-|-------------|-------------------|-----|
-| **4 cores / 8GB RAM** | Option 1 (Qdrant Cloud) | Saves 3-5 GB RAM, prevents OOM |
-| **6 cores / 16-24GB RAM** | Option 1 or 2 | Both work, Option 1 cheaper |
-| **8+ cores / 32GB+ RAM** | Option 2 (Full Self-Hosted) | Full control, no external dependencies |
+| Your Budget | Recommended VPS | Why |
+|-------------|----------------|-----|
+| **$8-10/month** | Hetzner CX21 (4 cores, 8GB) | Minimum spec, works with swap |
+| **$13-16/month** | Hetzner CX31 (6 cores, 16GB) | Comfortable headroom |
+| **$25-45/month** | Hetzner AX41 (dedicated, 32GB) | Production-grade, high throughput |
 
 ---
 
@@ -2236,6 +2266,9 @@ services:
       - LM_PROVIDER=${LLM_PROVIDER}
       - LM_API_KEY=${LLM_API_KEY}
       - LM_MODEL=${LLM_MODEL}
+      # Qdrant Cloud (External)
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
     volumes:
       - ./openfang/secretary.toml:/etc/openfang/secretary.toml
       - openfang_data:/var/lib/openfang
@@ -2243,21 +2276,13 @@ services:
       - secretary-net
 
   # ============================================
-  # VECTOR MEMORY - Qdrant
+  # VECTOR MEMORY - Qdrant Cloud (External)
   # ============================================
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: qdrant
-    restart: always
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
-    networks:
-      - secretary-net
+  # NOTE: Qdrant runs on Qdrant Cloud, not locally
+  # This saves 3-5 GB RAM on your server
+  # Free tier: 1GB storage, 1M vectors
+  # Sign up: https://cloud.qdrant.io
+  # Configure QDRANT_URL and QDRANT_API_KEY in .env
 
   # ============================================
   # SCHEDULING - Cal.com
@@ -2288,7 +2313,8 @@ services:
       - ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USERS}
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/telegram
       - OPENFANG_URL=http://openfang:8090
-      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
       - R2_ENDPOINT=${R2_ENDPOINT}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
@@ -2296,7 +2322,6 @@ services:
     depends_on:
       - n8n
       - openfang
-      - qdrant
     networks:
       - secretary-net
 
@@ -2320,7 +2345,6 @@ services:
 volumes:
   n8n_data:
   openfang_data:
-  qdrant_data:
   caddy_data:
   caddy_config:
 
@@ -2396,9 +2420,17 @@ OPENAI_API_BASE=${LLM_BASE_URL}
 OPENFANG_SECRET=your_openfang_secret
 
 # ============================================
-# Qdrant
+# Qdrant - Vector Database (External Provider)
 # ============================================
-QDRANT_API_KEY=your_qdrant_api_key
+# Use Qdrant Cloud (managed vector database)
+# Sign up: https://cloud.qdrant.io
+QDRANT_URL=https://your-cluster-id.qdrant.io:6333
+QDRANT_API_KEY=your_qdrant_cloud_api_key
+
+# Provider tiers:
+# - Free: 1GB storage, 1M vectors (sufficient for personal use)
+# - Starter: $25/month (5GB storage, 5M vectors)
+# - Standard: $95/month (20GB storage, 20M vectors)
 
 # ============================================
 # Cal.com
@@ -2475,7 +2507,7 @@ n8n berfungsi sebagai otak koordinasi yang menghubungkan semua komponen.
     {
       "type": "n8n-nodes-base.httpRequest",
       "parameters": {
-        "url": "http://qdrant:6333/collections/tasks/points/scroll",
+        "url": "${QDRANT_URL}/collections/tasks/points/scroll",
         "method": "POST",
         "body": {
           "filter": { "must": [{ "key": "status", "match": { "value": "pending" } }] },
@@ -2563,7 +2595,7 @@ base_url = "${LLM_BASE_URL}"
 
 [memory]
 type = "qdrant"
-url = "http://qdrant:6333"
+url = "${QDRANT_URL}"
 collection = "agent_memory"
 api_key = "${QDRANT_API_KEY}"
 
@@ -2648,7 +2680,7 @@ class SecretaryState:
 @tool
 def search_knowledge(query: str) -> str:
     """Cari informasi dari knowledge base pribadi."""
-    client = QdrantClient(url="http://qdrant:6333")
+    client = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"))
     results = client.search(
         collection_name="knowledge",
         query_vector=get_embedding(query),
@@ -2669,7 +2701,7 @@ def get_today_schedule() -> str:
 @tool
 def create_task(title: str, due_date: str, priority: str) -> str:
     """Buat task baru."""
-    client = QdrantClient(url="http://qdrant:6333")
+    client = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"))
     client.upsert(
         collection_name="tasks",
         points=[{
@@ -2816,8 +2848,8 @@ from sentence_transformers import SentenceTransformer
 
 # Configuration
 VAULT_PATH = "/path/to/SecretaryVault"
-QDRANT_URL = "http://localhost:6333"
-QDRANT_API_KEY = "your_api_key"
+QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster-id.qdrant.io:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "your_api_key")
 COLLECTION_NAME = "knowledge"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
@@ -2916,7 +2948,7 @@ def sync_vault():
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-client = QdrantClient(url="http://localhost:6333", api_key="your_api_key")
+client = QdrantClient(url=os.getenv("QDRANT_URL", "https://your-cluster-id.qdrant.io:6333"), api_key=os.getenv("QDRANT_API_KEY", "your_api_key"))
 
 collections = {
     "knowledge": {
@@ -3305,15 +3337,7 @@ cal.yourdomain.com {
 }
 
 # Cloudflare R2 (external service, no reverse proxy needed)
-    header {
-    }
-}
-
-qdrant.yourdomain.com {
-    reverse_proxy qdrant:6333
-    @blocked not remote_ip 127.0.0.1 YOUR_IP_HERE
-    respond @blocked 403
-}
+# Qdrant Cloud (external service, no reverse proxy needed)
 ```
 
 ---
@@ -3323,7 +3347,7 @@ qdrant.yourdomain.com {
 ### Checklist Keamanan:
 
 - Semua service di belakang reverse proxy dengan SSL
-- Qdrant API key di-set dan tidak exposed ke public
+- Qdrant Cloud API key secured (never exposed to public)
 - Telegram bot hanya menerima dari ALLOWED_USER_IDS
 - n8n menggunakan basic auth
 - Cloudflare R2 bucket policies configured
@@ -3373,13 +3397,13 @@ docker cp n8n:/tmp/workflows.json $BACKUP_DIR/$DATE/n8n-workflows.json
 docker run --rm -v n8n_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
     tar czf /backup/n8n-data.tar.gz /data
 
-# 2. Qdrant snapshots
+# 2. Qdrant Cloud snapshots (managed by provider)
+# Qdrant Cloud handles backups automatically
+# Manual snapshot (if needed):
 for collection in knowledge memory tasks people decisions; do
-    curl -X POST "http://localhost:6333/collections/$collection/snapshots" \
+    curl -X POST "${QDRANT_URL}/collections/$collection/snapshots" \
         -H "api-key: $QDRANT_API_KEY"
 done
-docker run --rm -v qdrant_data:/data -v $BACKUP_DIR/$DATE:/backup alpine \
-    tar czf /backup/qdrant-data.tar.gz /data
 
 # 3. Cloudflare R2 (external backup via rclone)
 
@@ -3462,19 +3486,16 @@ docker run --rm \
   -v $RESTORE_DIR/n8n:/backup \
   alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
 
-# 4. Restore Qdrant data
-docker volume create qdrant_data
-docker run --rm \
-  -v qdrant_data:/data \
-  -v $RESTORE_DIR/qdrant:/backup \
-  alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
-
-# 5. Restore OpenFang data
+# 4. Restore OpenFang data
 docker volume create openfang_data
 docker run --rm \
   -v openfang_data:/data \
   -v $RESTORE_DIR/openfang:/backup \
   alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
+
+# 5. Restore Qdrant Cloud (if needed)
+# Qdrant Cloud handles backups automatically
+# For manual restore, use Qdrant Cloud dashboard or API snapshots
 
 # 6. Restore database (if using self-hosted PostgreSQL)
 # Skip if using external provider (Supabase/Neon)
@@ -3528,7 +3549,7 @@ gpg --decrypt $BACKUP_FILE | tar -xzf - -C $RESTORE_DIR
 
 # Restore volumes
 echo "💾 Restoring volumes..."
-for volume in n8n_data qdrant_data openfang_data; do
+for volume in n8n_data openfang_data; do
     echo "  - Restoring $volume..."
     docker volume create $volume
     docker run --rm \
@@ -3561,11 +3582,11 @@ echo "🗑️  Clean up: rm -rf $RESTORE_DIR"
 | Component | Restore Time | Data Loss (RPO) |
 |-----------|--------------|-----------------|
 | n8n workflows | 5 minutes | Last backup (daily) |
-| Qdrant vectors | 10 minutes | Last backup (daily) |
+| Qdrant Cloud | 0 minutes (managed) | Automatic (provider) |
 | OpenFang data | 5 minutes | Last backup (daily) |
 | Database | 15 minutes | Last backup (daily) |
 | Obsidian vault | 5 minutes | Last backup (daily) |
-| **Total RTO** | **~40 minutes** | **24 hours** |
+| **Total RTO** | **~30 minutes** | **24 hours** |
 
 **Recommendation:** For production, reduce RPO to 1 hour by increasing backup frequency.
 ```
@@ -3581,8 +3602,6 @@ echo "🗑️  Clean up: rm -rf $RESTORE_DIR"
 
     SERVICES=(
         "n8n|http://localhost:5678/healthz|200"
-        "qdrant|http://localhost:6333/healthz|200"
-        
         "calcom|http://localhost:3000/api/health|200"
         "openfang|http://localhost:8090/health|200"
     )
@@ -3620,7 +3639,7 @@ Setelah semua service running:
 docker compose ps
 # All services should show "Up" status
 
-# 1. Inisialisasi Qdrant collections
+# 1. Inisialisasi Qdrant Cloud collections
 python3 scripts/init_qdrant.py
 
 # 2. Sync Obsidian vault pertama kali
@@ -3659,7 +3678,7 @@ After post-installation, verify:
 
 - [ ] All Docker containers running (`docker compose ps`)
 - [ ] n8n accessible at configured URL
-- [ ] Qdrant dashboard accessible at `http://localhost:6333/dashboard`
+- [ ] Qdrant Cloud connection working (`curl ${QDRANT_URL}/collections -H "api-key: ${QDRANT_API_KEY}"`)
 - [ ] Cal.com accessible at `http://localhost:3000`
 - [ ] Telegram bot responds to `/start` command
 - [ ] Database migrations completed successfully
@@ -3692,23 +3711,28 @@ docker compose logs
 
 ---
 
-### Qdrant Connection Refused
+### Qdrant Cloud Connection Issues
 
-**Symptom:** `Connection refused to http://qdrant:6333`
+**Symptom:** `Connection refused` or timeout errors to Qdrant Cloud
 
 **Solution:**
 ```bash
-# Verify Qdrant is running
-docker ps | grep qdrant
+# 1. Verify credentials
+echo $QDRANT_URL
+echo $QDRANT_API_KEY
 
-# Check Qdrant logs
-docker logs qdrant
+# 2. Test connection
+curl -X GET "${QDRANT_URL}/collections" \
+  -H "api-key: ${QDRANT_API_KEY}"
 
-# Test connection from host
-curl http://localhost:6333/healthz
+# 3. Check firewall (ensure your VPS can reach external HTTPS)
+curl -I https://cloud.qdrant.io
 
-# Test connection from another container
-docker exec n8n curl http://qdrant:6333/healthz
+# 4. Verify cluster is active on Qdrant Cloud dashboard
+# Visit: https://cloud.qdrant.io
+
+# 5. Restart OpenFang
+docker compose restart openfang
 ```
 
 ---
@@ -3799,25 +3823,6 @@ docker exec calcom npm run db:migrate
 # 4. Check PostgreSQL provider status
 # Supabase: https://app.supabase.com/project/_/settings/database
 # Neon: https://console.neon.tech/
-```
-
----
-
-### Qdrant Out of Memory
-
-**Symptom:** Qdrant crashes or becomes slow
-
-**Solution:**
-```bash
-# 1. Check Qdrant memory usage
-docker stats qdrant
-
-# 2. Reduce vector dimensions
-# Edit embedding model to use smaller dimensions (384 instead of 768)
-
-# 3. Enable quantization in Qdrant config
-# 4. Increase Docker memory limit
-# 5. Use Qdrant Cloud for production
 ```
 
 ---

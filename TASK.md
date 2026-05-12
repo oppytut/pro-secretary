@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-09 08:55  
+**Last Updated:** 2026-05-12 04:45  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -365,6 +365,39 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
     - Deployment guidance for different scenarios
     - Reduces confusion about which engine to use
   - **Result:** Comprehensive AI agent engine comparison, users understand trade-offs between configuration-based (OpenFang) and code-based (LangGraph) approaches
+- ✅ [2026-05-12 04:45] Migrated Qdrant from Self-Hosted to External Provider (Qdrant Cloud)
+  - **Motivation:** Consistent with PostgreSQL migration pattern - use managed external provider instead of self-hosted container
+  - **Changes Made:**
+    - Updated architecture diagram: Qdrant moved from Knowledge subgraph to separate VectorDB subgraph (external)
+    - Removed self-hosted Qdrant container from docker-compose section in README
+    - Reduced hardware requirements: 6 cores/24GB → 4 cores/8GB minimum (Qdrant was biggest RAM consumer)
+    - Updated component roles table: Qdrant now shows as "managed cloud" with External port
+    - Removed ports 6333, 6334 from internal ports documentation
+    - Updated resource breakdown: 5 containers instead of 6, total baseline 6-9 GB instead of 10-14 GB
+    - Updated all code examples (init_qdrant.py, sync_obsidian.py, LangGraph agent) to use ${QDRANT_URL} env var
+    - Added Qdrant Cloud Provider Recommendations section (Free/Starter/Standard/Enterprise tiers)
+    - Updated cost estimates: added Qdrant Cloud row ($0 free / $0-25 production / $25-95 enterprise)
+    - Removed Quick Start "Option 2: Full Self-Hosted" - Qdrant Cloud is now the only option
+    - Updated Caddyfile: removed qdrant.yourdomain.com reverse proxy
+    - Updated security: Qdrant moved from internal to external service auth
+    - Updated backup strategy: removed qdrant_data volume backup, use provider snapshots
+    - Updated health monitoring: check Qdrant Cloud via HTTPS instead of localhost
+    - Removed "Qdrant Out of Memory" troubleshooting section
+    - Updated .env.example: removed self-hosted option, made Qdrant Cloud the default
+    - Updated TASK.md: known issues, testing checklist, key decisions
+  - **Files Modified:**
+    - README.md: extensive updates across all sections
+    - .env.example: simplified Qdrant config
+    - docker-compose.yml: already correct (no changes needed)
+    - TASK.md: updated key decisions, known issues, testing checklist
+  - **Benefits:**
+    - Reduced server requirements by 50% (24GB → 8GB RAM minimum)
+    - No Qdrant container to manage (1 less service)
+    - Automatic backups handled by Qdrant Cloud
+    - Better scalability (upgrade plan vs upgrade server)
+    - Free tier sufficient for personal use (1GB, 1M vectors)
+    - Consistent architecture: all stateful services are external (PostgreSQL, Qdrant, R2)
+  - **Result:** 100% external vector database, 0 self-hosted Qdrant. Stack now runs 5 containers locally.
 
 ---
 
@@ -429,7 +462,7 @@ pro-secretary/
 2. **AI Engine:** OpenFang.sh sebagai primary (fallback ke LangGraph jika perlu)
 3. **Interface:** Telegram bot only (Matrix removed - unnecessary complexity for MVP)
 4. **LLM Strategy:** OpenAI-compatible provider (flexible, no vendor lock-in)
-5. **Vector DB:** Qdrant (lebih lightweight vs Weaviate, lebih mature vs ChromaDB)
+5. **Vector DB:** Qdrant Cloud (managed provider, like PostgreSQL - no self-hosted container)
 6. **Storage:** Cloudflare R2 (S3-compatible, no egress fees, 10GB free tier)
 7. **Database:** External PostgreSQL provider (Supabase/Neon/Railway - managed, automatic backups)
 
@@ -437,10 +470,10 @@ pro-secretary/
 
 ## ⚠️ KNOWN ISSUES / GOTCHAS
 
-- **GPU Support:** Ollama container requires NVIDIA GPU + nvidia-docker runtime
-- **Memory:** Qdrant + Ollama + n8n bisa consume 8GB+ RAM
-- **Ports:** Pastikan 5678, 8090, 11434, 6333, 3000 tidak bentrok
+- **Memory:** n8n + Cal.com + OpenFang bisa consume 6GB+ RAM (use swap for 8GB servers)
+- **Ports:** Pastikan 5678, 8090, 3000 tidak bentrok
 - **Timezone:** Semua container harus sync timezone untuk scheduling accuracy
+- **External Services:** Qdrant Cloud, PostgreSQL, dan R2 memerlukan koneksi internet stabil
 
 ---
 
@@ -448,8 +481,7 @@ pro-secretary/
 
 - [ ] All containers start successfully (`docker compose up -d`)
 - [ ] n8n accessible at `http://localhost:5678`
-- [ ] Ollama responds to API calls (`curl http://localhost:11434/api/tags`)
-- [ ] Qdrant dashboard accessible at `http://localhost:6333/dashboard`
+- [ ] Qdrant Cloud connection working (`curl ${QDRANT_URL}/collections -H "api-key: ${QDRANT_API_KEY}"`)
 - [ ] Telegram bot responds to `/start` command
 - [ ] Cal.com booking flow works end-to-end
 

@@ -1,0 +1,7 @@
+{$N8N_HOST} {
+	reverse_proxy n8n:5678
+}
+
+{$CALCOM_HOST} {
+	reverse_proxy calcom:3000
+}

@@ -1,9 +1,9 @@
-version: "3.8"
-
 # ============================================
 # AI Personal Secretary Stack
-# Optimized for 4 cores / 8GB RAM
-# Uses Qdrant Cloud (external) instead of local Qdrant
+# Target: VPS 4 vCPU / 8 GB RAM / 160 GB SSD / 5 TB Transfer
+# Containers: 5 (n8n, OpenFang, Cal.com, Telegram Bot, Caddy)
+# External: PostgreSQL, Qdrant Cloud, Cloudflare R2
+# Total memory budget: ~6 GB (leaves 2 GB for OS + swap headroom)
 # ============================================
 
 services:
@@ -13,7 +13,7 @@ services:
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n
-    restart: always
+    restart: unless-stopped
     ports:
       - "5678:5678"
     environment:
@@ -26,6 +26,8 @@ services:
       - WEBHOOK_URL=https://${N8N_HOST}/
       - GENERIC_TIMEZONE=${TIMEZONE}
       - N8N_AI_ENABLED=true
+      - N8N_METRICS=true
+      - NODE_OPTIONS=--max-old-space-size=512
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/home/node/.n8n/workflows
@@ -34,11 +36,17 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1.5'
+          memory: 1536M
+          cpus: '1.0'
         reservations:
-          memory: 1G
-          cpus: '0.5'
+          memory: 512M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # ============================================
   # AI AGENT ENGINE - OpenFang
@@ -46,7 +54,7 @@ services:
   openfang:
     image: ghcr.io/rightnow-ai/openfang:latest
     container_name: openfang
-    restart: always
+    restart: unless-stopped
     ports:
       - "8090:8090"
     environment:
@@ -55,29 +63,46 @@ services:
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_BASE_URL=${LLM_BASE_URL}
       - LLM_MODEL=${LLM_MODEL}
-      # Qdrant Cloud (External)
       - QDRANT_URL=${QDRANT_URL}
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - CALCOM_API_KEY=${CALCOM_API_KEY}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET=${R2_BUCKET}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_FROM}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+      - TZ=${TIMEZONE}
     volumes:
-      - ./openfang/secretary.toml:/etc/openfang/secretary.toml
+      - ./openfang/secretary.toml:/etc/openfang/secretary.toml:ro
       - openfang_data:/var/lib/openfang
     networks:
       - secretary-net
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 2048M
           cpus: '1.5'
         reservations:
           memory: 512M
           cpus: '0.5'
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # ============================================
   # VECTOR MEMORY - Qdrant Cloud (External)
   # ============================================
-  # NOTE: Qdrant runs on Qdrant Cloud, not locally
-  # This saves 3-5 GB RAM on your server
-  # Free tier: 1GB storage, 1M vectors
+  # NOTE: Qdrant runs on Qdrant Cloud, not locally.
+  # Saves 3-5 GB RAM. Free tier: 1GB storage, 1M vectors.
   # Sign up: https://cloud.qdrant.io
   # Configure QDRANT_URL and QDRANT_API_KEY in .env
 
@@ -87,7 +112,7 @@ services:
   calcom:
     image: calcom/cal.com:latest
     container_name: calcom
-    restart: always
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
@@ -95,17 +120,25 @@ services:
       - NEXTAUTH_SECRET=${CALCOM_SECRET}
       - CALENDSO_ENCRYPTION_KEY=${CALCOM_ENCRYPTION_KEY}
       - NEXT_PUBLIC_WEBAPP_URL=https://${CALCOM_HOST}
-      - CALCOM_API_KEY=${CALCOM_API_KEY}
+      - NEXT_PUBLIC_LICENSE_CONSENT=agree
+      - CALCOM_TELEMETRY_DISABLED=1
+      - TZ=${TIMEZONE}
     networks:
       - secretary-net
     deploy:
       resources:
         limits:
-          memory: 1536M  # 1.5 GB
-          cpus: '0.75'
+          memory: 1536M
+          cpus: '1.0'
         reservations:
-          memory: 768M
+          memory: 512M
           cpus: '0.25'
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # ============================================
   # TELEGRAM BOT
@@ -115,36 +148,48 @@ services:
       context: ./telegram-bot
       dockerfile: Dockerfile
     container_name: telegram-bot
-    restart: always
+    restart: unless-stopped
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
-      - N8N_WEBHOOK_URL=http://n8n:5678/webhook
+      - ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USERS}
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/telegram
       - OPENFANG_URL=http://openfang:8090
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET=${R2_BUCKET}
+      - TZ=${TIMEZONE}
+    depends_on:
+      n8n:
+        condition: service_healthy
+      openfang:
+        condition: service_healthy
     networks:
       - secretary-net
     deploy:
       resources:
         limits:
           memory: 512M
-          cpus: '0.25'
+          cpus: '0.5'
         reservations:
-          memory: 256M
+          memory: 128M
           cpus: '0.1'
 
   # ============================================
   # REVERSE PROXY - Caddy
   # ============================================
   caddy:
-    image: caddy:latest
+    image: caddy:2-alpine
     container_name: caddy
-    restart: always
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"  # HTTP/3
+      - "443:443/udp"
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
@@ -155,7 +200,7 @@ services:
           memory: 256M
           cpus: '0.25'
         reservations:
-          memory: 128M
+          memory: 64M
           cpus: '0.1'
 
 networks:

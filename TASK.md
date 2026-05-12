@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-12 04:45  
+**Last Updated:** 2026-05-12 06:27  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -35,17 +35,40 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
   - Verify Cal.com database migrations
   - End-to-end integration testing
 
-- [ ] **Component Integration**
-  - n8n workflow setup
-  - OpenFang agent configuration
-  - Telegram bot initialization script
-  - Vector DB schema design
-
 ### Blocked/Waiting
 - None currently
 
 ### Recently Completed
-- ✅ [2026-05-08 15:00] Repository initialization
+- ✅ [2026-05-12 06:27] Infrastructure Scaffold Complete (Deployable Stack)
+  - **Motivation:** Transform project from documentation-only to deployable infrastructure
+  - **Changes Made:**
+    - Created directory structure: n8n/workflows/, openfang/, scripts/, telegram-bot/, caddy/, docs/
+    - Updated docker-compose.yml: production-ready with healthchecks, memory limits (6GB budget), `unless-stopped` restart policy, all env vars passed to containers
+    - Created telegram-bot/bot.py: full Telegram bot with 7 commands (/start, /jadwal, /task, /tasks, /cari, /catat, /briefing), file upload to R2, authorization decorator
+    - Created telegram-bot/Dockerfile + requirements.txt (python-telegram-bot, httpx, boto3)
+    - Created openfang/secretary.toml: complete agent config with daemon mode, LLM, memory, tools, channels, routines
+    - Created caddy/Caddyfile: reverse proxy for n8n and Cal.com with auto-SSL
+    - Created scripts/health_check.sh: checks all local services + Qdrant Cloud, alerts via Telegram
+    - Created scripts/init_qdrant.py: initializes 5 collections (knowledge, agent_memory, tasks, people, decisions)
+    - Created scripts/sync_obsidian.py: syncs Obsidian vault to Qdrant with chunking + embeddings
+    - Created scripts/backup.sh: full backup with encryption, Qdrant snapshots, retention policy, Telegram notification
+    - Created n8n/workflows/daily-briefing.json: cron 7AM → fetch calendar + tasks → LLM briefing → Telegram
+    - Created n8n/workflows/telegram-router.json: webhook → route by command → handlers → respond
+  - **Verification:**
+    - docker compose config: valid (warnings expected for unset env vars)
+    - Python syntax: all 3 .py files pass ast.parse()
+    - Bash syntax: all 3 .sh files pass bash -n
+    - JSON: both workflow files valid
+    - Scripts: executable permissions set
+  - **Files Created/Modified:**
+    - docker-compose.yml (updated)
+    - telegram-bot/bot.py, telegram-bot/Dockerfile, telegram-bot/requirements.txt
+    - openfang/secretary.toml
+    - caddy/Caddyfile
+    - scripts/health_check.sh, scripts/init_qdrant.py, scripts/sync_obsidian.py, scripts/backup.sh
+    - n8n/workflows/daily-briefing.json, n8n/workflows/telegram-router.json
+  - **Key Decision Added:** #8 Deployment Target: VPS 4 vCPU / 8 GB RAM / 160 GB SSD / 5 TB Transfer
+  - **Result:** Project is now a deployable stack. All infrastructure files in place. Ready for external service setup + first deploy.
 - ✅ [2026-05-08 15:00] README.md with architecture overview
 - ✅ [2026-05-08 15:15] TASK.md handoff document created
 - ✅ [2026-05-08 15:20] Agent rules system implemented
@@ -406,20 +429,24 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 1. **Immediate (This Session)**
    - ✅ Create `.env.example` with all required variables (including DATABASE_URL)
    - ✅ Build complete `docker-compose.yml` (using external PostgreSQL)
-   - Create directory structure (`/n8n`, `/openfang`, `/scripts`)
+   - ✅ Create directory structure (`/n8n`, `/openfang`, `/scripts`)
+   - ✅ All infrastructure files created and validated
 
 2. **Short-term (Next 1-2 Sessions)**
    - Setup external PostgreSQL database (Supabase/Neon/Railway)
    - Run Cal.com database migrations
-   - Telegram bot setup script (`scripts/setup_telegram_bot.py`)
-   - n8n workflow templates
-   - OpenFang configuration file (`openfang/secretary.toml`)
-   - Health check script
+   - Setup Qdrant Cloud cluster + run `scripts/init_qdrant.py`
+   - Configure Cloudflare R2 bucket
+   - Create Telegram bot via @BotFather + get token
+   - First deploy: `docker compose up -d` on VPS
+   - Verify health checks pass
 
 3. **Medium-term (Next Week)**
-   - Reverse proxy setup (Caddy/Traefik)
-   - SSL certificate automation
-   - Backup strategy implementation (excluding PostgreSQL - handled by provider)
+   - SSL certificate automation (Caddy handles automatically)
+   - Import n8n workflows via UI
+   - Test end-to-end flow (Telegram → n8n → OpenFang → response)
+   - Setup Obsidian vault + first sync
+   - Backup cron job setup
    - Monitoring dashboard
 
 4. **Long-term (Roadmap)**
@@ -434,24 +461,34 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ```
 pro-secretary/
-├── docker-compose.yml          # Main orchestration
+├── docker-compose.yml          # Main orchestration (5 containers)
 ├── .env.example                # Environment template
 ├── README.md                   # Documentation
+├── TASK.md                     # Task handoff document
 ├── LICENSE
+├── .sisyphus/                  # Agent rules
 ├── n8n/
-│   └── workflows/              # n8n workflow JSONs
+│   └── workflows/
+│       ├── daily-briefing.json # Morning briefing workflow
+│       └── telegram-router.json # Message routing workflow
 ├── openfang/
 │   └── secretary.toml          # Agent configuration
 ├── scripts/
-│   ├── setup_telegram_bot.py  # Bot initialization
+│   ├── init_qdrant.py          # Qdrant collection setup
+│   ├── sync_obsidian.py        # Vault → Qdrant sync
 │   ├── backup.sh               # Backup automation
-│   └── health_check.sh         # Service monitoring
+│   ├── health_check.sh         # Service monitoring
+│   └── setup_swap.sh           # Swap space setup
+├── telegram-bot/
+│   ├── bot.py                  # Telegram bot application
+│   ├── Dockerfile              # Bot container image
+│   └── requirements.txt        # Python dependencies
 ├── caddy/
 │   └── Caddyfile               # Reverse proxy config
 └── docs/
-    ├── SETUP.md                # Setup guide
-    ├── API.md                  # API documentation
-    └── TROUBLESHOOTING.md      # Common issues
+    ├── SETUP.md                # Setup guide (TODO)
+    ├── API.md                  # API documentation (TODO)
+    └── TROUBLESHOOTING.md      # Common issues (TODO)
 ```
 
 ---
@@ -465,6 +502,7 @@ pro-secretary/
 5. **Vector DB:** Qdrant Cloud (managed provider, like PostgreSQL - no self-hosted container)
 6. **Storage:** Cloudflare R2 (S3-compatible, no egress fees, 10GB free tier)
 7. **Database:** External PostgreSQL provider (Supabase/Neon/Railway - managed, automatic backups)
+8. **Deployment Target:** VPS 4 vCPU / 8 GB RAM / 160 GB SSD / 5 TB Transfer (Scenario 1 - Minimal/Personal Use, swap 8GB wajib)
 
 ---
 
@@ -500,7 +538,7 @@ pro-secretary/
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-08 19:30]** ✅ CLOUDFLARE R2 MIGRATION COMPLETE - All 9 tasks finished and committed (1c596a2, 3536e4b, 651eefb, 9fbe131). Verification: MinIO container removed (0 refs), R2 vars added (7 refs), diagram updated (17 refs), code updated (8 refs), setup guide added (§6), costs updated, health monitoring updated, backup updated, credits updated. See MIGRATION_COMPLETE.md for full verification. Final stack: 6 containers, 100% cloud storage (Cloudflare R2), no self-hosted storage. Project is production-ready. Next: Implement infrastructure files OR deploy based on current docs.
+> **[2026-05-12 06:27]** ✅ INFRASTRUCTURE SCAFFOLD COMPLETE - All deployable files created and validated. docker-compose.yml (5 containers, 6GB memory budget), telegram-bot (bot.py + Dockerfile), openfang/secretary.toml, caddy/Caddyfile, scripts (health_check, init_qdrant, sync_obsidian, backup), n8n workflows (daily-briefing, telegram-router). Deployment target: VPS 4 vCPU / 8 GB RAM / 160 GB SSD / 5 TB Transfer. Next: Setup external services (PostgreSQL, Qdrant Cloud, R2, Telegram bot token) → first deploy → integration testing.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

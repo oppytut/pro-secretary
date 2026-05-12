@@ -16,14 +16,77 @@ jobs:
     steps:
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          CALCOM_SECRET: ${{ secrets.CALCOM_SECRET }}
+          CALCOM_ENCRYPTION_KEY: ${{ secrets.CALCOM_ENCRYPTION_KEY }}
+          CALCOM_API_KEY: ${{ secrets.CALCOM_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          N8N_USER: ${{ secrets.N8N_USER }}
+          N8N_PASSWORD: ${{ secrets.N8N_PASSWORD }}
+          N8N_HOST: ${{ secrets.N8N_HOST }}
+          CALCOM_HOST: ${{ secrets.CALCOM_HOST }}
+          DOMAIN: ${{ secrets.DOMAIN }}
+          OPENFANG_SECRET: ${{ secrets.OPENFANG_SECRET }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
+          envs: TELEGRAM_BOT_TOKEN,TELEGRAM_ALLOWED_USERS,DATABASE_URL,QDRANT_URL,QDRANT_API_KEY,LLM_API_KEY,LLM_BASE_URL,LLM_MODEL,R2_ACCOUNT_ID,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY,R2_BUCKET,CALCOM_SECRET,CALCOM_ENCRYPTION_KEY,CALCOM_API_KEY,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASSWORD,SMTP_FROM,N8N_USER,N8N_PASSWORD,N8N_HOST,CALCOM_HOST,DOMAIN,OPENFANG_SECRET
           script: |
             cd ${{ secrets.DEPLOY_PATH || '/opt/ai-secretary' }}
             git pull origin main
+
+            cat > .env << EOF
+            TIMEZONE=Asia/Jakarta
+            DOMAIN=${DOMAIN:-yourdomain.com}
+            N8N_USER=${N8N_USER:-admin}
+            N8N_PASSWORD=${N8N_PASSWORD:-changeme}
+            N8N_HOST=${N8N_HOST:-}
+            LLM_API_KEY=${LLM_API_KEY:-}
+            LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+            LLM_MODEL=${LLM_MODEL:-gpt-4}
+            LLM_PROVIDER=openai
+            OPENAI_API_KEY=${LLM_API_KEY:-}
+            OPENAI_API_BASE=${LLM_BASE_URL:-https://api.openai.com/v1}
+            OPENFANG_SECRET=${OPENFANG_SECRET:-}
+            QDRANT_URL=${QDRANT_URL:-}
+            QDRANT_API_KEY=${QDRANT_API_KEY:-}
+            CALCOM_HOST=${CALCOM_HOST:-}
+            CALCOM_SECRET=${CALCOM_SECRET:-}
+            CALCOM_ENCRYPTION_KEY=${CALCOM_ENCRYPTION_KEY:-}
+            CALCOM_API_KEY=${CALCOM_API_KEY:-}
+            DATABASE_URL=${DATABASE_URL:-}
+            R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
+            R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+            R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+            R2_BUCKET=${R2_BUCKET:-secretary-files}
+            R2_ENDPOINT=https://${R2_ACCOUNT_ID:-}.r2.cloudflarestorage.com
+            TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+            TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS:-}
+            SMTP_HOST=${SMTP_HOST:-}
+            SMTP_PORT=${SMTP_PORT:-587}
+            SMTP_USER=${SMTP_USER:-}
+            SMTP_PASSWORD=${SMTP_PASSWORD:-}
+            SMTP_FROM=${SMTP_FROM:-}
+            EOF
+
             docker compose pull
             docker compose build --pull telegram-bot
             docker compose up -d --remove-orphans

@@ -50,7 +50,36 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Local verification sudah lulus (image build OK, health endpoint OK, auth guard OK, LangGraph workflow OK). Production deploy blocking selanjutnya.
 
 ### Recently Completed
-- ✅ [2026-05-13 08:44] LangGraph Agent — OpenFang Replacement Selesai (Local Verified)
+- ✅ [2026-05-13 15:22] Production MVP Validation + LLM Tunnel Durability
+  - **Validasi 6 endpoint agent di produksi** — semua 200 OK setelah 2 bug fix
+    - `/api/note` store note, `/api/search` retrieve semantic (score 0.41 match)
+    - `/api/task` upsert, `/api/tasks` list pending (filter-by-status work)
+    - `/api/schedule` fetch Cal.com (empty OK, no events yet)
+    - `/api/briefing` aggregate jadwal+tasks → LLM summary
+    - `/api/chat` conversation dengan context retrieval + auto-persist ke `agent_memory`
+  - **Bug 1 (commit 26a3ea3):** LLM endpoint 9router default-streaming (SSE). Agent crash parse `data: {...}` frames. Fix: eksplisit `stream: false` di chat completion payload.
+  - **Bug 2 (commit c4b9eae):** Qdrant filter queries (`scroll_filter`) return HTTP 400 tanpa payload index. Fix: `ensure_payload_indexes()` idempotent di FastAPI startup — create keyword index untuk `tasks.status/priority/user_id`, `knowledge.source/type`, `agent_memory.type/user_id`.
+  - **LLM Tunnel Durability (systemd service):**
+    - Install `autossh` di VPS
+    - `systemd/llm-tunnel.service` — autossh dengan `ServerAliveInterval=30`, `ExitOnForwardFailure=yes`, bind `172.17.0.1:20128` (docker bridge, bukan loopback)
+    - `scripts/install_llm_tunnel.sh` — one-shot installer (apt install + copy unit + enable)
+    - Service status: `enabled` (boot), `active (running)`
+    - **Test auto-restart:**
+      - Kill SSH child → autossh respawn dalam 2 detik
+      - Kill autossh parent → systemd respawn dalam ~12s (RestartSec=10)
+      - Tunnel otomatis listening kembali di 172.17.0.1:20128
+      - Agent reach LLM via `host.docker.internal:20128` setelah restart
+  - **Files:**
+    - NEW: `systemd/llm-tunnel.service`, `scripts/install_llm_tunnel.sh`, `.gitignore`
+    - MOD: `langgraph-agent/app/llm.py` (stream=false), `langgraph-agent/app/main.py` (startup hook), `langgraph-agent/app/qdrant_helper.py` (ensure_payload_indexes)
+  - **Impact:**
+    - Zero SPOF on LLM tunnel (survive VPS reboot, network hiccup)
+    - All user-facing commands work end-to-end via Telegram
+    - Infrastructure-as-code: VPS rebuild = git clone + run installer
+  - **Known improvements deferred:**
+    - Prioritas 3: Populate knowledge via Obsidian sync (sekarang `knowledge` kosong selain test data)
+    - Prioritas 4: Backup + monitoring (cron health_check.sh, n8n_data backup)
+- ✅ [2026-05-13 08:44] LangGraph Agent — OpenFang Replacement (Local + Deploy Verified)
   - **Motivasi:** `ghcr.io/rightnow-ai/openfang:latest` unauthorized, tidak bisa dipakai. Bot `/cari` broken karena call ke `http://openfang:8090/api/search` yang tidak ada.
   - **Pendekatan:** Build container LangGraph sendiri yang faithful ke arsitektur README asli (OpenFang → LangGraph drop-in). Bot tetap stateless, semua reasoning di agent.
   - **Komponen dibuat:**
@@ -638,7 +667,7 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-13 08:44]** ✅ LangGraph agent container complete + locally verified. OpenFang replacement done: `langgraph-agent/` service with FastAPI endpoints, LangGraph workflow (understand → retrieve_context → generate_response), fastembed ONNX (384-dim, matches sync_obsidian.py). Bot refactored — semua command route via `AGENT_URL`, shared-secret auth. Stack berubah dari 4 → 5 container. **BLOCKER:** Set GitHub Secret `AGENT_SECRET` (generate: `openssl rand -hex 32`), push ke main untuk trigger deploy. Setelah deploy, manual QA semua command via Telegram (list di Active Tasks).
+> **[2026-05-13 15:22]** ✅ MVP live + tunnel durable. All 6 agent endpoints verified on production (`/api/note`, `/api/search`, `/api/task`, `/api/tasks`, `/api/schedule`, `/api/briefing` — 200 OK). LLM SSH tunnel now managed by `llm-tunnel.service` (autossh + systemd): survives VPS reboot, auto-reconnect on network drop (~2s SSH level, ~12s systemd level). Service files checked into `systemd/` + installer `scripts/install_llm_tunnel.sh`. Two bugs fixed this round: (1) LLM endpoint defaults to SSE streaming → forced `stream: false`, (2) Qdrant filter queries need payload indexes → auto-provisioned at agent startup. Next candidates: Prioritas 3 (populate knowledge base via Obsidian sync), Prioritas 4 (backup + monitoring), Prioritas 5 (n8n proactive workflows).
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

@@ -1,0 +1,25 @@
+[Unit]
+Description=LLM SSH tunnel (9router -> docker bridge :20128)
+Documentation=https://github.com/oppytut/pro-secretary
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tutdo
+Environment=AUTOSSH_GATETIME=0
+Environment=AUTOSSH_PORT=0
+ExecStart=/usr/bin/autossh -M 0 -N \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/home/tutdo/.ssh/known_hosts \
+  -o IdentityFile=/home/tutdo/.ssh/id_ed25519 \
+  -L 172.17.0.1:20128:localhost:20128 \
+  gmedia@192.46.230.22
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -50,6 +50,42 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Local verification sudah lulus (image build OK, health endpoint OK, auth guard OK, LangGraph workflow OK). Production deploy blocking selanjutnya.
 
 ### Recently Completed
+- ✅ [2026-05-13 16:20] Proactive Workflows — Agent + n8n Integration
+  - **Motivasi:** Sistem belum "proaktif" — hanya respond kalau user kirim pesan. Prioritas 5 menambah scheduled/event-driven workflows yang mengirim pesan tanpa diminta.
+  - **Agent changes:**
+    - `app/telegram.py` — thin Telegram sendMessage wrapper (agent jadi single source Telegram egress; bot tetap untuk inbound)
+    - `app/main.py` — `POST /api/notify` (secret-gated), accept `text` + optional `chat_id`, default ke `TELEGRAM_ALLOWED_USERS`
+    - `app/config.py` — parse `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS` (comma-separated)
+  - **n8n workflows (3 baru, commit via installer):**
+    - **Daily Briefing** — Schedule trigger 07:00 Asia/Jakarta → call `/api/briefing` → wrap "☀️ Selamat pagi!" → `/api/notify`. **Active.**
+    - **Task Reminder** — Schedule 09:00/13:00/17:00 Mon-Fri → call `/api/tasks` → filter priority in `{high, urgent}` → notify (only fires kalau ada match). **Active.**
+    - **Cal.com Booking Indexer** — Webhook `/webhook/calcom-booking` → format booking → `/api/note` (index to knowledge) → `/api/notify`. **Inactive** (webhook workflow triggered on demand, tidak perlu activation).
+  - **Infrastructure:**
+    - `scripts/install_n8n_workflows.sh` — idempotent import via n8n CLI; copy files into container, import `--separate`, list + activate
+    - docker-compose: n8n gets `AGENT_SECRET` + `TELEGRAM_*` env for workflow HTTP nodes
+    - Obsolete `n8n/workflows/telegram-router.json` removed (bot tidak pakai n8n routing lagi)
+  - **Bugs fixed selama session:**
+    - Installer `cut -f1` tidak split pada `|` → fix pakai `cut -d"|" -f1`
+    - n8n 1.x deprecated REST basic auth untuk workflow delete; clean reinstall butuh SQLite direct wipe
+    - n8n `update:workflow --active=true` butuh restart untuk apply (documented in workflow listing)
+  - **Verifikasi end-to-end:**
+    - `/api/notify` smoke test → HTTP 200, delivered ke Telegram ✅
+    - Daily Briefing workflow simulation manual: LLM generate real content ("Selamat pagi. Berikut ringkasan hari ini, Rabu, 13 Mei 2026..." dengan pending tasks + rekomendasi prioritas), delivered ke Telegram ✅
+    - Task Reminder simulation: filter priority work correctly (2 high/urgent picked from pool) ✅
+    - Scheduled triggers loaded, will fire naturally: 07:00 harian, 09/13/17 weekdays
+    - Webhook workflow siap listen di `https://n8n.yourdomain.com/webhook/calcom-booking` (perlu register webhook di Cal.com dashboard)
+  - **Commits:**
+    - `feat(agent+n8n): proactive workflows — briefing, reminders, webhook`
+    - `fix(ops): n8n needs AGENT_SECRET/TELEGRAM env + installer id parsing`
+  - **Stack architecture update:**
+    - Agent jadi central Telegram egress (inbound: bot / outbound: agent via /api/notify)
+    - n8n punya credentials untuk call agent API via env var
+    - Webhook endpoints ready untuk Cal.com integration
+  - **Known next steps (optional):**
+    - Register Cal.com webhook di dashboard kalau ingin booking auto-index
+    - Tune task-reminder cron kalau 3x per hari kurang/kebanyakan
+    - Tambah workflow lain sesuai kebutuhan (EOD summary, weekly review, dll)
+
 - ✅ [2026-05-13 15:49] Backup + Monitoring Layer
   - **Motivasi:** Tidak ada backup berjalan, health check ada di repo tapi tidak terjadwal, tidak ada alert kalau ada service down.
   - **scripts/health_check.sh** — 5 checks:
@@ -728,7 +764,7 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-13 15:49]** ✅ Ops layer operational. Three crons on VPS: health check every 5min (n8n + calcom + langgraph-agent + qdrant-cloud + llm-tunnel.service — 5 checks, Telegram alert on fail, verified by stopping agent → alert fired → recovery), backup daily 02:30 (n8n volume + workflows + vault + configs, ~400KB archive, 30-day retention, optional GPG encryption if `/root/.backup-passphrase` exists), vault sync every 30min (Prioritas 3). Scripts adapted from README template + updated for post-OpenFang architecture. Prioritas 5 (n8n proactive workflows) is the only one left from the original roadmap — daily briefing cron, task reminders, Cal.com webhook to agent memory.
+> **[2026-05-13 16:20]** ✅ All 5 priorities complete. MVP fully operational: 5 healthy containers, LLM tunnel durable (systemd+autossh), knowledge base auto-sync (30min cron), backup daily (02:30), health monitoring (5min cron with Telegram alert), proactive workflows (Daily Briefing 07:00 + Task Reminder 09/13/17 weekdays + Cal.com webhook listener). Agent endpoints: `/api/chat`, `/api/search`, `/api/task`, `/api/tasks`, `/api/note`, `/api/schedule`, `/api/briefing`, `/api/sync_vault`, `/api/notify`, `/health`. Next candidates (optional, not blocking): register Cal.com webhook URL at `https://n8n.yourdomain.com/webhook/calcom-booking`, tune cron schedules, upload backups to R2, multi-user support, voice interface, WhatsApp channel.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

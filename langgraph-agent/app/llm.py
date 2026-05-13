@@ -25,6 +25,7 @@ async def chat_completion(
         "messages": messages,
         "temperature": temperature if temperature is not None else config.LLM_TEMPERATURE,
         "max_tokens": max_tokens or config.LLM_MAX_TOKENS,
+        "stream": False,
     }
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(

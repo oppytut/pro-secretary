@@ -28,6 +28,30 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Qdrant requires payload indexes before filtered scroll/search works.
+# Without these, filter queries return HTTP 400.
+_INDEXES: dict[str, tuple[str, ...]] = {
+    config.COLL_TASKS: ("status", "priority", "user_id"),
+    config.COLL_KNOWLEDGE: ("source", "type"),
+    config.COLL_MEMORY: ("type", "user_id"),
+}
+
+
+def ensure_payload_indexes() -> None:
+    client = get_client()
+    for collection, fields in _INDEXES.items():
+        for field in fields:
+            try:
+                client.create_payload_index(
+                    collection_name=collection,
+                    field_name=field,
+                    field_schema=qmodels.PayloadSchemaType.KEYWORD,
+                    wait=True,
+                )
+            except Exception:
+                pass
+
+
 def search(
     collection: str,
     query: str,

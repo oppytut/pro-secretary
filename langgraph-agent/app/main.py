@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from . import config, llm, tools, workflow
+from .qdrant_helper import ensure_payload_indexes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,6 +16,15 @@ logging.basicConfig(
 logger = logging.getLogger("agent")
 
 app = FastAPI(title="pro-secretary agent", version="1.0.0")
+
+
+@app.on_event("startup")
+async def _on_startup() -> None:
+    try:
+        ensure_payload_indexes()
+        logger.info("payload indexes ensured")
+    except Exception as exc:
+        logger.warning("payload index setup failed: %s", exc)
 
 
 async def verify_secret(request: Request) -> None:

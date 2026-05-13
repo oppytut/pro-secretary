@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# DEPRECATED: Vault sync now runs inside the LangGraph agent container.
+# Use POST /api/sync_vault (or scripts/trigger_sync_vault.sh) instead.
+# Kept here as standalone reference only; not wired to cron anymore.
+
 import os
 import hashlib
 from pathlib import Path
@@ -93,6 +97,8 @@ def sync_vault():
 
 
 if __name__ == "__main__":
+    print("WARNING: scripts/sync_obsidian.py is DEPRECATED.")
+    print("Use POST /api/sync_vault (or scripts/trigger_sync_vault.sh) instead.")
     print(f"Syncing Obsidian vault: {VAULT_PATH}")
     ensure_collection()
     sync_vault()

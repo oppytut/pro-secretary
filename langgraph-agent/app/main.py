@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from . import config, llm, tools, workflow
 from .qdrant_helper import ensure_payload_indexes
+from .sync import sync_vault
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,6 +78,10 @@ class BriefingRequest(BaseModel):
     user_id: str | int | None = None
 
 
+class SyncVaultRequest(BaseModel):
+    vault_path: str | None = None
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     missing = config.assert_ready()
@@ -139,6 +144,16 @@ async def note_create(req: NoteRequest) -> dict[str, Any]:
 async def schedule_today() -> dict[str, Any]:
     events = await tools.get_today_schedule()
     return {"count": len(events), "events": events}
+
+
+@app.post("/api/sync_vault", dependencies=[Depends(verify_secret)])
+async def sync_vault_endpoint(req: SyncVaultRequest) -> dict[str, Any]:
+    try:
+        result = sync_vault(req.vault_path)
+    except Exception as exc:
+        logger.exception("sync_vault failed")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    return result
 
 
 @app.post("/api/briefing", response_model=ChatResponse, dependencies=[Depends(verify_secret)])

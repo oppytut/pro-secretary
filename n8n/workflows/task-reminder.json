@@ -1,5 +1,5 @@
 {
-  "name": "Daily Briefing",
+  "name": "Task Reminder",
   "nodes": [
     {
       "parameters": {
@@ -7,13 +7,13 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 0 7 * * *"
+              "expression": "0 0 9,13,17 * * 1-5"
             }
           ]
         }
       },
-      "id": "9b1a1f1f-0001-4000-8000-000000000001",
-      "name": "07:00 daily",
+      "id": "9b1a1f1f-0002-4000-8000-000000000001",
+      "name": "Every 4h on weekdays",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [200, 300]
@@ -21,7 +21,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://langgraph-agent:8090/api/briefing",
+        "url": "http://langgraph-agent:8090/api/tasks",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -37,16 +37,26 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"user_id\": \"{{$env.TELEGRAM_ALLOWED_USERS}}\"\n}",
+        "jsonBody": "{\n  \"limit\": 50\n}",
         "options": {
-          "timeout": 90000
+          "timeout": 30000
         }
       },
-      "id": "9b1a1f1f-0001-4000-8000-000000000002",
-      "name": "Call /api/briefing",
+      "id": "9b1a1f1f-0002-4000-8000-000000000002",
+      "name": "Fetch pending tasks",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tasks = $input.first().json.tasks || [];\nconst highPrio = tasks.filter(t => {\n  const p = (t.payload && t.payload.priority) || '';\n  return p === 'high' || p === 'urgent';\n});\n\nif (highPrio.length === 0) {\n  return [];\n}\n\nconst lines = highPrio.slice(0, 10).map(t => {\n  const p = t.payload || {};\n  return `• [${p.priority || 'medium'}] ${p.title || 'Untitled'}`;\n});\n\nconst text = `🔔 Task reminder (${highPrio.length} high-prio):\\n\\n${lines.join('\\n')}`;\nreturn [{ json: { text, count: highPrio.length } }];"
+      },
+      "id": "9b1a1f1f-0002-4000-8000-000000000003",
+      "name": "Filter high priority",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
     },
     {
       "parameters": {
@@ -67,31 +77,42 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"text\": {{ JSON.stringify('☀️ Selamat pagi!\\n\\n' + $json.response) }}\n}",
+        "jsonBody": "={\n  \"text\": {{ JSON.stringify($json.text) }}\n}",
         "options": {
           "timeout": 30000
         }
       },
-      "id": "9b1a1f1f-0001-4000-8000-000000000003",
+      "id": "9b1a1f1f-0002-4000-8000-000000000004",
       "name": "Send to Telegram",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 300]
+      "position": [920, 300]
     }
   ],
   "connections": {
-    "07:00 daily": {
+    "Every 4h on weekdays": {
       "main": [
         [
           {
-            "node": "Call /api/briefing",
+            "node": "Fetch pending tasks",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Call /api/briefing": {
+    "Fetch pending tasks": {
+      "main": [
+        [
+          {
+            "node": "Filter high priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter high priority": {
       "main": [
         [
           {
@@ -112,5 +133,5 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "9b1a1f1f-0001-4000-8000-000000000000"
+  "versionId": "9b1a1f1f-0002-4000-8000-000000000000"
 }

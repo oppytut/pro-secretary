@@ -15,6 +15,11 @@ CALCOM_BASE_URL = os.getenv("CALCOM_BASE_URL", "http://calcom:3000").rstrip("/")
 AGENT_SECRET = os.getenv("AGENT_SECRET", "")
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Jakarta")
 
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_ALLOWED_USERS = [
+    x.strip() for x in os.getenv("TELEGRAM_ALLOWED_USERS", "").split(",") if x.strip()
+]
+
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 EMBEDDING_DIM = 384
 

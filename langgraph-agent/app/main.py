@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from . import config, llm, tools, workflow
+from . import config, llm, telegram, tools, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -82,6 +82,11 @@ class SyncVaultRequest(BaseModel):
     vault_path: str | None = None
 
 
+class NotifyRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    chat_id: str | int | None = None
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     missing = config.assert_ready()
@@ -153,6 +158,14 @@ async def sync_vault_endpoint(req: SyncVaultRequest) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("sync_vault failed")
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    return result
+
+
+@app.post("/api/notify", dependencies=[Depends(verify_secret)])
+async def notify_endpoint(req: NotifyRequest) -> dict[str, Any]:
+    result = await telegram.send_message(req.text, chat_id=req.chat_id)
+    if not result.get("ok"):
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=result.get("error") or result)
     return result
 
 

@@ -50,6 +50,41 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Local verification sudah lulus (image build OK, health endpoint OK, auth guard OK, LangGraph workflow OK). Production deploy blocking selanjutnya.
 
 ### Recently Completed
+- ✅ [2026-05-13 15:49] Backup + Monitoring Layer
+  - **Motivasi:** Tidak ada backup berjalan, health check ada di repo tapi tidak terjadwal, tidak ada alert kalau ada service down.
+  - **scripts/health_check.sh** — 5 checks:
+    - HTTP: n8n (`/healthz`), calcom (`/`)
+    - Container HTTP: langgraph-agent (via `docker exec`, karena port tidak di-expose ke host)
+    - External: Qdrant Cloud (`$QDRANT_URL/healthz` dengan api-key)
+    - Systemd: `llm-tunnel.service` (catches tunnel flapping walau autossh parent ada)
+    - Failure → Telegram alert dengan list service yang down
+  - **scripts/backup.sh** — 4 items:
+    - n8n workflows (export) + n8n_data volume
+    - Qdrant Cloud snapshots (semua 5 collection)
+    - Obsidian vault tarball
+    - Configs (compose, .env, caddy, telegram-bot, langgraph-agent, systemd, scripts)
+    - Optional GPG encryption kalau `/root/.backup-passphrase` ada
+    - Retention 30 hari
+    - Default path `/var/backups/ai-secretary`
+  - **scripts/install_cron.sh** — konsolidasi semua cron job:
+    - Health check: `*/5 * * * *` → `/var/log/health-check.log`
+    - Backup: `30 2 * * *` (daily 02:30) → `/var/log/backup.log`
+    - Vault sync: `*/30 * * * *` (dari Prioritas 3) → `/var/log/vault-sync.log`
+    - Setiap cron line source `.env` lokal (cron tidak inherit env)
+  - **Verifikasi end-to-end:**
+    - Health baseline: 5/5 passed
+    - Failure simulation: stop `langgraph-agent` container → next run: `❌ langgraph-agent DOWN (HTTP 000)` + Telegram alert fires
+    - Recovery: restart container → next run: 5/5 passed
+    - Backup dry-run: 404KB archive dengan n8n-data + vault + configs
+    - Cron installed di VPS: 3 line verified
+  - **Commit:** `feat(ops): health check + backup + cron installer` (6c1089f)
+  - **Improvement over README template:**
+    - Template pakai OpenFang container reference (dihapus)
+    - Template miss langgraph-agent + systemd tunnel (sekarang monitored)
+    - Template n8n_data volume name salah (fixed dengan fallback)
+    - Template BACKUP_DIR `/backups/` (ganti `/var/backups/` FHS-correct)
+  - **Known gap:** Backup file saat ini tidak otomatis upload ke R2/backup storage — tersimpan lokal di VPS saja. Nanti bisa ditambah `aws s3 cp ... s3://$R2_BUCKET/backups/` di akhir script kalau dibutuhkan.
+
 - ✅ [2026-05-13 15:41] Populate Knowledge Base — In-Container Obsidian Vault Sync
   - **Motivasi:** `/cari` selalu return empty — collection `knowledge` kosong selain data test dari `/catat`. Chat biasa tidak punya context yang bermakna.
   - **Pendekatan:** Pindah vault sync dari standalone `scripts/sync_obsidian.py` (torch/sentence-transformers, ~500MB) ke dalam agent container (fastembed sudah loaded, zero extra memory).
@@ -693,7 +728,7 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-13 15:41]** ✅ Knowledge base online. Vault `/opt/ai-secretary/vault/` on VPS (bind-mounted into agent as `/vault:ro`), 5 markdown seed files indexed. `POST /api/sync_vault` + cron `*/30 * * * *` handle ongoing sync (idempotent UUIDv5 IDs, orphan sweep on delete). `/cari` verified returning real vault content + cross-source retrieval with Telegram `/catat` notes. MVP now has: working LLM chat (tunnel durable), all 6 agent commands green, knowledge base auto-sync. Three prioritas tersisa: **Prioritas 4 (backup + monitoring)** — cron health_check.sh, n8n_data volume backup; **Prioritas 5 (n8n proactive workflows)** — daily briefing 07:00, task reminders; dan long-term optionals (multi-language, voice, WhatsApp).
+> **[2026-05-13 15:49]** ✅ Ops layer operational. Three crons on VPS: health check every 5min (n8n + calcom + langgraph-agent + qdrant-cloud + llm-tunnel.service — 5 checks, Telegram alert on fail, verified by stopping agent → alert fired → recovery), backup daily 02:30 (n8n volume + workflows + vault + configs, ~400KB archive, 30-day retention, optional GPG encryption if `/root/.backup-passphrase` exists), vault sync every 30min (Prioritas 3). Scripts adapted from README template + updated for post-OpenFang architecture. Prioritas 5 (n8n proactive workflows) is the only one left from the original roadmap — daily briefing cron, task reminders, Cal.com webhook to agent memory.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

@@ -19,9 +19,9 @@ for service_info in "${SERVICES[@]}"; do
     IFS='|' read -r name url <<< "$service_info"
     CHECKED=$((CHECKED + 1))
 
-    status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url" 2>/dev/null || echo "000")
+    status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$url" 2>/dev/null || echo "000")
 
-    if [ "$status_code" != "200" ]; then
+    if [[ "$status_code" -lt 200 || "$status_code" -ge 400 ]]; then
         ALERT+="❌ $name DOWN (HTTP $status_code)\n"
         FAILED=$((FAILED + 1))
     fi

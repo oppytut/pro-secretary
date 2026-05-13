@@ -24,7 +24,8 @@ echo "importing"
 docker exec n8n n8n import:workflow --separate --input=/tmp/workflows-import
 
 echo "activating all imported workflows"
-docker exec n8n sh -c 'n8n list:workflow | tail -n +2 | cut -f1 | while read -r id; do
+docker exec n8n sh -c 'n8n list:workflow | tail -n +2 | while IFS= read -r line; do
+  id=$(printf "%s" "$line" | cut -d"|" -f1)
   [ -n "$id" ] && n8n update:workflow --id="$id" --active=true
 done'
 

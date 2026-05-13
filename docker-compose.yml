@@ -28,6 +28,9 @@ services:
       - N8N_AI_ENABLED=true
       - N8N_METRICS=true
       - NODE_OPTIONS=--max-old-space-size=512
+      - AGENT_SECRET=${AGENT_SECRET}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/home/node/.n8n/workflows

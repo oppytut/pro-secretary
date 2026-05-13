@@ -50,6 +50,32 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Local verification sudah lulus (image build OK, health endpoint OK, auth guard OK, LangGraph workflow OK). Production deploy blocking selanjutnya.
 
 ### Recently Completed
+- ✅ [2026-05-13 15:41] Populate Knowledge Base — In-Container Obsidian Vault Sync
+  - **Motivasi:** `/cari` selalu return empty — collection `knowledge` kosong selain data test dari `/catat`. Chat biasa tidak punya context yang bermakna.
+  - **Pendekatan:** Pindah vault sync dari standalone `scripts/sync_obsidian.py` (torch/sentence-transformers, ~500MB) ke dalam agent container (fastembed sudah loaded, zero extra memory).
+  - **Komponen baru:**
+    - `langgraph-agent/app/sync.py` — chunker + upsert + orphan sweep. Deterministic UUIDv5 IDs per (relative_path, chunk_index) supaya re-sync idempotent.
+    - `POST /api/sync_vault` endpoint (AGENT_SECRET-gated)
+    - `docker-compose.yml` bind-mount `./vault:/vault:ro` ke agent
+    - `scripts/trigger_sync_vault.sh` — cron-friendly wrapper, support `AGENT_URL=container` sentinel untuk docker-exec dari host tanpa expose port
+    - `scripts/sync_obsidian.py` — ditandai DEPRECATED (tetap sebagai reference)
+  - **VPS setup:**
+    - `/opt/ai-secretary/vault/` dengan 4 seed file: projects/{alpha-overview,beta-brief}, meetings/2026-05-10-engineering-sync, people/andi-profile
+    - Cron: `*/30 * * * * set -a; . /opt/ai-secretary/.env; set +a; AGENT_URL=container /opt/ai-secretary/scripts/trigger_sync_vault.sh >> /var/log/vault-sync.log 2>&1`
+  - **Verifikasi end-to-end:**
+    - Initial sync: 4 files → 6 chunks upserted, 0 deleted
+    - Semantic search hit nyata: "tech lead Project Alpha" → andi-profile score 0.50; "budget meeting CFO Q3" → q3-budget-planning score 0.53
+    - Add new note → sync → search returns it (5 files, 7 chunks)
+    - Delete file → sync sweeps orphan (chunks_deleted: 1)
+    - Idempotent re-sync (same UUIDv5 IDs → upsert tanpa duplicate)
+    - Cross-source retrieval: hasil search blend data dari `/catat` Telegram + vault — exactly seperti desain
+  - **Commit:** 4cfe7c9 "feat(agent): in-container Obsidian vault sync via /api/sync_vault"
+  - **Impact:**
+    - `/cari` sekarang return konten vault beneran (bukan empty)
+    - Chat biasa punya context dari knowledge base + conversation memory
+    - Vault update otomatis setiap 30 menit via cron
+    - Tidak ada proses sync terpisah, zero memory overhead
+
 - ✅ [2026-05-13 15:22] Production MVP Validation + LLM Tunnel Durability
   - **Validasi 6 endpoint agent di produksi** — semua 200 OK setelah 2 bug fix
     - `/api/note` store note, `/api/search` retrieve semantic (score 0.41 match)
@@ -667,7 +693,7 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-13 15:22]** ✅ MVP live + tunnel durable. All 6 agent endpoints verified on production (`/api/note`, `/api/search`, `/api/task`, `/api/tasks`, `/api/schedule`, `/api/briefing` — 200 OK). LLM SSH tunnel now managed by `llm-tunnel.service` (autossh + systemd): survives VPS reboot, auto-reconnect on network drop (~2s SSH level, ~12s systemd level). Service files checked into `systemd/` + installer `scripts/install_llm_tunnel.sh`. Two bugs fixed this round: (1) LLM endpoint defaults to SSE streaming → forced `stream: false`, (2) Qdrant filter queries need payload indexes → auto-provisioned at agent startup. Next candidates: Prioritas 3 (populate knowledge base via Obsidian sync), Prioritas 4 (backup + monitoring), Prioritas 5 (n8n proactive workflows).
+> **[2026-05-13 15:41]** ✅ Knowledge base online. Vault `/opt/ai-secretary/vault/` on VPS (bind-mounted into agent as `/vault:ro`), 5 markdown seed files indexed. `POST /api/sync_vault` + cron `*/30 * * * *` handle ongoing sync (idempotent UUIDv5 IDs, orphan sweep on delete). `/cari` verified returning real vault content + cross-source retrieval with Telegram `/catat` notes. MVP now has: working LLM chat (tunnel durable), all 6 agent commands green, knowledge base auto-sync. Three prioritas tersisa: **Prioritas 4 (backup + monitoring)** — cron health_check.sh, n8n_data volume backup; **Prioritas 5 (n8n proactive workflows)** — daily briefing 07:00, task reminders; dan long-term optionals (multi-language, voice, WhatsApp).
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

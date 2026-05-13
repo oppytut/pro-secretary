@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-13 06:38  
+**Last Updated:** 2026-05-13 07:51  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -30,23 +30,32 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **Qdrant Cloud Setup**
-  - Setup Qdrant Cloud → add QDRANT_URL + QDRANT_API_KEY to GitHub Secrets
-  - Run `scripts/init_qdrant.py` to create collections
-  - Enables: /cari, /task, /catat, knowledge base, AI memory
+- [ ] **LLM Chat Testing**
+  - SSH tunnel ke 9router harus aktif di VPS: `ssh <9router_user>@<9router_host> -L 20128:localhost:20128 -N`
+  - Test kirim pesan biasa ke bot → bot respond via LLM
+  - Test `/model` command untuk switch model
 
-- [ ] **LLM Provider Setup**
-  - Add LLM_API_KEY, LLM_BASE_URL, LLM_MODEL to GitHub Secrets
-  - Enables: AI chat responses, /briefing, intelligent replies
+- [ ] **Qdrant Integration Testing**
+  - Test `/cari` command (semantic search)
+  - Test `/task` command (store to Qdrant)
+  - Test `/catat` command (store notes)
 
 - [ ] **OpenFang Replacement**
   - OpenFang image unavailable (ghcr.io/rightnow-ai/openfang:latest unauthorized)
   - Option: Build LangGraph agent container as replacement
 
 ### Blocked/Waiting
-- None (core stack operational)
+- None (core stack operational, LLM depends on SSH tunnel being active)
 
 ### Recently Completed
+- ✅ [2026-05-13 07:51] Qdrant Cloud + LLM + /model Command
+  - Qdrant Cloud initialized: 5 collections (knowledge, agent_memory, tasks, people, decisions)
+  - Added /model command: user can switch LLM model dynamically via Telegram
+  - Bot now calls LLM directly (OpenAI-compatible API) instead of OpenFang
+  - LLM accessed via SSH tunnel (9router → localhost:20128 → host.docker.internal:20128)
+  - Added extra_hosts to docker-compose for container→host access
+  - Secrets added: QDRANT_URL, QDRANT_API_KEY, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+  - Commits: d736805, 5a2671e, 4098537, 4d1b53f
 - ✅ [2026-05-13 06:33] All Core Services Healthy — Production Deploy Complete
   - n8n: ✅ healthy (21+ hours uptime)
   - Cal.com: ✅ healthy (Supabase PostgreSQL connected, migrations applied)
@@ -573,7 +582,7 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-13 06:38]** ✅ PRODUCTION DEPLOY COMPLETE — All 4 containers healthy (n8n, Cal.com, Telegram Bot, Caddy). CI/CD fully operational with GitHub Secrets → .env injection. Telegram bot responding to /start. Cal.com connected to Supabase PostgreSQL. HTTPS active via Caddy + Let's Encrypt. Next: Setup Qdrant Cloud (for AI memory/search) and LLM provider (for AI responses). OpenFang disabled — needs LangGraph replacement.
+> **[2026-05-13 07:51]** ✅ Stack fully operational. 4 containers healthy (n8n, Cal.com, Telegram Bot, Caddy). Qdrant Cloud initialized (5 collections). LLM connected via SSH tunnel (9router → host.docker.internal:20128). Bot has /model command for dynamic model switching. Next: Test LLM chat (ensure SSH tunnel active), test Qdrant-based commands (/cari, /task, /catat), consider LangGraph agent to replace OpenFang.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

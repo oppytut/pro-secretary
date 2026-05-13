@@ -13,6 +13,11 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 N8N_WEBHOOK = os.getenv("N8N_WEBHOOK_URL", "http://n8n:5678/webhook/telegram")
 OPENFANG_URL = os.getenv("OPENFANG_URL", "http://openfang:8090")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
+
+current_model = LLM_MODEL
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +46,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/tasks - Lihat pending tasks\n"
         "/cari <query> - Cari di knowledge base\n"
         "/catat <note> - Catat sesuatu\n"
-        "/briefing - Daily briefing\n\n"
+        "/briefing - Daily briefing\n"
+        "/model - Ganti/lihat model AI\n\n"
         "Atau kirim pesan biasa untuk chat."
     )
 
@@ -157,27 +163,52 @@ async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @authorized
+async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global current_model
+    if not context.args:
+        await update.message.reply_text(
+            f"🤖 Model aktif: `{current_model}`\n\n"
+            f"Gunakan: /model <nama_model>\n\n"
+            f"Contoh:\n"
+            f"/model gpt-4o\n"
+            f"/model gpt-3.5-turbo\n"
+            f"/model claude-3.5-sonnet\n"
+            f"/model llama-3.1-70b-versatile",
+            parse_mode="Markdown",
+        )
+        return
+
+    new_model = " ".join(context.args)
+    current_model = new_model
+    await update.message.reply_text(f"✅ Model diganti ke: `{current_model}`", parse_mode="Markdown")
+    logger.info(f"Model switched to: {current_model}")
+
+
+@authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global current_model
     user_message = update.message.text
     await update.message.reply_chat_action("typing")
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
-            f"{OPENFANG_URL}/api/chat",
+            f"{LLM_BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
             json={
-                "message": user_message,
-                "user_id": str(update.effective_user.id),
-                "context": {
-                    "platform": "telegram",
-                    "timestamp": update.message.date.isoformat()
-                }
-            }
+                "model": current_model,
+                "messages": [
+                    {"role": "system", "content": "Kamu adalah sekretaris pribadi AI yang efisien. Jawab dalam Bahasa Indonesia yang natural."},
+                    {"role": "user", "content": user_message},
+                ],
+                "temperature": 0.7,
+                "max_tokens": 1024,
+            },
         )
 
     if response.status_code == 200:
-        reply = response.json().get("response", "Maaf, tidak ada respons.")
+        reply = response.json()["choices"][0]["message"]["content"]
     else:
-        reply = "⚠️ Maaf, terjadi kesalahan. Coba lagi nanti."
+        reply = f"⚠️ Error dari LLM (HTTP {response.status_code}). Cek /model atau API key."
 
     await update.message.reply_text(reply)
 
@@ -218,6 +249,7 @@ async def post_init(application: Application):
         BotCommand("cari", "Cari di knowledge base"),
         BotCommand("catat", "Catat sesuatu"),
         BotCommand("briefing", "Daily briefing"),
+        BotCommand("model", "Ganti/lihat model AI"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered.")
@@ -238,6 +270,7 @@ def main():
     app.add_handler(CommandHandler("cari", cmd_cari))
     app.add_handler(CommandHandler("catat", cmd_catat))
     app.add_handler(CommandHandler("briefing", cmd_briefing))
+    app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 

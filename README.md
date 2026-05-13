@@ -2,62 +2,62 @@
 
 > Sistem asisten pribadi AI self-hosted yang tahu semua pekerjaan Anda — berjalan 24/7, privasi terjaga, kontrol penuh di tangan Anda.
 
+> **Status dokumen:** Stack telah pivot dari OpenFang (image unavailable) ke **custom LangGraph agent** yang dibangun sendiri di `langgraph-agent/`. Beberapa bagian panjang di README ini (khususnya seksi perbandingan "OpenFang vs LangGraph" dan contoh konfigurasi TOML OpenFang) bersifat historical — sistem live **tidak lagi menggunakan OpenFang**. Sumber terpercaya untuk state aktual: [`docker-compose.yml`](docker-compose.yml), [`TASK.md`](TASK.md), [`langgraph-agent/`](langgraph-agent/).
+
 ## 📐 Architecture
 
 ```mermaid
 graph TB
     User[👤 User]
-    
+
     subgraph Interface["🖥️ USER INTERFACE"]
-        TG[Telegram Bot]
+        TG[Telegram Bot<br/>inbound only]
     end
-    
+
     subgraph Orchestrator["🎯 ORCHESTRATOR"]
-        N8N[n8n<br/>Workflow Automation & AI Agent]
+        N8N[n8n<br/>Workflows: Daily Briefing,<br/>Task Reminder, Cal.com Webhook]
     end
-    
+
     subgraph AIEngine["🤖 AI AGENT ENGINE"]
-        OpenFang[OpenFang.sh]
-        LangGraph[LangGraph]
+        Agent[LangGraph Agent<br/>FastAPI + Qdrant + fastembed<br/>Telegram egress via /api/notify]
     end
-    
+
     subgraph Scheduling["📅 SCHEDULING"]
         CalCom[Cal.com<br/>Calendar & Appointments]
     end
-    
-    subgraph Knowledge["🧠 KNOWLEDGE & MEMORY"]
-        Obsidian[Obsidian Notes]
+
+    subgraph Knowledge["🧠 KNOWLEDGE"]
+        Obsidian[Obsidian Vault<br/>bind-mounted, auto-sync 30min]
     end
-    
+
     subgraph VectorDB["💾 VECTOR DATABASE"]
-        Qdrant[Qdrant Cloud<br/>Vector Memory]
+        Qdrant[Qdrant Cloud<br/>384-dim all-MiniLM-L6-v2]
     end
-    
+
     subgraph Storage["📁 FILE STORAGE"]
-        R2[Cloudflare R2<br/>S3-Compatible Object Storage]
+        R2[Cloudflare R2<br/>S3-compatible]
     end
-    
+
     subgraph External["📧 EXTERNAL SERVICES"]
+        LLM[LLM Provider<br/>OpenAI-compatible API]
         SMTP[SMTP Service<br/>SendGrid/Mailgun]
         PostgreSQL[PostgreSQL<br/>Supabase/Neon/Railway]
     end
-    
+
     User --> TG
-    TG --> N8N
-    N8N --> OpenFang
-    N8N --> LangGraph
+    TG --> Agent
+    N8N --> Agent
     N8N --> CalCom
-    N8N --> SMTP
-    OpenFang --> Obsidian
-    OpenFang --> Qdrant
-    OpenFang --> R2
-    LangGraph --> Obsidian
-    LangGraph --> Qdrant
-    LangGraph --> R2
+    CalCom --> N8N
+    Agent --> LLM
+    Agent --> Obsidian
+    Agent --> Qdrant
+    Agent --> R2
+    Agent --> TG
     Obsidian --> R2
     CalCom --> SMTP
     CalCom --> PostgreSQL
-    
+
     classDef interfaceStyle fill:#e1f5ff,stroke:#01579b,stroke-width:2px,color:#000
     classDef orchestratorStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
     classDef aiStyle fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
@@ -66,14 +66,14 @@ graph TB
     classDef storageStyle fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
     classDef externalStyle fill:#e0e0e0,stroke:#616161,stroke-width:2px,color:#000
     classDef vectordbStyle fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
-    
+
     class TG interfaceStyle
     class N8N orchestratorStyle
-    class OpenFang,LangGraph aiStyle
+    class Agent aiStyle
     class CalCom scheduleStyle
     class Obsidian knowledgeStyle
     class R2 storageStyle
-    class SMTP,PostgreSQL externalStyle
+    class SMTP,PostgreSQL,LLM externalStyle
     class Qdrant vectordbStyle
 ```
 
@@ -89,7 +89,7 @@ AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelo
 |-----------|------|------------|------|
 | **Telegram Bot** | User interface | Python Telegram Bot API | External |
 | **n8n** | Workflow orchestrator & router | n8n (low-code automation) | 5678 |
-| **OpenFang/LangGraph** | AI reasoning & decision making | OpenFang.sh / LangGraph | 8090 |
+| **LangGraph Agent** | AI reasoning & tool execution | FastAPI + LangGraph + fastembed | 8090 |
 | **Cal.com** | Calendar & appointment management | Cal.com (self-hosted) | 3000 |
 | **Qdrant Cloud** | Vector database & semantic search | Qdrant (managed cloud) | External |
 | **Obsidian** | Knowledge base (notes & docs) | Obsidian Markdown | - |
@@ -105,7 +105,7 @@ flowchart TD
     
     N8N[🎯 N8N<br/>Orchestration Layer<br/>━━━━━━━━━━━━━━<br/>✓ Route commands to services<br/>✓ Schedule automated tasks cron<br/>✓ Coordinate multi-service ops]
     
-    AIAgent[🤖 OPENFANG / LANGGRAPH<br/>AI Agent Layer<br/>━━━━━━━━━━━━━━<br/>✓ Understand user intent<br/>✓ Retrieve context from memory<br/>✓ Execute tools calendar, search, tasks<br/>✓ Generate natural language responses]
+    AIAgent[🤖 LANGGRAPH AGENT<br/>AI Agent Layer<br/>━━━━━━━━━━━━━━<br/>✓ Understand user intent<br/>✓ Retrieve context from memory<br/>✓ Execute tools calendar, search, tasks<br/>✓ Generate natural language responses]
     
     subgraph Backend["🔧 BACKEND SERVICES (Parallel Access)"]
         Obsidian[📝 OBSIDIAN<br/>Knowledge Base<br/>━━━━━━━━<br/>• Notes<br/>• Docs<br/>• Wiki]
@@ -164,9 +164,9 @@ flowchart TD
 ```
 1. TELEGRAM BOT receives message
    ├─ Check authorization (ALLOWED_USERS)
-   └─ Forward to OpenFang AI Agent
+   └─ Forward to LangGraph agent
 
-2. OPENFANG AI AGENT processes request
+2. LANGGRAPH AGENT processes request
    ├─ Step 1: Understand Intent
    │   └─ Detected: "check_schedule", date="today"
    │
@@ -297,7 +297,7 @@ flowchart TD
 1. TELEGRAM BOT extracts query
    └─ Query: "cara setup docker compose"
 
-2. OPENFANG SEMANTIC SEARCH
+2. LANGGRAPH AGENT SEMANTIC SEARCH
    ├─ Generate embedding from query
    │   └─ Vector: [0.345, 0.678, 0.912, ...]
    │
@@ -623,7 +623,7 @@ erDiagram
    └─ Intent: knowledge_retrieval
    └─ Query: "diskusi project Alpha minggu lalu"
 
-2. OPENFANG AI AGENT processes request
+2. LANGGRAPH AGENT processes request
    ├─ Step 1: Generate Query Embedding
    │   └─ POST to LLM embedding endpoint
    │       Input: "diskusi project Alpha minggu lalu"
@@ -720,7 +720,7 @@ erDiagram
    └─ Intent: meeting_preparation
    └─ Entity: "Client B", date: "tomorrow"
 
-2. OPENFANG AI AGENT orchestrates preparation
+2. LANGGRAPH AGENT orchestrates preparation
    ├─ PARALLEL DATA COLLECTION (4 sources)
    │
    ├─ [1] Fetch Calendar Info
@@ -907,7 +907,7 @@ Bot ingat context "meeting Client A" dari percakapan sebelumnya.
 
 ### 2. **Proactive Reminders**
 
-OpenFang berjalan dalam **daemon mode**, checking deadlines setiap 5 menit:
+LangGraph agent expose scheduled endpoints yang dipanggil n8n setiap 5 menit via workflow scheduler (Daily Briefing 07:00, Task Reminder 09/13/17 weekday):
 
 ```toml
 [daemon]
@@ -986,12 +986,12 @@ Telegram Bot
 ### Layer 2: Service-to-Service Auth
 ```
 Internal Services (Docker Network)
-├─ n8n → OpenFang: No auth (isolated network)
+├─ n8n → langgraph-agent: No auth (isolated network)
 
 External Services
-├─ OpenFang → Qdrant Cloud: API Key (QDRANT_API_KEY)
-├─ OpenFang → Cal.com: Bearer Token (CALCOM_API_KEY)
-├─ OpenFang → R2: AWS Signature V4 (R2_ACCESS_KEY_ID + SECRET)
+├─ Agent → Qdrant Cloud: API Key (QDRANT_API_KEY)
+├─ Agent → Cal.com: Bearer Token (CALCOM_API_KEY)
+├─ Agent → R2: AWS Signature V4 (R2_ACCESS_KEY_ID + SECRET)
 ├─ LLM Provider: Bearer Token (LLM_API_KEY)
 └─ SMTP: Username/Password (SMTP_USER + PASSWORD)
 ```
@@ -1020,7 +1020,7 @@ Health check script runs every 5 minutes via cron:
 # Check each service
 curl -f http://localhost:5678/healthz    # n8n
 curl -f http://localhost:3000/api/health # Cal.com
-curl -f http://localhost:8090/health     # OpenFang
+curl -f http://localhost:8090/health     # langgraph-agent
 
 # Check external services
 curl -f "${QDRANT_URL}/healthz" -H "api-key: ${QDRANT_API_KEY}"  # Qdrant Cloud
@@ -1070,7 +1070,7 @@ fi
 
 - [Architecture](#-architecture)
 - [How It Works](#-how-it-works)
-- [AI Agent Engine: OpenFang vs LangGraph](#-ai-agent-engine-openfang-vs-langgraph)
+- [AI Agent Engine](#-ai-agent-engine)
 - [LLM Provider Configuration](#-llm-provider-configuration)
 - [Prerequisites](#-prerequisites)
 - [Monthly Cost Estimate](#-monthly-cost-estimate)
@@ -1092,7 +1092,7 @@ fi
 
 ### Hardware Requirements
 
-> **Important:** PostgreSQL, Qdrant, dan Cloudflare R2 adalah external services yang TIDAK berjalan di server Anda. Resource requirements di bawah hanya untuk 5 containers lokal: n8n, OpenFang, Cal.com, Telegram Bot, dan Caddy.
+> **Important:** PostgreSQL, Qdrant, dan Cloudflare R2 adalah external services yang TIDAK berjalan di server Anda. Resource requirements di bawah hanya untuk 5 containers lokal: n8n, langgraph-agent, Cal.com, Telegram Bot, dan Caddy.
 
 #### Minimum (Personal Use - Single User)
 - **CPU:** 4 cores (x86_64)
@@ -1129,7 +1129,7 @@ fi
 **What runs on YOUR server (5 containers):**
 - n8n: ~1.5-2 GB RAM, 1 core
 - Cal.com: ~1-1.5 GB RAM, 0.5-1 core (app only, database is external)
-- OpenFang: ~1-2 GB RAM, 1 core
+- langgraph-agent: ~1-2 GB RAM, 1 core
 - Telegram Bot: ~0.3-0.5 GB RAM, negligible CPU
 - Caddy: ~0.2-0.3 GB RAM, negligible CPU
 - OS + Docker: ~2-3 GB RAM, 0.5-1 core
@@ -1184,7 +1184,7 @@ sudo usermod -aG docker $USER
 
 #### Internal Ports (Docker network only)
 - **5678** - n8n
-- **8090** - OpenFang
+- **8090** - langgraph-agent
 - **3000** - Cal.com
 
 > **Note:** PostgreSQL menggunakan external provider (Supabase/Neon/Railway), tidak ada container lokal.
@@ -1495,551 +1495,15 @@ sudo ufw status
 
 ---
 
-## 🤖 AI Agent Engine: OpenFang vs LangGraph
+## 🤖 AI Agent Engine
 
-This project supports two AI agent engines with different approaches. Understanding the differences helps you choose the right one for your needs.
+Stack menggunakan **custom LangGraph agent** yang dibangun di [`langgraph-agent/`](langgraph-agent/). Implementasinya adalah FastAPI + LangGraph StateGraph + fastembed ONNX (384-dim, model `sentence-transformers/all-MiniLM-L6-v2`), di-containerize dan di-deploy via docker-compose.
 
-### Overview
+**Kenapa custom, bukan OpenFang?** Image OpenFang (`ghcr.io/rightnow-ai/openfang:latest`) tidak tersedia publik saat deployment. Daripada blocked, kami build agent sendiri dengan pattern yang setara: workflow berbasis graph (understand → retrieve context → generate response), plus endpoint HTTP yang sama-sama bisa dipanggil dari n8n (`/api/chat`, `/api/search`, `/api/task`, `/api/notify`, `/api/briefing`, `/api/sync_vault`, dll).
 
-Both **OpenFang.sh** and **LangGraph** serve as the "brain" of the AI Personal Secretary, but with different philosophies:
+**Kenapa bukan murni LangChain atau framework lain?** LangGraph memberi state machine eksplisit yang mudah di-extend (tambah node untuk intent baru), sementara sisi produksinya tetap ringan (satu container, memory limit 1 GB, cold start <10 detik).
 
-| Aspect | OpenFang.sh | LangGraph |
-|--------|-------------|-----------|
-| **Approach** | Configuration-based (TOML) | Code-based (Python) |
-| **Setup Complexity** | Low (edit config file) | Medium-High (write code) |
-| **Flexibility** | Medium (limited by config options) | High (full control over logic) |
-| **Production Ready** | ✅ Yes (built-in features) | ⚠️ Depends (need to build features) |
-| **Daemon Mode** | ✅ Built-in (24/7 background service) | ❌ Need to implement |
-| **Proactive Features** | ✅ Built-in (cron, reminders) | ❌ Need to implement |
-| **Multi-channel** | ✅ Built-in (Telegram, webhook, HTTP) | ❌ Need to implement |
-| **Pre-built Tools** | ✅ Calendar, email, tasks, search | ❌ Need to implement each tool |
-| **Monitoring** | ✅ Built-in health checks | ❌ Need to implement |
-| **Learning Curve** | Low (just configuration) | Medium (Python skills required) |
-| **Maintenance** | Low (update config) | High (maintain code) |
-| **Best For** | Production, MVP, Quick deploy | Custom logic, Prototyping, R&D |
-
----
-
-### AI Agent Workflow State Machine
-
-Both OpenFang and LangGraph follow a similar state-based workflow for processing user requests:
-
-```mermaid
-stateDiagram-v2
-    [*] --> Understand: User message received
-    
-    Understand --> RetrieveContext: Intent extracted
-    note right of Understand
-        • Parse user intent
-        • Extract entities
-        • Classify task type
-    end note
-    
-    RetrieveContext --> ExecuteTools: Context loaded
-    note right of RetrieveContext
-        • Query Qdrant vector DB
-        • Get conversation history
-        • Load relevant memories
-    end note
-    
-    ExecuteTools --> GenerateResponse: Tools executed
-    note right of ExecuteTools
-        • Call calendar API
-        • Search knowledge base
-        • Create/update tasks
-        • Upload/retrieve files
-    end note
-    
-    GenerateResponse --> StoreMemory: Response generated
-    note right of GenerateResponse
-        • Format with LLM
-        • Natural language output
-        • Bahasa Indonesia
-    end note
-    
-    StoreMemory --> [*]: Complete
-    note right of StoreMemory
-        • Save to Qdrant
-        • Update context
-        • Log interaction
-    end note
-    
-    ExecuteTools --> ExecuteTools: Multiple tools needed
-    Understand --> [*]: Invalid/unclear intent
-```
-
-**State Transitions:**
-- **Understand** → **RetrieveContext**: Intent successfully parsed
-- **RetrieveContext** → **ExecuteTools**: Relevant context retrieved
-- **ExecuteTools** → **ExecuteTools**: Multiple tools need to be called sequentially
-- **ExecuteTools** → **GenerateResponse**: All tools executed successfully
-- **GenerateResponse** → **StoreMemory**: Response formatted
-- **StoreMemory** → **[*]**: Interaction complete
-- **Understand** → **[*]**: Invalid intent (error handling)
-
----
-
-### OpenFang.sh - Configuration-Based Agent
-
-**Type:** Production-ready AI Agent OS (Operating System for AI Agents)
-
-**Philosophy:** Configure, don't code. Define agent behavior through declarative configuration.
-
-#### Key Features
-
-✅ **Daemon Mode** - Runs 24/7 as background service, proactively checking for tasks
-✅ **Built-in Tools** - Calendar, email, file management, task tracking out-of-the-box
-✅ **Multi-channel** - Telegram, webhook, HTTP API support included
-✅ **Proactive Reminders** - Automatically sends reminders based on schedule
-✅ **Production Ready** - Auth, rate limiting, monitoring built-in
-
-#### Configuration Example
-
-```toml
-# openfang/secretary.toml
-
-[agent]
-name = "Secretary"
-description = "Personal AI Secretary yang tahu semua pekerjaan saya"
-mode = "daemon"  # Runs continuously in background
-personality = """
-Kamu adalah sekretaris pribadi AI yang sangat efisien dan proaktif.
-Kamu tahu semua jadwal, task, project, dan konteks pekerjaan saya.
-Kamu berkomunikasi dalam Bahasa Indonesia yang natural.
-Kamu memberikan reminder tanpa diminta jika ada deadline mendekat.
-"""
-
-[llm]
-provider = "openai"
-model = "${LLM_MODEL}"
-base_url = "${LLM_BASE_URL}"
-api_key = "${LLM_API_KEY}"
-temperature = 0.7
-max_tokens = 2048
-
-[llm.fallback]
-provider = "openai"
-model = "gpt-3.5-turbo"  # Fast fallback for simple queries
-api_key = "${LLM_API_KEY}"
-base_url = "${LLM_BASE_URL}"
-
-[memory]
-type = "qdrant"
-url = "${QDRANT_URL}"
-collection = "agent_memory"
-api_key = "${QDRANT_API_KEY}"
-
-[hands]  # Built-in tools - just enable them
-enabled = [
-  "web_search",
-  "calendar_read",
-  "calendar_write",
-  "file_read",
-  "task_manage",
-  "email_send",
-  "reminder_set"
-]
-
-[hands.calendar]
-provider = "calcom"
-api_url = "http://calcom:3000/api"
-api_key = "${CALCOM_API_KEY}"
-
-[hands.email]
-provider = "smtp"
-smtp_host = "${SMTP_HOST}"
-smtp_port = "${SMTP_PORT}"
-smtp_user = "${SMTP_USER}"
-smtp_password = "${SMTP_PASSWORD}"
-from_email = "${SMTP_FROM}"
-
-[hands.storage]
-provider = "s3"
-endpoint = "${R2_ENDPOINT}"
-access_key = "${R2_ACCESS_KEY_ID}"
-secret_key = "${R2_SECRET_ACCESS_KEY}"
-bucket = "${R2_BUCKET}"
-region = "auto"
-
-[hands.tasks]
-provider = "qdrant"
-collection = "tasks"
-
-[channels]
-enabled = ["telegram", "webhook"]
-
-[channels.telegram]
-token = "${TELEGRAM_BOT_TOKEN}"
-allowed_users = ["${TELEGRAM_ALLOWED_USERS}"]
-
-[channels.webhook]
-port = 8090
-secret = "${OPENFANG_SECRET}"
-
-[daemon]  # Proactive features
-enabled = true
-check_interval = "5m"  # Check for tasks every 5 minutes
-proactive_hours = { start = 7, end = 22 }  # Active hours
-
-[daemon.routines]
-morning_briefing = "0 7 * * *"      # 07:00 daily
-task_reminder = "0 */2 * * *"       # Every 2 hours
-eod_summary = "0 21 * * *"          # 21:00 daily
-```
-
-#### Workflow
-
-```
-User Message
-    ↓
-OpenFang Daemon (always running)
-    ↓
-[agent] → Apply personality & mode
-    ↓
-[llm] → Call LLM for reasoning
-    ↓
-[memory] → Retrieve context from Qdrant
-    ↓
-[hands] → Execute tools (calendar, email, etc.)
-    ↓
-Response to User
-    ↓
-[daemon] → Check for proactive tasks (reminders, briefings)
-```
-
-**Everything is handled automatically based on configuration.**
-
-#### When to Use OpenFang
-
-✅ **Production deployment** - Need stable, reliable agent
-✅ **Quick MVP** - Want to deploy fast without writing code
-✅ **Proactive assistant** - Need automatic reminders and briefings
-✅ **Standard workflows** - Common use cases (calendar, tasks, email)
-✅ **Low maintenance** - Prefer configuration over code maintenance
-
----
-
-### LangGraph - Code-Based Agent
-
-**Type:** Python framework for building custom AI agents with graph-based workflows
-
-**Philosophy:** Code everything. Full control over agent behavior through Python.
-
-#### Key Features
-
-✅ **Full Customization** - Control every detail of agent behavior
-✅ **Graph-Based Workflow** - Define agent as state machine with nodes and edges
-✅ **Flexible Logic** - Implement complex decision trees and conditional routing
-✅ **Easy Testing** - Test each node independently
-✅ **Visual Workflow** - Graph structure is easy to understand and debug
-
-#### Prerequisites
-
-Before implementing LangGraph agent, ensure you have:
-
-**System Requirements:**
-- Python 3.9 or higher
-- pip package manager
-- Virtual environment (recommended)
-
-**Installation:**
-
-```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate  # Windows
-
-# Install dependencies
-pip install langchain==0.1.0 \
-            langgraph==0.0.20 \
-            qdrant-client==1.7.0 \
-            langchain-openai==0.0.5 \
-            langchain-community==0.0.10 \
-            requests==2.31.0 \
-            boto3==1.34.0 \
-            sentence-transformers==2.2.2
-
-# Verify installation
-python -c "import langgraph; print(f'LangGraph version: {langgraph.__version__}')"
-python -c "import langchain; print(f'LangChain version: {langchain.__version__}')"
-```
-
-**Docker Setup (Alternative):**
-
-```dockerfile
-# langgraph/Dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY agent.py .
-
-CMD ["python", "agent.py"]
-```
-
-```txt
-# langgraph/requirements.txt
-langchain==0.1.0
-langgraph==0.0.20
-qdrant-client==1.7.0
-langchain-openai==0.0.5
-langchain-community==0.0.10
-requests==2.31.0
-boto3==1.34.0
-sentence-transformers==2.2.2
-```
-
-#### Implementation Example
-
-> **📖 Full Implementation:** For complete LangGraph agent code with all tools and workflow nodes, see [Component Setup → LangGraph Agent](#alternatif-langgraph-agent-langgraphagentpy) section below.
-
-**Quick Overview - Workflow Structure:**
-
-```python
-from langgraph.graph import StateGraph, END
-
-# 1. Define state
-class SecretaryState:
-    messages: list
-    context: str
-    current_task: str
-    tools_output: dict
-
-# 2. Build workflow graph
-workflow = StateGraph(SecretaryState)
-workflow.add_node("understand", understand_intent)
-workflow.add_node("retrieve_context", retrieve_context)
-workflow.add_node("execute_tools", execute_tools)
-workflow.add_node("generate_response", generate_response)
-
-# 3. Define flow
-workflow.set_entry_point("understand")
-workflow.add_edge("understand", "retrieve_context")
-workflow.add_edge("retrieve_context", "execute_tools")
-workflow.add_edge("execute_tools", "generate_response")
-workflow.add_edge("generate_response", END)
-
-# 4. Compile and use
-app = workflow.compile()
-result = app.invoke({"messages": ["Apa jadwal saya hari ini?"]})
-```
-
-**Key Components:**
-- **State Management:** SecretaryState tracks conversation flow
-- **Tools:** search_knowledge, get_today_schedule, create_task, search_files
-- **Workflow Nodes:** understand → retrieve_context → execute_tools → generate_response
-- **Graph-Based:** Each node is independently testable
-
-See full implementation with error handling, tool definitions, and deployment instructions in Component Setup section.
-
-#### Workflow
-
-```python
-User Message
-    ↓
-app.invoke({"messages": [user_message]})
-    ↓
-understand_intent(state)      # ← You implement this
-    ↓
-retrieve_context(state)       # ← You implement this
-    ↓
-execute_tools(state)          # ← You implement this
-    ↓
-generate_response(state)      # ← You implement this
-    ↓
-Response to User
-```
-
-**Every step must be manually implemented in Python code.**
-
-#### When to Use LangGraph
-
-✅ **Custom workflows** - Need very specific agent behavior
-✅ **Complex logic** - Conditional routing, multi-step reasoning
-✅ **Prototyping** - Experimenting with new ideas
-✅ **Research & Development** - Testing different approaches
-✅ **Full control** - Need to customize every detail
-✅ **Integration challenges** - Services that don't work with OpenFang
-
----
-
-### Decision Matrix
-
-#### Choose **OpenFang** if:
-
-- ✅ You want **quick deployment** (MVP, production)
-- ✅ You need **proactive features** (reminders, briefings)
-- ✅ You prefer **configuration over code**
-- ✅ You want **built-in tools** (calendar, email, tasks)
-- ✅ You need **daemon mode** (24/7 background service)
-- ✅ You want **low maintenance**
-- ✅ Standard use cases are sufficient
-
-#### Choose **LangGraph** if:
-
-- ✅ You need **custom workflow logic**
-- ✅ You want **full control** over agent behavior
-- ✅ You're **prototyping** new ideas
-- ✅ You need **complex decision trees**
-- ✅ You have **Python development skills**
-- ✅ OpenFang configuration is not flexible enough
-- ✅ You're doing **research & development**
-
----
-
-### Project Decision
-
-**From TASK.md:**
-> **AI Engine:** OpenFang.sh sebagai primary (fallback ke LangGraph jika perlu)
-
-#### Why OpenFang as Primary?
-
-1. **Production-Ready** - All features needed for AI secretary are built-in
-2. **Quick MVP** - No coding required, just configuration
-3. **Daemon Mode** - Proactive reminders work out-of-the-box
-4. **Low Maintenance** - Update config vs maintain code
-5. **Built-in Features** - Calendar, email, tasks, multi-channel support
-
-#### When to Use LangGraph?
-
-LangGraph is used as **fallback** or **alternative** when:
-
-1. **Custom Logic Needed** - OpenFang config is not flexible enough
-2. **Complex Decision Trees** - Need conditional routing beyond config
-3. **Prototyping** - Testing new ideas before implementing in OpenFang
-4. **Integration Challenges** - Service doesn't work with OpenFang
-
----
-
-### Deployment Options
-
-#### Option 1: OpenFang Only (Recommended for MVP)
-
-```yaml
-# docker-compose.yml
-services:
-  openfang:
-    image: ghcr.io/rightnow-ai/openfang:latest
-    container_name: openfang
-    restart: always
-    ports:
-      - "8090:8090"
-    environment:
-      - OPENFANG_CONFIG=/etc/openfang/secretary.toml
-      - LLM_PROVIDER=${LLM_PROVIDER}
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_MODEL=${LLM_MODEL}
-    volumes:
-      - ./openfang/secretary.toml:/etc/openfang/secretary.toml
-      - openfang_data:/var/lib/openfang
-    networks:
-      - secretary-net
-```
-
-**Use Case:** Standard AI secretary with proactive features.
-
----
-
-#### Option 2: LangGraph Only (Custom Implementation)
-
-```yaml
-# docker-compose.yml
-services:
-  langgraph-agent:
-    build: ./langgraph
-    container_name: langgraph-agent
-    restart: always
-    ports:
-      - "8090:8090"
-    environment:
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - LLM_MODEL=${LLM_MODEL}
-      - QDRANT_URL=${QDRANT_URL}
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - CALCOM_API_KEY=${CALCOM_API_KEY}
-    volumes:
-      - ./langgraph/agent.py:/app/agent.py
-    networks:
-      - secretary-net
-```
-
-**Use Case:** Highly customized workflow that requires full control.
-
----
-
-#### Option 3: Hybrid (Best of Both Worlds)
-
-```yaml
-# docker-compose.yml
-services:
-  openfang:
-    image: ghcr.io/rightnow-ai/openfang:latest
-    ports:
-      - "8090:8090"
-    # For standard operations (reminders, briefings, daily tasks)
-  
-  langgraph-agent:
-    build: ./langgraph
-    ports:
-      - "8091:8091"
-    # For custom workflows (complex analysis, special tasks)
-  
-  n8n:
-    image: n8nio/n8n:latest
-    # Routes requests to appropriate agent based on type
-```
-
-**Use Case:** 
-- OpenFang handles daily operations (reminders, briefings, standard queries)
-- LangGraph handles custom workflows (complex analysis, special tasks)
-- n8n routes requests based on intent
-
-**Routing Logic:**
-```javascript
-// n8n Switch Node
-if (intent === "standard_query") {
-    route_to("http://openfang:8090");
-} else if (intent === "complex_analysis") {
-    route_to("http://langgraph-agent:8091");
-}
-```
-
----
-
-### Analogy
-
-**OpenFang = WordPress**
-- Install, configure via dashboard, done
-- Many plugins/features built-in
-- Production-ready out-of-the-box
-- Trade-off: Less flexible for custom logic
-
-**LangGraph = Custom Django/Flask App**
-- Build from scratch with code
-- Full control over every detail
-- Flexible for custom requirements
-- Trade-off: More effort and maintenance
-
----
-
-### Summary
-
-| Criteria | OpenFang | LangGraph |
-|----------|----------|-----------|
-| **Setup Time** | 30 minutes (config) | 4-8 hours (coding) |
-| **Production Ready** | ✅ Immediate | ⚠️ After building features |
-| **Proactive Features** | ✅ Built-in | ❌ Need to implement |
-| **Maintenance** | Low (config updates) | High (code maintenance) |
-| **Flexibility** | Medium (config options) | High (full control) |
-| **Best For** | 80% of use cases | 20% custom needs |
-
-**Recommendation:** Start with **OpenFang** for MVP. Add **LangGraph** later if you need custom workflows that OpenFang can't handle.
+Detail teknis lihat [`langgraph-agent/app/workflow.py`](langgraph-agent/app/workflow.py) dan [`langgraph-agent/app/main.py`](langgraph-agent/app/main.py).
 
 ---
 
@@ -2118,14 +1582,20 @@ model = ChatOpenAI(
 }
 ```
 
-#### OpenFang (TOML)
+#### LangGraph Agent (docker-compose)
 
-```toml
-[llm]
-provider = "openai"  # Use OpenAI-compatible mode
-model = "${LLM_MODEL}"
-base_url = "${LLM_BASE_URL}"
-api_key = "${LLM_API_KEY}"
+Current stack. See [`docker-compose.yml`](docker-compose.yml) for the authoritative definition. Agent reads LLM credentials from the environment:
+
+```yaml
+  langgraph-agent:
+    build: ./langgraph-agent
+    environment:
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - AGENT_SECRET=${AGENT_SECRET}
 ```
 
 ### Provider-Specific Setup
@@ -2221,137 +1691,21 @@ free -h
 
 ## 🐳 Docker Compose
 
-Buat file docker-compose.yml:
+Definisi service yang authoritative ada di [`docker-compose.yml`](docker-compose.yml) di root repo. Stack terdiri dari 5 container lokal:
 
-```yaml
-version: "3.8"
+| Service | Image | Memory limit | Role |
+|---|---|---|---|
+| `n8n` | `n8nio/n8n:latest` | 1.5 GB | Workflow orchestrator |
+| `langgraph-agent` | built from `./langgraph-agent/` | 1 GB | AI reasoning + Telegram egress |
+| `calcom` | `calcom/cal.com:latest` | 1.5 GB | Calendar |
+| `telegram-bot` | built from `./telegram-bot/` | 512 MB | Telegram inbound |
+| `caddy` | `caddy:2-alpine` | 256 MB | HTTPS reverse proxy |
 
-services:
-  # ================================
-  # ORCHESTRATOR - n8n
-  # ============================================
-  n8n:
-    image: n8nio/n8n:latest
-    container_name: n8n
-    restart: always
-    ports:
-      - "5678:5678"
-    environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_USER}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
-      - N8N_HOST=${N8N_HOST}
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${N8N_HOST}/
-      - GENERIC_TIMEZONE=${TIMEZONE}
-      - N8N_AI_ENABLED=true
-    volumes:
-      - n8n_data:/home/node/.n8n
-      - ./n8n/workflows:/home/node/.n8n/workflows
-    networks:
-      - secretary-net
+External services (tidak di-container-kan): Qdrant Cloud, PostgreSQL (Supabase/Neon/Railway), Cloudflare R2, LLM Provider.
 
-  # ============================================
-  # AI AGENT ENGINE - OpenFang
-  # ============================================
-  openfang:
-    image: ghcr.io/rightnow-ai/openfang:latest
-    container_name: openfang
-    restart: always
-    ports:
-      - "8090:8090"
-    environment:
-      - OPENFANG_CONFIG=/etc/openfang/secretary.toml
-      - LM_PROVIDER=${LLM_PROVIDER}
-      - LM_API_KEY=${LLM_API_KEY}
-      - LM_MODEL=${LLM_MODEL}
-      # Qdrant Cloud (External)
-      - QDRANT_URL=${QDRANT_URL}
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-    volumes:
-      - ./openfang/secretary.toml:/etc/openfang/secretary.toml
-      - openfang_data:/var/lib/openfang
-    networks:
-      - secretary-net
+Deploy via CI: push ke `main` → GitHub Actions run [`deploy.yml`](.github/workflows/deploy.yml) → SSH ke VPS → `docker compose up -d`. Untuk ngelihat state live di VPS, jalankan `docker compose ps`.
 
-  # ============================================
-  # VECTOR MEMORY - Qdrant Cloud (External)
-  # ============================================
-  # NOTE: Qdrant runs on Qdrant Cloud, not locally
-  # This saves 3-5 GB RAM on your server
-  # Free tier: 1GB storage, 1M vectors
-  # Sign up: https://cloud.qdrant.io
-  # Configure QDRANT_URL and QDRANT_API_KEY in .env
-
-  # ============================================
-  # SCHEDULING - Cal.com
-  # ============================================
-  calcom:
-    image: calcom/cal.com:latest
-    container_name: calcom
-    restart: always
-    ports:
-      - "3000:3000"
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - NEXTAUTH_SECRET=${CALCOM_SECRET}
-      - CALENDSO_ENCRYPTION_KEY=${CALCOM_ENCRYPTION_KEY}
-      - NEXT_PUBLIC_WEBAPP_URL=https://${CALCOM_HOST}
-    networks:
-      - secretary-net
-
-  # ============================================
-  # TELEGRAM BOT
-  # ============================================
-  telegram-bot:
-    build: ./telegram-bot
-    container_name: telegram-bot
-    restart: always
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USERS}
-      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/telegram
-      - OPENFANG_URL=http://openfang:8090
-      - QDRANT_URL=${QDRANT_URL}
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - R2_ENDPOINT=${R2_ENDPOINT}
-      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
-      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
-      - R2_BUCKET=${R2_BUCKET}
-    depends_on:
-      - n8n
-      - openfang
-    networks:
-      - secretary-net
-
-  # ============================================
-  # REVERSE PROXY - Caddy
-  # ============================================
-  caddy:
-    image: caddy:2
-    container_name: caddy
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - secretary-net
-
-volumes:
-  n8n_data:
-  openfang_data:
-  caddy_data:
-  caddy_config:
-
-networks:
-  secretary-net:
-    driver: bridge
-```
+---
 
 ## 🔐 Environment Variables
 
@@ -2415,9 +1769,9 @@ OPENAI_API_KEY=${LLM_API_KEY}
 OPENAI_API_BASE=${LLM_BASE_URL}
 
 # ============================================
-# OpenFang
+# LangGraph Agent
 # ============================================
-OPENFANG_SECRET=your_openfang_secret
+AGENT_SECRET=your_agent_secret_here  # openssl rand -hex 32
 
 # ============================================
 # Qdrant - Vector Database (External Provider)
@@ -2563,205 +1917,19 @@ n8n berfungsi sebagai otak koordinasi yang menghubungkan semua komponen.
 
 ---
 
-### 2. OpenFang / LangGraph
+### 2. LangGraph Agent
 
-#### OpenFang Configuration (openfang/secretary.toml):
+Implementation lengkap ada di [`langgraph-agent/`](langgraph-agent/). Struktur:
 
-```toml
-[agent]
-name = "Secretary"
-description = "Personal AI Secretary yang tahu semua pekerjaan saya"
-mode = "daemon"
-personality = """
-Kamu adalah sekretaris pribadi AI yang sangat efisien dan proaktif.
-Kamu tahu semua jadwal, task, project, dan konteks pekerjaan saya.
-Kamu berkomunikasi dalam Bahasa Indonesia yang natural.
-Kamu memberikan reminder tanpa diminta jika ada deadline mendekat.
-"""
+- `app/main.py` — FastAPI app dengan endpoints `/api/chat`, `/api/search`, `/api/task`, `/api/tasks`, `/api/note`, `/api/schedule`, `/api/briefing`, `/api/sync_vault`, `/api/notify`, `/health`
+- `app/workflow.py` — LangGraph StateGraph: `understand → retrieve_context → generate_response`
+- `app/tools.py` — Qdrant CRUD + Cal.com API + memory helpers
+- `app/embedding.py` — fastembed ONNX wrapper (384-dim, `all-MiniLM-L6-v2`)
+- `app/sync.py` — Obsidian vault → Qdrant upsert dengan orphan sweep
+- `app/telegram.py` — Telegram Bot API sendMessage wrapper (single egress)
+- `Dockerfile` — Python 3.11-slim, pre-cache ONNX model saat build
 
-[llm]
-provider = "openai"  # Use OpenAI-compatible mode
-model = "${LLM_MODEL}"
-base_url = "${LLM_BASE_URL}"
-api_key = "${LLM_API_KEY}"
-temperature = 0.7
-max_tokens = 2048
-
-[llm.fallback]
-provider = "openai"
-model = "gpt-3.5-turbo"  # Fast fallback model
-api_key = "${LLM_API_KEY}"
-base_url = "${LLM_BASE_URL}"
-
-[memory]
-type = "qdrant"
-url = "${QDRANT_URL}"
-collection = "agent_memory"
-api_key = "${QDRANT_API_KEY}"
-
-[hands]
-enabled = [
-  "web_search",
-  "calendar_read",
-  "calendar_write",
-  "file_read",
-  "task_manage",
-  "email_send",
-  "reminder_set"
-]
-
-[hands.calendar]
-provider = "calcom"
-api_url = "http://calcom:3000/api"
-api_key = "${CALCOM_API_KEY}"
-
-[hands.email]
-provider = "smtp"
-smtp_host = "${SMTP_HOST}"
-smtp_port = "${SMTP_PORT}"
-smtp_user = "${SMTP_USER}"
-smtp_password = "${SMTP_PASSWORD}"
-from_email = "${SMTP_FROM}"
-
-[hands.storage]
-provider = "s3"
-endpoint = "${R2_ENDPOINT}"
-access_key = "${R2_ACCESS_KEY_ID}"
-secret_key = "${R2_SECRET_ACCESS_KEY}"
-bucket = "${R2_BUCKET}"
-region = "auto"  # Cloudflare R2 uses "auto" region
-
-[hands.tasks]
-provider = "qdrant"
-collection = "tasks"
-
-[channels]
-enabled = ["telegram", "webhook"]
-
-[channels.telegram]
-token = "${TELEGRAM_BOT_TOKEN}"
-allowed_users = ["${TELEGRAM_ALLOWED_USERS}"]
-
-[channels.webhook]
-port = 8090
-secret = "${OPENFANG_SECRET}"
-
-[daemon]
-enabled = true
-```
-    check_interval = "5m"
-    proactive_hours = { start = 7, end = 22 }
-
-    [daemon.routines]
-    morning_briefing = "0 7 * *"
-    task_reminder = "0 */2 * * *"
-    eod_summary = "0 21 * * *"
-
-#### Alternatif: LangGraph Agent (langgraph/agent.py):
-
-```python
-from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI
-from langchain_community.vectorstores import Qdrant
-from langchain.agents import tool
-from qdrant_client import QdrantClient
-import requests
-from datetime import datetime
-import os
-
-# State definition
-class SecretaryState:
-    messages: list
-    context: str
-    current_task: str
-    tools_output: dict
-
-# Tools
-@tool
-def search_knowledge(query: str) -> str:
-    """Cari informasi dari knowledge base pribadi."""
-    client = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"))
-    results = client.search(
-        collection_name="knowledge",
-        query_vector=get_embedding(query),
-        limit=5
-    )
-    return "\n".join([r.payload["content"] for r in results])
-
-@tool
-def get_today_schedule() -> str:
-    """Ambil jadwal hari ini dari Cal.com API."""
-    response = requests.get(
-        "http://calcom:3000/api/bookings",
-        headers={"Authorization": f"Bearer {os.getenv('CALCOM_API_KEY')}"},
-        params={"startTime": datetime.now().isoformat()}
-    )
-    return parse_calendar_json(response.json())
-
-@tool
-def create_task(title: str, due_date: str, priority: str) -> str:
-    """Buat task baru."""
-    client = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"))
-    client.upsert(
-        collection_name="tasks",
-        points=[{
-            "id": generate_id(),
-            "vector": get_embedding(title),
-            "payload": {
-                "title": title,
-                "due_date": due_date,
-                "priority": priority,
-                "status": "pending",
-                "created_at": datetime.now().isoformat()
-            }
-        }]
-    )
-    return f"Task '{title}' berhasil dibuat (deadline: {due_date})"
-
-@tool
-def search_files(query: str) -> str:
-    """Cari file di Cloudflare R2 storage."""
-    import boto3
-    
-    s3 = boto3.client(
-        's3',
-        endpoint_url=os.getenv('R2_ENDPOINT'),
-        aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
-        region_name='auto'  # Cloudflare R2 uses "auto" region
-    )
-    
-    response = s3.list_objects_v2(
-        Bucket=os.getenv('R2_BUCKET', 'secretary-files'),
-        Prefix=query
-    )
-    
-    files = [obj['Key'] for obj in response.get('Contents', [])]
-    return "\n".join(files) if files else "No files found"
-
-# Initialize LLM
-llm = ChatOpenAI(
-    model=os.getenv("LLM_MODEL", "gpt-4"),
-    base_url=os.getenv("LLM_BASE_URL"),
-    api_key=os.getenv("LLM_API_KEY"),
-    temperature=0.7,
-)
-
-# Build Graph
-workflow = StateGraph(SecretaryState)
-workflow.add_node("understand", understand_intent)
-workflow.add_node("retrieve_context", retrieve_context)
-workflow.add_node("execute_tools", execute_tools)
-workflow.add_node("generate_response", generate_response)
-
-workflow.set_entry_point("understand")
-workflow.add_edge("understand", "retrieve_context")
-workflow.add_edge("retrieve_context", "execute_tools")
-workflow.add_edge("execute_tools", "generate_response")
-workflow.add_edge("generate_response", END)
-```
-
-    app = workflow.compile()
+Agent di-auth dengan `AGENT_SECRET` via header `X-Agent-Secret`. Bot dan n8n workflow sama-sama pakai shared secret ini.
 
 ---
 
@@ -3126,7 +2294,7 @@ from telegram.ext import (
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",")]
 N8N_WEBHOOK = os.getenv("N8N_WEBHOOK_URL")
-OPENFANG_URL = os.getenv("OPENFANG_URL")
+AGENT_URL = os.getenv("AGENT_URL")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -3192,7 +2360,7 @@ async def cmd_cari(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{OPENFANG_URL}/api/search",
+            f"{AGENT_URL}/api/search",
             json={"query": query, "collection": "knowledge", "limit": 5}
         )
 
@@ -3237,7 +2405,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
-            f"{OPENFANG_URL}/api/chat",
+            f"{AGENT_URL}/api/chat",
             json={
                 "message": user_message,
                 "user_id": str(update.effective_user.id),
@@ -3420,7 +2588,7 @@ tar czf $BACKUP_DIR/$DATE/obsidian-vault.tar.gz /path/to/SecretaryVault
 # 6. Config files
 tar czf $BACKUP_DIR/$DATE/configs.tar.gz \
     docker-compose.yml .env \
-    openfang/ caddy/ telegram-bot/
+    langgraph-agent/ caddy/ telegram-bot/ systemd/
 
 # Encrypt backup
 tar czf - $BACKUP_DIR/$DATE | gpg --symmetric --cipher-algo AES256 \
@@ -3486,11 +2654,11 @@ docker run --rm \
   -v $RESTORE_DIR/n8n:/backup \
   alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
 
-# 4. Restore OpenFang data
-docker volume create openfang_data
+# 4. Restore langgraph-agent volume
+docker volume create langgraph_cache
 docker run --rm \
-  -v openfang_data:/data \
-  -v $RESTORE_DIR/openfang:/backup \
+  -v langgraph_cache:/data \
+  -v $RESTORE_DIR/langgraph_cache:/backup \
   alpine sh -c "rm -rf /data/* && cp -r /backup/* /data/"
 
 # 5. Restore Qdrant Cloud (if needed)
@@ -3549,7 +2717,7 @@ gpg --decrypt $BACKUP_FILE | tar -xzf - -C $RESTORE_DIR
 
 # Restore volumes
 echo "💾 Restoring volumes..."
-for volume in n8n_data openfang_data; do
+for volume in n8n_data langgraph_cache; do
     echo "  - Restoring $volume..."
     docker volume create $volume
     docker run --rm \
@@ -3583,7 +2751,7 @@ echo "🗑️  Clean up: rm -rf $RESTORE_DIR"
 |-----------|--------------|-----------------|
 | n8n workflows | 5 minutes | Last backup (daily) |
 | Qdrant Cloud | 0 minutes (managed) | Automatic (provider) |
-| OpenFang data | 5 minutes | Last backup (daily) |
+| langgraph-agent| 5 minutes | Last backup (daily) |
 | Database | 15 minutes | Last backup (daily) |
 | Obsidian vault | 5 minutes | Last backup (daily) |
 | **Total RTO** | **~30 minutes** | **24 hours** |
@@ -3603,7 +2771,7 @@ echo "🗑️  Clean up: rm -rf $RESTORE_DIR"
     SERVICES=(
         "n8n|http://localhost:5678/healthz|200"
         "calcom|http://localhost:3000/api/health|200"
-        "openfang|http://localhost:8090/health|200"
+        "langgraph-agent|container:langgraph-agent:http://localhost:8090/health|200"
     )
 
     ALERT=""
@@ -3683,7 +2851,7 @@ After post-installation, verify:
 - [ ] Telegram bot responds to `/start` command
 - [ ] Database migrations completed successfully
 - [ ] Health check script passes all tests
-- [ ] End-to-end message flow works (Telegram → n8n → OpenFang → Response)
+- [ ] End-to-end message flow works (Telegram → n8n → langgraph-agent → Response)
 
 ---
 
@@ -3731,8 +2899,8 @@ curl -I https://cloud.qdrant.io
 # 4. Verify cluster is active on Qdrant Cloud dashboard
 # Visit: https://cloud.qdrant.io
 
-# 5. Restart OpenFang
-docker compose restart openfang
+# 5. Restart langgraph-agent
+docker compose restart langgraph-agent
 ```
 
 ---
@@ -3853,7 +3021,7 @@ MIT License - Gunakan dan modifikasi sesuka hati.
 ## 🙏 Credits
 
 - n8n (https://n8n.io) - Workflow Automation
-- OpenFang (https://openfang.sh) - Agent OS
+- LangGraph (https://github.com/langchain-ai/langgraph) - Agent workflow framework
 - Qdrant (https://qdrant.tech) - Vector Database
 - Cal.com (https://cal.com) - Scheduling
 - Cloudflare R2 (https://www.cloudflare.com/products/r2/) - S3-Compatible Object Storage

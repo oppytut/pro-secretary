@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-13 08:44  
+**Last Updated:** 2026-05-13 17:19  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟡 In Progress
+**Status:** 🟢 MVP Operational
 
 ---
 
@@ -12,42 +12,32 @@
 Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerjaan user, berjalan lokal dengan kontrol penuh.
 
 ### Tech Stack
-- **Orchestrator:** n8n (workflow automation)
-- **AI Engine:** LangGraph agent (custom container, replaces unavailable OpenFang)
+- **Orchestrator:** n8n (workflow automation, 3 active workflows: Daily Briefing, Task Reminder, Cal.com Booking Indexer)
+- **AI Engine:** LangGraph agent (custom FastAPI container, replaces unavailable OpenFang)
 - **Interface:** Telegram bot
-- **Scheduling:** Cal.com
-- **Knowledge:** Obsidian + Local LM
-- **Memory:** Qdrant Cloud (384-dim, all-MiniLM-L6-v2)
+- **Scheduling:** Cal.com (webhook → n8n registered)
+- **Knowledge:** Obsidian vault (bind-mounted into agent, auto-sync 30min)
+- **Memory:** Qdrant Cloud (384-dim, all-MiniLM-L6-v2 via fastembed)
+- **LLM:** OpenAI-compatible provider via SSH tunnel (durable via autossh+systemd)
 - **Files:** Cloudflare R2 (S3-compatible object storage)
+- **Database:** External PostgreSQL (Supabase/Neon/Railway)
+- **Reverse Proxy:** Caddy (Let's Encrypt auto)
 
 ### Repository
 - **Location:** `/home/ubuntu/bench/pro-secretary/`
-- **Git:** Initialized, has LICENSE + README.md
-- **Branch:** (check with `git branch`)
+- **Remote:** `github.com:oppytut/pro-secretary.git`
+- **Branch:** `main`
 
 ---
 
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **Deploy LangGraph agent to VPS**
-  - Push to main → GitHub Actions akan build+deploy langgraph-agent
-  - Set GitHub Secret: `AGENT_SECRET` (generate: `openssl rand -hex 32`)
-  - Verify 5 container healthy setelah deploy (n8n, calcom, telegram-bot, caddy, langgraph-agent)
-
-- [ ] **End-to-end Telegram QA** (after deploy)
-  - `/start` — respond dengan command list
-  - Chat biasa — reply via LLM + context dari agent
-  - `/cari <query>` — semantic search Qdrant knowledge collection
-  - `/task <judul>` — upsert ke Qdrant tasks collection
-  - `/tasks` — list pending tasks
-  - `/catat <note>` — upsert ke Qdrant knowledge collection
-  - `/jadwal` — fetch today's Cal.com bookings via agent
-  - `/briefing` — aggregate schedule+pending tasks, LLM summarize
-  - `/model <nama>` — switch LLM model dinamis
+- [ ] **User action required:** Set Cal.com Availability schedule (2 min via UI at https://cal.jeeva.asia) so real bookings can fire the webhook chain
+- [ ] **Optional polish:** Upload backup ke R2 (saat ini lokal VPS), multi-user support, voice handler, EOD/weekly review workflows
 
 ### Blocked/Waiting
-- None. Local verification sudah lulus (image build OK, health endpoint OK, auth guard OK, LangGraph workflow OK). Production deploy blocking selanjutnya.
+- None. All 5 priorities from the original roadmap are complete.
 
 ### Recently Completed
 - ✅ [2026-05-13 16:56] Register Cal.com Webhook — Chain to n8n Live

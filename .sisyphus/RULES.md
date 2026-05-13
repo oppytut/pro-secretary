@@ -172,13 +172,13 @@ Before reporting "task complete" to user, ask yourself:
 ### Recently Completed
 - ✅ [2026-05-08 14:30] Create docker-compose.yml
   - Created complete Docker Compose configuration
-  - Files: docker-compose.yml (350 lines)
-  - Services: n8n, openfang, ollama, qdrant, calcom, postgres, redis
+  - Files: docker-compose.yml
+  - Services: n8n, langgraph-agent, calcom, telegram-bot, caddy
   - Tested: All containers start successfully
-  - Notes: Added Redis for caching, PostgreSQL shared across services
+  - Notes: External PostgreSQL (Supabase/Neon), external Qdrant Cloud, external Cloudflare R2
 
 ### Communication Notes
-> [2026-05-08 14:30] Docker Compose infrastructure complete. All 7 services configured with proper networking and volumes. Next: Create .env.example with all required variables (see docker-compose.yml for reference).
+> [2026-05-08 14:30] Docker Compose infrastructure complete. All 5 local services configured with proper networking and volumes. External services (PostgreSQL, Qdrant, R2) referenced via env vars. Next: Create .env.example with all required variables (see docker-compose.yml for reference).
 ```
 
 ---

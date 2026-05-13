@@ -11,8 +11,8 @@ Every agent working on this project MUST follow this sequence:
 
 ### Session Start
 ```
-1. Read /home/ubuntu/bench/TASK.md (get context)
-2. Read /home/ubuntu/bench/.sisyphus/RULES.md (understand rules)
+1. Read /home/ubuntu/bench/pro-secretary/TASK.md (get context)
+2. Read /home/ubuntu/bench/pro-secretary/.sisyphus/RULES.md (understand rules)
 3. Check current active tasks
 4. Proceed with work
 ```
@@ -21,7 +21,7 @@ Every agent working on this project MUST follow this sequence:
 ```
 1. Complete assigned work
 2. Verify changes (tests, linting, etc.)
-3. Update /home/ubuntu/bench/TASK.md (MANDATORY - see RULES.md)
+3. Update /home/ubuntu/bench/pro-secretary/TASK.md (MANDATORY - see RULES.md)
 4. Report completion to user
 ```
 

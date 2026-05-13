@@ -1,5 +1,20 @@
 # 🚀 Low-Resource Deployment Guide
 
+> ⚠️ **STATUS: OUTDATED — DO NOT FOLLOW STEP-BY-STEP**
+>
+> This guide was written when the AI engine was planned to be **OpenFang**. The project has since switched to a self-built **LangGraph agent** container, and the `telegram-bot/bot.py` in the repo is production-ready (not a skeleton to recreate).
+>
+> **If you follow the manual bot-creation steps below, you will overwrite a working bot.** Service names, resource tables, and restart commands that reference `openfang` will fail.
+>
+> **Current authoritative sources:**
+> - [`TASK.md`](TASK.md) — current stack, operational state, what was deployed
+> - [`docker-compose.yml`](docker-compose.yml) — the real service definitions
+> - [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) — the actual deploy flow (CI-driven, not manual)
+>
+> This file is kept only because some sections (swap setup, VPS sizing, cost estimates) are still useful reference. A rewrite is planned.
+
+---
+
 > Deployment guide for servers with **4 cores / 8GB RAM** (minimum spec)
 
 ## 📋 Overview

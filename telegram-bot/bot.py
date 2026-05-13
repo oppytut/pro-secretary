@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
 
-import os
 import logging
+import os
+
 import httpx
-from telegram import Update, BotCommand
+from telegram import BotCommand, Update
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    filters, ContextTypes
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
-N8N_WEBHOOK = os.getenv("N8N_WEBHOOK_URL", "http://n8n:5678/webhook/telegram")
-OPENFANG_URL = os.getenv("OPENFANG_URL", "http://openfang:8090")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
+AGENT_URL = os.getenv("AGENT_URL", "http://langgraph-agent:8090").rstrip("/")
+AGENT_SECRET = os.getenv("AGENT_SECRET", "")
+LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
-current_model = LLM_MODEL
+current_model = LLM_MODEL_DEFAULT
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,23 @@ def authorized(func):
             await update.message.reply_text("⛔ Unauthorized.")
             return
         return await func(update, context)
+
     return wrapper
+
+
+def _agent_headers() -> dict[str, str]:
+    if AGENT_SECRET:
+        return {"x-agent-secret": AGENT_SECRET}
+    return {}
+
+
+async def _agent_post(path: str, payload: dict, timeout: float = 60.0) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.post(
+            f"{AGENT_URL}{path}",
+            headers=_agent_headers(),
+            json=payload,
+        )
 
 
 @authorized
@@ -55,29 +73,54 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @authorized
 async def cmd_jadwal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_chat_action("typing")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{N8N_WEBHOOK}/schedule",
-            json={"user_id": update.effective_user.id, "action": "today"}
-        )
-    if response.status_code == 200:
-        await update.message.reply_text(response.json().get("message", "Tidak ada jadwal hari ini."))
-    else:
-        await update.message.reply_text("⚠️ Gagal mengambil jadwal. Coba lagi nanti.")
+    try:
+        r = await _agent_post("/api/schedule", {}, timeout=30.0)
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Gagal mengambil jadwal (HTTP {r.status_code}).")
+        return
+
+    data = r.json()
+    events = data.get("events") or []
+    if not events:
+        await update.message.reply_text("📅 Tidak ada jadwal hari ini.")
+        return
+
+    lines = ["📅 Jadwal hari ini:"]
+    for e in events:
+        lines.append(f"• {e.get('start', '?')} — {e.get('title', 'Untitled')}")
+    await update.message.reply_text("\n".join(lines))
 
 
 @authorized
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_chat_action("typing")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{N8N_WEBHOOK}/tasks",
-            json={"action": "list", "status": "pending"}
-        )
-    if response.status_code == 200:
-        await update.message.reply_text(response.json().get("message", "Tidak ada pending tasks."))
-    else:
+    try:
+        r = await _agent_post("/api/tasks", {"limit": 20}, timeout=30.0)
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code != 200:
         await update.message.reply_text("⚠️ Gagal mengambil tasks.")
+        return
+
+    data = r.json()
+    tasks = data.get("tasks") or []
+    if not tasks:
+        await update.message.reply_text("✅ Tidak ada pending tasks.")
+        return
+
+    lines = ["📋 Pending tasks:"]
+    for t in tasks:
+        p = t.get("payload", {})
+        prio = p.get("priority", "medium")
+        title = p.get("title", "Untitled")
+        lines.append(f"• [{prio}] {title}")
+    await update.message.reply_text("\n".join(lines))
 
 
 @authorized
@@ -88,15 +131,20 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     task_text = " ".join(context.args)
     await update.message.reply_chat_action("typing")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{N8N_WEBHOOK}/tasks",
-            json={"action": "create", "title": task_text}
+    try:
+        r = await _agent_post(
+            "/api/task",
+            {"title": task_text, "user_id": update.effective_user.id},
+            timeout=30.0,
         )
-    if response.status_code == 200:
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code == 200:
         await update.message.reply_text(f"✅ Task ditambahkan: {task_text}")
     else:
-        await update.message.reply_text("⚠️ Gagal membuat task.")
+        await update.message.reply_text(f"⚠️ Gagal membuat task (HTTP {r.status_code}).")
 
 
 @authorized
@@ -107,25 +155,30 @@ async def cmd_cari(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = " ".join(context.args)
     await update.message.reply_chat_action("typing")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{OPENFANG_URL}/api/search",
-            json={"query": query, "collection": "knowledge", "limit": 5}
+    try:
+        r = await _agent_post(
+            "/api/search",
+            {"query": query, "collection": "knowledge", "limit": 5},
+            timeout=30.0,
         )
-
-    if response.status_code != 200:
-        await update.message.reply_text("⚠️ Gagal mencari. Coba lagi nanti.")
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
         return
 
-    results = response.json().get("results", [])
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Gagal mencari (HTTP {r.status_code}).")
+        return
+
+    results = r.json().get("results") or []
     if not results:
         await update.message.reply_text(f"Tidak ditemukan hasil untuk: {query}")
         return
 
     text = f"🔍 Hasil pencarian: {query}\n\n"
-    for i, r in enumerate(results, 1):
-        text += f"{i}. {r['content'][:200]}...\n"
-        text += f"   📎 {r.get('source_file', 'unknown')}\n\n"
+    for i, item in enumerate(results, 1):
+        content = (item.get("content") or "")[:200]
+        source = item.get("source_file") or "unknown"
+        text += f"{i}. {content}...\n   📎 {source}\n\n"
     await update.message.reply_text(text)
 
 
@@ -137,29 +190,43 @@ async def cmd_catat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     note = " ".join(context.args)
     await update.message.reply_chat_action("typing")
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{N8N_WEBHOOK}/note",
-            json={"content": note, "source": "telegram", "user_id": update.effective_user.id}
+    try:
+        r = await _agent_post(
+            "/api/note",
+            {
+                "content": note,
+                "source": "telegram",
+                "user_id": update.effective_user.id,
+            },
+            timeout=30.0,
         )
-    if response.status_code == 200:
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code == 200:
         await update.message.reply_text(f"📝 Dicatat: {note}")
     else:
-        await update.message.reply_text("⚠️ Gagal mencatat.")
+        await update.message.reply_text(f"⚠️ Gagal mencatat (HTTP {r.status_code}).")
 
 
 @authorized
 async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Menyiapkan briefing...")
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{N8N_WEBHOOK}/briefing",
-            json={"user_id": update.effective_user.id}
+    try:
+        r = await _agent_post(
+            "/api/briefing",
+            {"user_id": update.effective_user.id},
+            timeout=90.0,
         )
-    if response.status_code == 200:
-        await update.message.reply_text(response.json().get("message", "Briefing tidak tersedia."))
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code == 200:
+        await update.message.reply_text(r.json().get("response", "Briefing kosong."))
     else:
-        await update.message.reply_text("⚠️ Gagal membuat briefing.")
+        await update.message.reply_text(f"⚠️ Gagal membuat briefing (HTTP {r.status_code}).")
 
 
 @authorized
@@ -186,30 +253,27 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global current_model
     user_message = update.message.text
     await update.message.reply_chat_action("typing")
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{LLM_BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-            json={
+    try:
+        r = await _agent_post(
+            "/api/chat",
+            {
+                "message": user_message,
+                "user_id": str(update.effective_user.id),
                 "model": current_model,
-                "messages": [
-                    {"role": "system", "content": "Kamu adalah sekretaris pribadi AI yang efisien. Jawab dalam Bahasa Indonesia yang natural."},
-                    {"role": "user", "content": user_message},
-                ],
-                "temperature": 0.7,
-                "max_tokens": 1024,
             },
+            timeout=90.0,
         )
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
 
-    if response.status_code == 200:
-        reply = response.json()["choices"][0]["message"]["content"]
+    if r.status_code == 200:
+        reply = r.json().get("response") or "(respons kosong)"
     else:
-        reply = f"⚠️ Error dari LLM (HTTP {response.status_code}). Cek /model atau API key."
-
+        reply = f"⚠️ Error dari agent (HTTP {r.status_code})."
     await update.message.reply_text(reply)
 
 
@@ -274,7 +338,9 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    logger.info(f"Secretary Bot starting (allowed users: {ALLOWED_USERS})")
+    logger.info(
+        f"Secretary Bot starting (agent={AGENT_URL}, allowed={ALLOWED_USERS})"
+    )
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

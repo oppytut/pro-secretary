@@ -49,55 +49,45 @@ services:
       start_period: 30s
 
   # ============================================
-  # AI AGENT ENGINE - OpenFang (DISABLED - image unavailable)
+  # AI AGENT ENGINE - LangGraph (replaces unavailable OpenFang)
   # ============================================
-  # Uncomment when ghcr.io/rightnow-ai/openfang:latest becomes available
-  # openfang:
-  #   image: ghcr.io/rightnow-ai/openfang:latest
-  #   container_name: openfang
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8090:8090"
-  #   environment:
-  #     - OPENFANG_CONFIG=/etc/openfang/secretary.toml
-  #     - LLM_PROVIDER=${LLM_PROVIDER}
-  #     - LLM_API_KEY=${LLM_API_KEY}
-  #     - LLM_BASE_URL=${LLM_BASE_URL}
-  #     - LLM_MODEL=${LLM_MODEL}
-  #     - QDRANT_URL=${QDRANT_URL}
-  #     - QDRANT_API_KEY=${QDRANT_API_KEY}
-  #     - CALCOM_API_KEY=${CALCOM_API_KEY}
-  #     - R2_ENDPOINT=${R2_ENDPOINT}
-  #     - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
-  #     - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
-  #     - R2_BUCKET=${R2_BUCKET}
-  #     - SMTP_HOST=${SMTP_HOST}
-  #     - SMTP_PORT=${SMTP_PORT}
-  #     - SMTP_USER=${SMTP_USER}
-  #     - SMTP_PASSWORD=${SMTP_PASSWORD}
-  #     - SMTP_FROM=${SMTP_FROM}
-  #     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-  #     - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
-  #     - TZ=${TIMEZONE}
-  #   volumes:
-  #     - ./openfang/secretary.toml:/etc/openfang/secretary.toml:ro
-  #     - openfang_data:/var/lib/openfang
-  #   networks:
-  #     - secretary-net
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 2048M
-  #         cpus: '1.5'
-  #       reservations:
-  #         memory: 512M
-  #         cpus: '0.5'
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health || exit 1"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #     start_period: 15s
+  langgraph-agent:
+    build:
+      context: ./langgraph-agent
+      dockerfile: Dockerfile
+    container_name: langgraph-agent
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - CALCOM_API_KEY=${CALCOM_API_KEY}
+      - CALCOM_BASE_URL=http://calcom:3000
+      - AGENT_SECRET=${AGENT_SECRET}
+      - TIMEZONE=${TIMEZONE}
+      - TZ=${TIMEZONE}
+    volumes:
+      - langgraph_cache:/app/.fastembed_cache
+    networks:
+      - secretary-net
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8090/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # ============================================
   # VECTOR MEMORY - Qdrant Cloud (External)
@@ -157,7 +147,11 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USERS}
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/telegram
-      - OPENFANG_URL=http://openfang:8090
+      - AGENT_URL=http://langgraph-agent:8090
+      - AGENT_SECRET=${AGENT_SECRET}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
       - QDRANT_URL=${QDRANT_URL}
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - R2_ENDPOINT=${R2_ENDPOINT}
@@ -167,6 +161,8 @@ services:
       - TZ=${TIMEZONE}
     depends_on:
       n8n:
+        condition: service_healthy
+      langgraph-agent:
         condition: service_healthy
     networks:
       - secretary-net
@@ -216,3 +212,4 @@ volumes:
   n8n_data:
   caddy_data:
   caddy_config:
+  langgraph_cache:

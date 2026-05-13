@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-13 07:51  
+**Last Updated:** 2026-05-13 08:44  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟡 In Progress
 
@@ -13,11 +13,11 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ### Tech Stack
 - **Orchestrator:** n8n (workflow automation)
-- **AI Engine:** OpenFang.sh / LangGraph
+- **AI Engine:** LangGraph agent (custom container, replaces unavailable OpenFang)
 - **Interface:** Telegram bot
 - **Scheduling:** Cal.com
 - **Knowledge:** Obsidian + Local LM
-- **Memory:** Qdrant/ChromaDB (vector DB)
+- **Memory:** Qdrant Cloud (384-dim, all-MiniLM-L6-v2)
 - **Files:** Cloudflare R2 (S3-compatible object storage)
 
 ### Repository
@@ -30,24 +30,80 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **LLM Chat Testing**
-  - SSH tunnel ke 9router harus aktif di VPS: `ssh <9router_user>@<9router_host> -L 20128:localhost:20128 -N`
-  - Test kirim pesan biasa ke bot → bot respond via LLM
-  - Test `/model` command untuk switch model
+- [ ] **Deploy LangGraph agent to VPS**
+  - Push to main → GitHub Actions akan build+deploy langgraph-agent
+  - Set GitHub Secret: `AGENT_SECRET` (generate: `openssl rand -hex 32`)
+  - Verify 5 container healthy setelah deploy (n8n, calcom, telegram-bot, caddy, langgraph-agent)
 
-- [ ] **Qdrant Integration Testing**
-  - Test `/cari` command (semantic search)
-  - Test `/task` command (store to Qdrant)
-  - Test `/catat` command (store notes)
-
-- [ ] **OpenFang Replacement**
-  - OpenFang image unavailable (ghcr.io/rightnow-ai/openfang:latest unauthorized)
-  - Option: Build LangGraph agent container as replacement
+- [ ] **End-to-end Telegram QA** (after deploy)
+  - `/start` — respond dengan command list
+  - Chat biasa — reply via LLM + context dari agent
+  - `/cari <query>` — semantic search Qdrant knowledge collection
+  - `/task <judul>` — upsert ke Qdrant tasks collection
+  - `/tasks` — list pending tasks
+  - `/catat <note>` — upsert ke Qdrant knowledge collection
+  - `/jadwal` — fetch today's Cal.com bookings via agent
+  - `/briefing` — aggregate schedule+pending tasks, LLM summarize
+  - `/model <nama>` — switch LLM model dinamis
 
 ### Blocked/Waiting
-- None (core stack operational, LLM depends on SSH tunnel being active)
+- None. Local verification sudah lulus (image build OK, health endpoint OK, auth guard OK, LangGraph workflow OK). Production deploy blocking selanjutnya.
 
 ### Recently Completed
+- ✅ [2026-05-13 08:44] LangGraph Agent — OpenFang Replacement Selesai (Local Verified)
+  - **Motivasi:** `ghcr.io/rightnow-ai/openfang:latest` unauthorized, tidak bisa dipakai. Bot `/cari` broken karena call ke `http://openfang:8090/api/search` yang tidak ada.
+  - **Pendekatan:** Build container LangGraph sendiri yang faithful ke arsitektur README asli (OpenFang → LangGraph drop-in). Bot tetap stateless, semua reasoning di agent.
+  - **Komponen dibuat:**
+    - `langgraph-agent/Dockerfile` — Python 3.11-slim + uvicorn + pre-cached fastembed ONNX model (~220MB final image)
+    - `langgraph-agent/requirements.txt` — FastAPI, LangGraph 0.2.60, qdrant-client 1.12, fastembed 0.4.2, langchain-openai
+    - `langgraph-agent/app/config.py` — env loader + collection-name invariants documented
+    - `langgraph-agent/app/embedding.py` — fastembed wrapper (ONNX-based, 384-dim, all-MiniLM-L6-v2 matching `sync_obsidian.py`)
+    - `langgraph-agent/app/qdrant_helper.py` — search/upsert/scroll/set_payload primitives
+    - `langgraph-agent/app/tools.py` — search_knowledge, search_memory, store_memory, create_task, list_pending_tasks, complete_task, store_note, get_today_schedule
+    - `langgraph-agent/app/llm.py` — OpenAI-compatible chat completion + persona wrapper
+    - `langgraph-agent/app/workflow.py` — LangGraph StateGraph: understand → retrieve_context → generate_response, persists every interaction to `agent_memory` collection
+    - `langgraph-agent/app/main.py` — FastAPI app dengan endpoints `/health`, `/api/chat`, `/api/search`, `/api/task`, `/api/tasks`, `/api/note`, `/api/schedule`, `/api/briefing`; shared-secret auth via `X-Agent-Secret` header
+  - **Arsitektur:**
+    - Bot jadi thin HTTP client — semua logic AI di agent
+    - Agent expose `:8090` di internal docker network (tidak exposed ke host)
+    - AGENT_SECRET header auth antara bot ↔ agent (defense-in-depth walau network internal)
+    - Qdrant collections match init_qdrant.py: knowledge, agent_memory, tasks, people, decisions (semua 384-dim)
+    - extra_hosts: `host.docker.internal:host-gateway` untuk akses LLM via SSH tunnel
+  - **Bot refactor (`telegram-bot/bot.py`):**
+    - Hapus direct LLM call; semua command + chat biasa route via `AGENT_URL`
+    - Hapus `OPENFANG_URL` env var; ganti `AGENT_URL` + `AGENT_SECRET`
+    - Semua handler kini idempotent terhadap agent downtime (graceful error message)
+    - `/model` tetap di bot (client-side state, di-passthrough ke agent di setiap request)
+  - **docker-compose.yml:**
+    - Hapus OpenFang komentar lama
+    - Tambah service `langgraph-agent` dengan memory limit 1024M, healthcheck 60s start_period (model loading)
+    - Telegram-bot depends_on langgraph-agent (service_healthy)
+    - Tambah volume `langgraph_cache` untuk fastembed model persistence
+  - **CI (`.github/workflows/deploy.yml`):**
+    - Tambah `AGENT_SECRET` secret injection
+    - Rebuild `langgraph-agent` + `telegram-bot` setiap deploy
+    - sleep 15s (bukan 10s) sebelum status check — model load
+  - **Verifikasi lokal:**
+    - ✅ `docker compose config --quiet` — syntax valid
+    - ✅ `docker build` — image built successfully (~220MB, 128s install + 78s pre-cache model)
+    - ✅ Container boot — `{"status":"ok","missing_env":[],"embedding_model":"sentence-transformers/all-MiniLM-L6-v2","embedding_dim":384}`
+    - ✅ Auth guard — tanpa secret return 401, valid secret return 200
+    - ✅ LangGraph workflow — `/api/chat` execute end-to-end (intent → context retrieval → LLM call) walau dengan dummy creds
+    - ✅ `python -m compileall` clean untuk semua source
+  - **Files modified:**
+    - **NEW:** `langgraph-agent/Dockerfile`, `langgraph-agent/requirements.txt`, `langgraph-agent/app/{__init__,config,embedding,qdrant_helper,tools,llm,workflow,main}.py` (8 new Python files)
+    - **MOD:** `docker-compose.yml`, `telegram-bot/bot.py` (rewrite), `.github/workflows/deploy.yml`, `.env.example`
+  - **TODO sebelum production ready:**
+    - Set `AGENT_SECRET` di GitHub Secrets
+    - Push ke main, tunggu CI deploy
+    - Manual QA via Telegram (see "Active Tasks")
+  - **Benefits vs OpenFang:**
+    - Full visibility — kode sendiri, bisa debug
+    - Vector schema sama dengan sync_obsidian.py (cross-searchable)
+    - Workflow bisa di-extend pakai LangGraph (add nodes, conditional routing)
+    - Tidak depend pada image eksternal yang mungkin unavailable
+  - **Memory footprint:** Agent ~256-512MB idle, ~800MB saat LLM request (masih dalam 1024M limit). Stack total stayed under 6GB budget (4 container aktif + 1 agent = 5 container).
+
 - ✅ [2026-05-13 07:51] Qdrant Cloud + LLM + /model Command
   - Qdrant Cloud initialized: 5 collections (knowledge, agent_memory, tasks, people, decisions)
   - Added /model command: user can switch LLM model dynamically via Telegram
@@ -582,7 +638,7 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-13 07:51]** ✅ Stack fully operational. 4 containers healthy (n8n, Cal.com, Telegram Bot, Caddy). Qdrant Cloud initialized (5 collections). LLM connected via SSH tunnel (9router → host.docker.internal:20128). Bot has /model command for dynamic model switching. Next: Test LLM chat (ensure SSH tunnel active), test Qdrant-based commands (/cari, /task, /catat), consider LangGraph agent to replace OpenFang.
+> **[2026-05-13 08:44]** ✅ LangGraph agent container complete + locally verified. OpenFang replacement done: `langgraph-agent/` service with FastAPI endpoints, LangGraph workflow (understand → retrieve_context → generate_response), fastembed ONNX (384-dim, matches sync_obsidian.py). Bot refactored — semua command route via `AGENT_URL`, shared-secret auth. Stack berubah dari 4 → 5 container. **BLOCKER:** Set GitHub Secret `AGENT_SECRET` (generate: `openssl rand -hex 32`), push ke main untuk trigger deploy. Setelah deploy, manual QA semua command via Telegram (list di Active Tasks).
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

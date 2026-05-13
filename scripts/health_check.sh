@@ -3,7 +3,7 @@ set -euo pipefail
 
 SERVICES=(
     "n8n|http://localhost:5678/healthz"
-    "calcom|http://localhost:3000/api/health"
+    "calcom|http://localhost:3000/"
 )
 
 QDRANT_URL="${QDRANT_URL:-}"

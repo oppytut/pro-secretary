@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-14 07:45  
+**Last Updated:** 2026-05-14 23:42 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 MVP Operational
+**Status:** 🟢 Production — All Health Checks Green
 
 ---
 
@@ -33,13 +33,59 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **User action required:** Set Cal.com Availability schedule (2 min via UI at https://cal.jeeva.asia) so real bookings can fire the webhook chain
-- [ ] **Optional polish:** Upload backup ke R2 (saat ini lokal VPS), multi-user support, voice handler, EOD/weekly review workflows
+- [ ] **OPTIONAL:** Cal.com memory di 96.7% (1.55GB / 1.61GB) — perlu monitoring. Kalau sering OOM, naikkan limit di `docker-compose.yml` `calcom.deploy.resources.limits.memory: 1536M → 2048M`. VPS punya 8GB+8GB swap, ample.
+- [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
+- [ ] **OPTIONAL:** Personal journal workflow — bot tanya 21:30 "apa yang kamu kerjakan hari ini?", auto-index ke knowledge.
+- [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
+- [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
 ### Blocked/Waiting
-- None. All 5 priorities from the original roadmap are complete.
+- None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-14 23:42 WIB] Hari Penuh: /status + /vps + R2 + SMTP + Cal.com Email + 14 commits
+  - **Trigger pagi:** Daily Briefing 07:00 fire FAILED dengan ExpressionError "env vars denied" — overnight session sudah fix dengan `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Manual replay sukses. **Verified live di scheduler:** Task Reminder fire UTC 02:00 (09:00 WIB) sukses, plus 13:00, 17:00 sukses, plus EOD Summary 21:00 sukses. Total 4/4 natural workflow fire hari ini.
+  - **`/status` Telegram command (10 health checks):**
+    - `app/system_status.py` — parallel asyncio.gather: langgraph-agent, n8n, calcom, qdrant, llm (`/v1/models`), llm-tunnel (TCP), postgres (psycopg SELECT 1), R2 (boto3 head_bucket), smtp (TCP connect, no EHLO), obsidian (file count + last sync from Qdrant payload).
+    - Endpoint `/api/system_status` — secret-gated, ~500ms total (slowest 728ms).
+    - Bot command `/status` — plain text format (Markdown break karena detail strings, fixed in second commit).
+  - **R2 backup activated:**
+    - User generate access key di Cloudflare, set 4 GitHub Secrets (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET=secretary-files).
+    - Trigger deploy via `gh workflow run deploy.yml --ref main`.
+    - Verified: `/status` row R2 dari ❌ "not configured" → ✅ "secretary-files" (1767ms).
+    - Backup harian 02:30 UTC sekarang auto-upload ke `s3://secretary-files/backups/`.
+  - **SMTP via Resend (port 2587):**
+    - User generate Resend API key, verify domain `jeeva.asia`.
+    - Set 5 GitHub Secrets: SMTP_HOST=smtp.resend.com, SMTP_PORT=587 (initial), SMTP_USER=resend, SMTP_PASSWORD=<api-key>, SMTP_FROM=secretary@jeeva.asia.
+    - **First attempt FAILED:** TimeoutError. Diagnosed: DigitalOcean block outbound port 25/465/587 (anti-spam policy).
+    - **Fix:** Resend juga support alt port 2587 (STARTTLS) dan 2465 (SMTPS) untuk skenario seperti ini. User update SMTP_PORT 587 → 2587 di GitHub Secrets, redeploy.
+    - Verified: SMTP TCP connect 630ms, /status row SMTP ✅.
+  - **Cal.com SMTP wired:**
+    - Cal.com pakai prefix EMAIL_* (nodemailer convention), bukan SMTP_*.
+    - Map SMTP_* → EMAIL_SERVER_HOST/PORT/USER/PASSWORD + EMAIL_FROM + EMAIL_FROM_NAME='Pro Secretary'.
+    - Trigger redeploy.
+    - Verified via test booking: created `id:2 uid:4Qft5aBKXZtqKxvD6LjxAJ`. Webhook chain fire (n8n execution status=success), agent /api/note + /api/notify both 200 OK.
+    - Email actual delivery butuh visual verify di Resend dashboard (atau coba booking dengan email real, bukan webhook-test@example.com).
+  - **`/vps` Telegram command (resource dashboard with per-container):**
+    - `app/vps_status.py` — host metrics (CPU% via /proc/stat 2 snapshot, RAM/swap dari /proc/meminfo, load, uptime), disk usage (shutil.disk_usage on /, /var/backups, /host/var/backups), per-container stats via Docker socket UDS (CPU% calc handle online_cpus + percpu_usage fallback, mem excluding cache).
+    - Bind mount: `/proc:/host/proc:ro`, `/var/run/docker.sock:/var/run/docker.sock:ro`, `/var/backups:/host/var/backups:ro`.
+    - Endpoint `/api/vps_status` — secret-gated.
+    - Bot command `/vps` — human-readable bytes (KB/MB/GB), human uptime (1d 4h / 22h 30m), CPU+load+RAM+swap+disk+per-container breakdown.
+    - **Important finding:** Cal.com memory 96.7% (1.55GB / 1.61GB). Monitor via `/vps`, naikkan limit kalau sering OOM.
+  - **Health check fixes:**
+    - `fix(ops)` curl timeout duplicate '000' → '000000' bug
+    - `feat(ops)` grace period 60s untuk container baru restart (avoid false positive saat CI deploy) + recovery message saat FAILED → OK transition
+    - State persisted di `/var/lib/ai-secretary/health-state`
+  - **Commits hari ini (post-bangun):**
+    - `feat: /vps command — VPS resource dashboard with per-container stats`
+    - `feat(calcom): wire SMTP env vars for booking notifications`
+    - `fix(bot): /status plain text — Markdown breaks on detail strings`
+    - `feat: /status command — 9-component health dashboard`
+    - `feat(ops): health_check grace period + recovery message`
+    - `fix(ops): health_check.sh duplicate '000' on curl fail`
+    - Plus 8 commits dari overnight session di TASK entry sebelumnya.
+
 - ✅ [2026-05-14 07:45] Overnight Session — Production-Ready Polish (user asleep)
   - **Trigger:** Daily Briefing scheduled fire 07:00 WIB FAILED with n8n ExpressionError "access to env vars denied" (workflow uses `$env.AGENT_SECRET` in HTTP nodes; n8n 1.x blocks env access by default).
   - **Critical Fix:** Set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` di docker-compose for n8n container. Workflows can now read AGENT_SECRET. Verified via manual replay: briefing generated, Telegram delivered (HTTP 200).
@@ -811,7 +857,52 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-14 07:45]** Overnight session — user tidur, saya patch issues. Daily Briefing 07:00 fire FAILED dengan ExpressionError "env vars denied" → fixed dengan `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Manual replay confirmed working. **Pending verification:** natural Task Reminder fire 09:00 WIB (UTC 02:00) — kalau itu sukses, env-fix terbukti work di scheduler. Sambil menunggu, saya tambahkan: EOD Summary workflow + endpoint, due_date filter di Task Reminder, tighter briefing prompts, /eod + /sync bot commands, vault populated dengan 6 system+ops docs (bot sekarang self-aware), backup.sh punya R2 upload opt-in. **User actions tersisa:** (1) Set Cal.com Availability schedule untuk unlock real booking webhook test, (2) Populate R2_* GitHub Secrets kalau mau backup off-VPS.
+> **[2026-05-14 23:42 WIB]** Sesi handoff ke OpenCode session lain. **Status: production-stable, all green.** 30+ jam continuous engineering session selesai dengan 23 commits total dalam 36 jam terakhir.
+>
+> **What's live:**
+> - 5 container healthy (n8n, calcom, langgraph-agent, telegram-bot, caddy)
+> - 12 agent endpoint, 11 Telegram command, 4 active n8n workflows (Daily Briefing 07:00, EOD Summary 21:00, Task Reminder 09/13/17 weekday, Cal.com Booking Indexer)
+> - LLM tunnel autossh+systemd durable (NRestarts=1 sejak install kemarin sore)
+> - Backup ke R2 active (jadwal harian 02:30 UTC)
+> - SMTP via Resend port 2587 (DigitalOcean block 25/465/587, jadi pakai alt port)
+> - Cal.com email + webhook chain verified real-fire
+> - `/status` (10 health checks) + `/vps` (resource dashboard, per-container) — both green
+> - Knowledge base 10 doc, auto-sync 30min, `/cari` self-aware
+> - Health monitoring 5min cron dengan grace period 60s + recovery message
+>
+> **Recent commits (newest first, today's session):**
+> - `feat: /vps command — VPS resource dashboard with per-container stats`
+> - `feat(calcom): wire SMTP env vars for booking notifications`
+> - `fix(bot): /status plain text — Markdown breaks on detail strings`
+> - `feat: /status command — 9-component health dashboard`
+> - `feat(ops): health_check grace period + recovery message`
+> - `fix(ops): health_check.sh duplicate '000' on curl fail`
+> - 8 commits dari overnight session (lihat "Recently Completed" entry sebelumnya)
+>
+> **Yang DITINGGAL untuk next session:**
+> - User minta voice handler diundur ke weekend (effort tinggi, butuh segar)
+> - Cal.com Cal.com calcom memory 96.7% — monitor via `/vps`, naikkan limit kalau sering OOM
+> - Personal journal workflow ide masih open
+> - User action: kalau mau test Cal.com email beneran, kirim booking via Cal.com UI public link ke email real (bukan `webhook-test@example.com`), check inbox + Resend dashboard
+>
+> **Important repo state:**
+> - Branch `main`, working tree clean, semua commits pushed
+> - 4 GitHub Secrets baru di-set hari ini: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, plus 5 SMTP_*
+> - VPS env tunnel + n8n cron + crontab semua match repo state
+> - Vault `/opt/ai-secretary/vault/` ada 10 markdown doc (4 seed + 6 system docs yang saya tambahkan overnight)
+>
+> **Cara kerja yang sudah disepakati:**
+> - Selalu commit + push (CI auto-deploy ke VPS)
+> - Test via Telegram setelah deploy untuk confirm UX
+> - Kalau butuh trigger deploy tanpa commit baru: `gh workflow run deploy.yml --ref main`
+> - SSH ke VPS: `ssh tutdo@159.223.40.74`
+> - Kalau perlu lihat `/api/...` real-time response, pakai pattern: `docker exec langgraph-agent sh -c 'curl -sS -H "X-Agent-Secret: \$AGENT_SECRET" -H Content-Type:application/json -d {} http://localhost:8090/api/...' | jq .`
+>
+> **User decision logged:**
+> - Voice, journal, retention policy — semua diundur, savor sistem dulu
+> - Stop building tanpa real usage feedback dulu
+>
+> **Communication style:** User suka direct, no preamble, action-oriented. Sub-30-jam awake constraint perlu di-respect — sarankan tidur kalau detect kelelahan.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

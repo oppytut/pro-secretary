@@ -67,6 +67,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/briefing - Daily briefing\n"
         "/eod - End-of-day summary\n"
         "/sync - Sync Obsidian vault\n"
+        "/status - Cek status semua komponen\n"
         "/model - Ganti/lihat model AI\n\n"
         "Atau kirim pesan biasa untuk chat."
     )
@@ -276,6 +277,39 @@ async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @authorized
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_chat_action("typing")
+    try:
+        r = await _agent_post("/api/system_status", {}, timeout=30.0)
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Status check gagal (HTTP {r.status_code}).")
+        return
+
+    data = r.json()
+    checks = data.get("checks", [])
+    failed = data.get("failed", 0)
+    total = data.get("total", 0)
+
+    lines = ["🏥 *System Status*\n"]
+    for c in checks:
+        icon = "✅" if c["ok"] else "❌"
+        lat = f"{c['latency_ms']}ms"
+        detail = c.get("detail", "")
+        lines.append(f"{icon} `{c['name']}` ({lat}) — {detail}")
+
+    if failed == 0:
+        lines.append("\n✅ Semua sistem operasional")
+    else:
+        lines.append(f"\n⚠️ {failed}/{total} system bermasalah")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+@authorized
 async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global current_model
     if not context.args:
@@ -361,6 +395,7 @@ async def post_init(application: Application):
         BotCommand("briefing", "Daily briefing"),
         BotCommand("eod", "End-of-day summary"),
         BotCommand("sync", "Sync Obsidian vault → knowledge"),
+        BotCommand("status", "Cek status semua komponen"),
         BotCommand("model", "Ganti/lihat model AI"),
     ]
     await application.bot.set_my_commands(commands)
@@ -384,6 +419,7 @@ def main():
     app.add_handler(CommandHandler("briefing", cmd_briefing))
     app.add_handler(CommandHandler("eod", cmd_eod))
     app.add_handler(CommandHandler("sync", cmd_sync))
+    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

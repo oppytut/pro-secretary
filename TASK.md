@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 00:12 WIB  
+**Last Updated:** 2026-05-15 06:20 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -42,6 +42,36 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 06:20 WIB] Timezone Audit + Comprehensive WIB Fix
+  - **Trigger:** User request audit semua pengaturan timezone untuk konsistensi WIB. Sebelumnya hanya Asia/Jakarta sebagian (n8n cron, agent env), banyak titik silent fall-through ke UTC.
+  - **Bugs found via explore agent + direct verification:**
+    1. **CRITICAL — `tools.get_today_schedule()`:** pakai `datetime.now(timezone.utc)` rolling 24h. EOD 21:00 WIB (=14:00 UTC) sebenarnya query window 14:00 UTC → 14:00 UTC besok = 21:00 WIB tonight → 21:00 WIB tomorrow. Bukan "today WIB" tapi 24h rolling forward. Briefing 07:00 WIB kebetulan correct (=00:00 UTC anchor), tapi EOD surface meeting BESOK bukan refleksi tadi.
+    2. **HIGH — n8n container `TZ` env empty:** `docker exec n8n date` returns UTC. JS Code node di `task-reminder.json` pakai `new Date().toISOString().slice(0,10)` untuk `todayKey` → UTC date string. Saat ini schedule 09/13/17 WIB tidak break (semua post-02:00 UTC), tapi latent bom waktu kalau ada reminder slot ditambah <07:00 WIB.
+    3. **MEDIUM — Bash scripts:** `health_check.sh`, `backup.sh` pakai `date` tanpa TZ explicit. VPS host system TZ adalah `Etc/UTC` → backup file naming `2026-05-14_2230` UTC, log timestamps UTC. Backup cron `30 2 * * *` fire 02:30 UTC = 09:30 WIB.
+    4. **LOW — `scripts/sync_obsidian.py:78`:** `datetime.now()` naive. Script deprecated tapi masih ada di repo.
+    5. **LOW — Dockerfile (`langgraph-agent`, `telegram-bot`):** tanpa `ENV TZ` defensive default. Saat ini OK karena docker-compose pass `TZ=${TIMEZONE}` tapi Dockerfile bare-run tanpa compose akan fall ke UTC.
+    6. **LOW — `system_status.py:222`:** hardcoded label `" UTC"` di obsidian last_sync display.
+  - **Fixes applied:**
+    - [`tools.py:67`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/tools.py#L67) — `ZoneInfo(config.TIMEZONE)` anchor: `start_local = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)`, `end_local = start + 1day`. Window sekarang midnight WIB → midnight WIB next day. Benar untuk briefing pagi, EOD, `/jadwal`.
+    - [`docker-compose.yml`](file:///home/ubuntu/bench/pro-secretary/docker-compose.yml) — tambah `TZ=${TIMEZONE}` ke service n8n + caddy (sebelumnya cuma `GENERIC_TIMEZONE` di n8n).
+    - [`langgraph-agent/Dockerfile`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/Dockerfile), [`telegram-bot/Dockerfile`](file:///home/ubuntu/bench/pro-secretary/telegram-bot/Dockerfile) — tambah `ENV TZ=Asia/Jakarta` defensive default.
+    - [`scripts/health_check.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/health_check.sh#L4), [`scripts/backup.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/backup.sh#L4) — `export TZ="${TZ:-Asia/Jakarta}"` di top of script. Semua `date` calls sekarang render WIB (log timestamps, backup filename, alert message).
+    - [`scripts/sync_obsidian.py`](file:///home/ubuntu/bench/pro-secretary/scripts/sync_obsidian.py#L78) — `datetime.now(timezone.utc).isoformat()`.
+    - [`system_status.py:219-228`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/system_status.py#L219-L228) — convert UTC ISO8601 → WIB display via `dt.astimezone(ZoneInfo(config.TIMEZONE)).strftime("%H:%M %Z")`. Sekarang show "06:00 WIB" instead of "23:00 UTC".
+    - **VPS host:** `sudo timedatectl set-timezone Asia/Jakarta`. System logs (journalctl, /var/log) sekarang WIB. System cron `30 2 * * *` (backup) fire 02:30 WIB = 19:30 UTC sebelumnya. **Behavioral shift:** backup sekarang fire 7 jam earlier (relative to UTC), tetap 02:30 WIB local — semantik kepada user tidak berubah, tapi observability di log lebih masuk akal.
+  - **Verification post-deploy:**
+    - 4/5 container WIB: `docker exec <c> date` returns `Fri May 15 06:19 WIB 2026` ✓ (caddy alpine miss tzdata package — non-issue, cuma reverse proxy)
+    - n8n Node.js: `new Date().toString()` returns `GMT+0700 (Western Indonesia Time)` ✓
+    - Agent window math: `start=2026-05-15T00:00:00+07:00`, `end=2026-05-16T00:00:00+07:00` ✓
+    - `/api/schedule` returns events count 0 (Cal.com kosong, expected — bukan bug)
+    - `/api/system_status`: 10/10 green, obsidian last sync display "06:00 WIB" ✓
+    - Host: `timedatectl` shows `Asia/Jakarta (WIB, +0700)` ✓
+  - **Commit:** `fix(tz): anchor schedule window to WIB, propagate TZ to all containers` (deploy 25891096521, 3m14s green)
+  - **Files:** MOD `langgraph-agent/app/tools.py`, `langgraph-agent/app/system_status.py`, `langgraph-agent/Dockerfile`, `telegram-bot/Dockerfile`, `docker-compose.yml`, `scripts/health_check.sh`, `scripts/backup.sh`, `scripts/sync_obsidian.py`. VPS: `timedatectl set-timezone Asia/Jakarta`.
+  - **Remaining items (non-blocking):**
+    - Caddy alpine container masih UTC (perlu `apk add tzdata` di image — low priority, cuma proxy log)
+    - Daily Briefing 07:00 WIB natural fire dalam ~40 menit akan jadi acid test bahwa fix tidak merusak existing flow.
 
 - ✅ [2026-05-15 00:12 WIB] Cal.com Memory False Alarm — `/vps` Working Set Fix
   - **Trigger:** TASK.md item "Cal.com memory 96.7%" muncul mencurigakan setelah verifikasi cgroup. User minta investigasi sebelum naikkan limit.

@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from . import config, llm, system_status, telegram, tools, workflow
+from . import config, llm, system_status, telegram, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -172,6 +172,11 @@ async def notify_endpoint(req: NotifyRequest) -> dict[str, Any]:
 @app.post("/api/system_status", dependencies=[Depends(verify_secret)])
 async def system_status_endpoint() -> dict[str, Any]:
     return await system_status.collect_all()
+
+
+@app.post("/api/vps_status", dependencies=[Depends(verify_secret)])
+async def vps_status_endpoint() -> dict[str, Any]:
+    return await vps_status.collect_all()
 
 
 @app.post("/api/briefing", response_model=ChatResponse, dependencies=[Depends(verify_secret)])

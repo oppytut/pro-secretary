@@ -40,6 +40,41 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. All 5 priorities from the original roadmap are complete.
 
 ### Recently Completed
+- ✅ [2026-05-14 07:45] Overnight Session — Production-Ready Polish (user asleep)
+  - **Trigger:** Daily Briefing scheduled fire 07:00 WIB FAILED with n8n ExpressionError "access to env vars denied" (workflow uses `$env.AGENT_SECRET` in HTTP nodes; n8n 1.x blocks env access by default).
+  - **Critical Fix:** Set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` di docker-compose for n8n container. Workflows can now read AGENT_SECRET. Verified via manual replay: briefing generated, Telegram delivered (HTTP 200).
+  - **EOD Summary workflow added:** cron 21:00 WIB → `/api/eod_summary` → Telegram. Plus shared `_build_summary(mode)` refactor in agent (`/api/briefing` and `/api/eod_summary` share schedule+tasks fetch but use different system prompts).
+  - **Task Reminder enhanced:** filter sekarang juga cek `due_date` proximity (overdue / due today / due tomorrow), bukan cuma priority. Sorted by tier — overdue surfaces first.
+  - **Briefing/EOD prompts tightened:**
+    - Morning: format wajib (greeting + schedule + top 3 tasks + focus saran), max 6-8 sentences, no disclaimer
+    - EOD: tone reflektif, fokus pending grouping + 2 prioritas besok
+    - Verified output quality: ringkas, actionable, LLM bahkan deteksi duplicate task otomatis.
+  - **Bot commands added:**
+    - `/eod` — on-demand EOD summary (jangan tunggu 21:00)
+    - `/sync` — trigger Obsidian vault sync, return files/chunks count
+  - **Vault populated dengan system docs (10 files total now, was 4):**
+    - `system/agent-api.md` — 10 endpoints documented
+    - `system/architecture.md` — 5 container + external services
+    - `system/qdrant-collections.md` — schema + invariants
+    - `operations/cron-jobs.md` — schedule reference
+    - `operations/troubleshooting.md` — common issues + fixes
+    - `operations/deploy.md` — CI flow + secrets list
+    - Sync result: 10 files → 30 chunks. Search test: "how to fix LLM connection" → troubleshooting.md (score 0.44), "qdrant payload index" → qdrant-collections.md (0.43). **Bot sekarang self-aware.**
+  - **Backup R2 upload (opt-in):**
+    - `scripts/backup.sh` extended dengan aws s3 cp ke R2 setelah local archive sealed
+    - Detection: hanya upload kalau 4 R2 env vars non-empty + aws CLI installed (aws CLI sudah dipasang di VPS)
+    - Failure non-fatal (local copy tetap)
+    - **Status:** No-op saat ini karena R2_* GitHub Secrets kosong. User action kalau mau aktifkan: populate `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` di GitHub Secrets.
+  - **Pending verification:** Natural Task Reminder fire UTC 02:00 (WIB 09:00) — kalau itu sukses, env-fix terbukti work di scheduler. Kalau gagal, ada issue lain yang perlu dicari.
+  - **Commits (6 commits pushed):**
+    - `fix(n8n): unblock env access + add EOD Summary`
+    - `feat(n8n): task-reminder filter by due_date`
+    - `feat(agent): tighter briefing/EOD prompts`
+    - `feat(bot): add /eod command for on-demand EOD summary`
+    - `feat(bot): add /sync command for on-demand vault sync`
+    - `feat(ops): backup script optionally uploads to R2`
+    - `docs: overnight session log + handoff for morning`
+
 - ✅ [2026-05-13 16:56] Register Cal.com Webhook — Chain to n8n Live
   - **Motivasi:** Proactive workflow Cal.com Booking Indexer sudah deploy (Prioritas 5) tapi belum terhubung — booking di Cal.com belum auto-fire webhook.
   - **Blocker yang ditemui:** Cal.com self-host `Settings → Developer → API keys` marked as "commercial feature" (butuh enterprise license). Tidak bisa register webhook via API key.
@@ -773,7 +808,7 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-13 16:56]** ✅ Cal.com webhook terregister + chain ke n8n verified. Karena CALCOM_API_KEY perlu commercial license di self-host, webhook registered langsung via SQL INSERT ke tabel `Webhook` (scripts/register_calcom_webhook.sh). Row: subscriberUrl=https://n8n.jeeva.asia/webhook/calcom-booking, 4 event triggers (BOOKING_CREATED/RESCHEDULED/CANCELLED/MEETING_ENDED), version=2021-10-20, active=true. Workflow "Cal.com Booking Indexer" activated di n8n, end-to-end chain (webhook → /api/note → /api/notify) verified via POST test: HTTP 200 + Telegram delivered. **Gap:** real booking end-to-end belum diuji karena Cal.com admin user (ariefna95@gmail.com) belum punya availability schedule. User action: login ke https://cal.jeeva.asia → Availability → set weekly schedule. Setelah itu booking via public URL akan auto-fire webhook. Alternatif next step: setup voice handler (#4 dari saran sebelumnya), EOD summary workflow, atau register Obsidian vault yang real (bukan seed dummy).
+> **[2026-05-14 07:45]** Overnight session — user tidur, saya patch issues. Daily Briefing 07:00 fire FAILED dengan ExpressionError "env vars denied" → fixed dengan `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Manual replay confirmed working. **Pending verification:** natural Task Reminder fire 09:00 WIB (UTC 02:00) — kalau itu sukses, env-fix terbukti work di scheduler. Sambil menunggu, saya tambahkan: EOD Summary workflow + endpoint, due_date filter di Task Reminder, tighter briefing prompts, /eod + /sync bot commands, vault populated dengan 6 system+ops docs (bot sekarang self-aware), backup.sh punya R2 upload opt-in. **User actions tersisa:** (1) Set Cal.com Availability schedule untuk unlock real booking webhook test, (2) Populate R2_* GitHub Secrets kalau mau backup off-VPS.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

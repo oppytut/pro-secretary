@@ -128,6 +128,12 @@ services:
       - NEXT_PUBLIC_WEBAPP_URL=https://${CALCOM_HOST}
       - NEXT_PUBLIC_LICENSE_CONSENT=agree
       - CALCOM_TELEMETRY_DISABLED=1
+      - EMAIL_FROM=${SMTP_FROM}
+      - EMAIL_FROM_NAME=Pro Secretary
+      - EMAIL_SERVER_HOST=${SMTP_HOST}
+      - EMAIL_SERVER_PORT=${SMTP_PORT}
+      - EMAIL_SERVER_USER=${SMTP_USER}
+      - EMAIL_SERVER_PASSWORD=${SMTP_PASSWORD}
       - TZ=${TIMEZONE}
     networks:
       - secretary-net

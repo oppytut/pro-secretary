@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import Any
 
@@ -33,7 +34,7 @@ async def verify_secret(request: Request) -> None:
         return
     header = request.headers.get("x-agent-secret") or request.headers.get("authorization", "")
     token = header.removeprefix("Bearer ").strip()
-    if token != config.AGENT_SECRET:
+    if not hmac.compare_digest(token, config.AGENT_SECRET):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid agent secret")
 
 

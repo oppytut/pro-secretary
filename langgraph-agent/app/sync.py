@@ -76,8 +76,14 @@ def sync_vault(vault_path: str | None = None) -> dict[str, int]:
     pending_meta: list[tuple[str, dict]] = []
 
     files_count = 0
+    root_resolved = root.resolve()
     for md_file in root.rglob("*.md"):
         if "Templates" in md_file.parts or md_file.name.startswith("."):
+            continue
+        try:
+            real = md_file.resolve()
+            real.relative_to(root_resolved)
+        except (OSError, ValueError):
             continue
         try:
             content = md_file.read_text(encoding="utf-8")

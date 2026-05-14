@@ -66,14 +66,17 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
     - Failure non-fatal (local copy tetap)
     - **Status:** No-op saat ini karena R2_* GitHub Secrets kosong. User action kalau mau aktifkan: populate `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` di GitHub Secrets.
   - **Pending verification:** Natural Task Reminder fire UTC 02:00 (WIB 09:00) — kalau itu sukses, env-fix terbukti work di scheduler. Kalau gagal, ada issue lain yang perlu dicari.
-  - **Commits (6 commits pushed):**
+  - **Commits (8 commits pushed):**
     - `fix(n8n): unblock env access + add EOD Summary`
     - `feat(n8n): task-reminder filter by due_date`
     - `feat(agent): tighter briefing/EOD prompts`
     - `feat(bot): add /eod command for on-demand EOD summary`
     - `feat(bot): add /sync command for on-demand vault sync`
     - `feat(ops): backup script optionally uploads to R2`
-    - `docs: overnight session log + handoff for morning`
+    - `fix(ops): health_check.sh duplicate '000' on curl fail`
+    - `feat(ops): health_check grace period + recovery message`
+  - **Verification (post-bangun):** Task Reminder fired natural di 02:00 UTC = 09:00 WIB dengan status `success` (`POST /api/tasks` 200, `POST /api/notify` 200). Env-fix terbukti work end-to-end di scheduler. Daily Briefing 07:00 besok pagi expected to fire successfully.
+  - **Bonus fix post-bangun:** 2 transient health alerts ("HTTP 000000" 00:25 dan "HTTP 000" 01:45) ternyata false positive — terjadi saat CI deploy restart langgraph-agent dan health_check 5-min cron tepat run saat container masih booting (fastembed model load ~15-30s). Ditambahkan: (1) **container grace period** — skip check kalau container Up < 60s, (2) **recovery notification** — kirim "✅ RECOVERED" otomatis saat transition FAILED → OK. Both verified working manual.
 
 - ✅ [2026-05-13 16:56] Register Cal.com Webhook — Chain to n8n Live
   - **Motivasi:** Proactive workflow Cal.com Booking Indexer sudah deploy (Prioritas 5) tapi belum terhubung — booking di Cal.com belum auto-fire webhook.

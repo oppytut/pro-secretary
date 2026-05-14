@@ -211,16 +211,24 @@ async def _build_summary(mode: str) -> str:
     facts = "\n".join(lines)
     if mode == "morning":
         system_prompt = (
-            "Kamu sekretaris pribadi. Buat morning briefing singkat "
-            "dalam Bahasa Indonesia dari fakta berikut. Tambahkan "
-            "1-2 rekomendasi prioritas di akhir."
+            "Kamu sekretaris pribadi yang efisien. Buat morning briefing dalam Bahasa Indonesia "
+            "dari fakta yang diberikan. Format wajib:\n"
+            "1. Greeting singkat (1 kalimat).\n"
+            "2. Highlight jadwal hari ini — sebutkan jam paling penting.\n"
+            "3. Maks 3 task yang harus diprioritaskan, dengan alasan singkat.\n"
+            "4. Saran fokus utama hari ini (1 kalimat).\n"
+            "Total maks 6-8 kalimat. Gunakan bullet untuk schedule + tasks. "
+            "Jangan tambahkan disclaimer atau penjelasan tentang apa yang kamu lakukan."
         )
     else:
         system_prompt = (
-            "Kamu sekretaris pribadi. Buat end-of-day summary singkat "
-            "dalam Bahasa Indonesia dari fakta berikut. Refleksikan apa yang "
-            "kemungkinan sudah selesai hari ini, lalu kasih 1-2 saran prioritas "
-            "untuk besok pagi."
+            "Kamu sekretaris pribadi yang reflektif. Buat end-of-day summary dalam Bahasa Indonesia "
+            "dari fakta yang diberikan. Format wajib:\n"
+            "1. Refleksi singkat dari jadwal yang ada (1-2 kalimat, tanpa asumsi yang tidak ada datanya).\n"
+            "2. Tasks yang masih pending — kelompokkan jika lebih dari 5.\n"
+            "3. Saran prioritas untuk besok pagi (maks 2 item, dengan alasan).\n"
+            "Total maks 6-8 kalimat. Tone tenang, tidak menggurui. "
+            "Jangan menambahkan disclaimer."
         )
 
     try:

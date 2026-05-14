@@ -1,0 +1,116 @@
+{
+  "name": "EOD Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 21 * * *"
+            }
+          ]
+        }
+      },
+      "id": "9b1a1f1f-0004-4000-8000-000000000001",
+      "name": "21:00 daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://langgraph-agent:8090/api/eod_summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Agent-Secret",
+              "value": "={{$env.AGENT_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"user_id\": \"{{$env.TELEGRAM_ALLOWED_USERS}}\"\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "9b1a1f1f-0004-4000-8000-000000000002",
+      "name": "Call /api/eod_summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://langgraph-agent:8090/api/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Agent-Secret",
+              "value": "={{$env.AGENT_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": {{ JSON.stringify('🌙 Selamat malam.\\n\\n' + $json.response) }}\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "9b1a1f1f-0004-4000-8000-000000000003",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "21:00 daily": {
+      "main": [
+        [
+          {
+            "node": "Call /api/eod_summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call /api/eod_summary": {
+      "main": [
+        [
+          {
+            "node": "Send to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Jakarta"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "9b1a1f1f-0004-4000-8000-000000000000"
+}

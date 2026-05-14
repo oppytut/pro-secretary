@@ -27,6 +27,7 @@ services:
       - GENERIC_TIMEZONE=${TIMEZONE}
       - N8N_AI_ENABLED=true
       - N8N_METRICS=true
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - NODE_OPTIONS=--max-old-space-size=512
       - AGENT_SECRET=${AGENT_SECRET}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}

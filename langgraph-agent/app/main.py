@@ -171,16 +171,33 @@ async def notify_endpoint(req: NotifyRequest) -> dict[str, Any]:
 
 @app.post("/api/briefing", response_model=ChatResponse, dependencies=[Depends(verify_secret)])
 async def briefing(req: BriefingRequest) -> ChatResponse:
+    return ChatResponse(response=await _build_summary(mode="morning"))
+
+
+@app.post("/api/eod_summary", response_model=ChatResponse, dependencies=[Depends(verify_secret)])
+async def eod_summary(req: BriefingRequest) -> ChatResponse:
+    return ChatResponse(response=await _build_summary(mode="eod"))
+
+
+async def _build_summary(mode: str) -> str:
     events = await tools.get_today_schedule()
     pending = tools.list_pending_tasks(limit=10)
 
     lines: list[str] = []
-    if events:
-        lines.append("JADWAL HARI INI:")
-        for e in events:
-            lines.append(f"- {e.get('start', '?')} — {e.get('title', 'Untitled')}")
+    if mode == "morning":
+        if events:
+            lines.append("JADWAL HARI INI:")
+            for e in events:
+                lines.append(f"- {e.get('start', '?')} — {e.get('title', 'Untitled')}")
+        else:
+            lines.append("JADWAL HARI INI: (kosong)")
     else:
-        lines.append("JADWAL HARI INI: (kosong)")
+        if events:
+            lines.append("JADWAL TADI:")
+            for e in events:
+                lines.append(f"- {e.get('start', '?')} — {e.get('title', 'Untitled')}")
+        else:
+            lines.append("JADWAL TADI: (tidak ada meeting)")
 
     lines.append("")
     if pending:
@@ -192,22 +209,29 @@ async def briefing(req: BriefingRequest) -> ChatResponse:
         lines.append("PENDING TASKS: (kosong)")
 
     facts = "\n".join(lines)
+    if mode == "morning":
+        system_prompt = (
+            "Kamu sekretaris pribadi. Buat morning briefing singkat "
+            "dalam Bahasa Indonesia dari fakta berikut. Tambahkan "
+            "1-2 rekomendasi prioritas di akhir."
+        )
+    else:
+        system_prompt = (
+            "Kamu sekretaris pribadi. Buat end-of-day summary singkat "
+            "dalam Bahasa Indonesia dari fakta berikut. Refleksikan apa yang "
+            "kemungkinan sudah selesai hari ini, lalu kasih 1-2 saran prioritas "
+            "untuk besok pagi."
+        )
+
     try:
         reply = await llm.chat_completion(
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Kamu sekretaris pribadi. Buat morning briefing singkat "
-                        "dalam Bahasa Indonesia dari fakta berikut. Tambahkan "
-                        "1-2 rekomendasi prioritas di akhir."
-                    ),
-                },
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": facts},
             ]
         )
     except Exception as exc:
-        logger.warning("briefing LLM error: %s", exc)
+        logger.warning("%s LLM error: %s", mode, exc)
         reply = facts
 
-    return ChatResponse(response=reply)
+    return reply

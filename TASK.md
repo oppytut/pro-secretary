@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 06:20 WIB  
+**Last Updated:** 2026-05-15 06:45 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -42,6 +42,42 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 06:45 WIB] Security Hardening Pass — High-Confidence Critical/High Fixes
+  - **Trigger:** User minta security review. 2 background agent (explore + librarian) + direct VPS check surface 24+ findings.
+  - **Tier 1 fixes applied (NOW — before Daily Briefing 07:00 WIB):**
+    1. **C5 — Constant-time secret comparison** [`main.py:36`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/main.py#L36): `token != AGENT_SECRET` → `hmac.compare_digest(token, AGENT_SECRET)`. Closes timing-attack side channel where attacker bisa brute-force secret byte-by-byte via response time measurement. Verified: wrong secret 401 in 2-9ms (no length-correlated drift), valid secret 200.
+    2. **H1 — Vault symlink containment** [`sync.py:78-87`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/sync.py#L78-L87): `rglob` follows symlinks. Symlink di vault → host file (e.g. `/etc/passwd`, `/proc/self/environ`) bisa ke-index ke Qdrant knowledge base. Fix: `md_file.resolve().relative_to(root.resolve())` — drop file kalau resolve ke luar VAULT_PATH.
+    3. **C3 — `.env` permissions:** Was `0664` (world-readable, contained R2 keys + LLM API key + AGENT_SECRET + Telegram token + DATABASE_URL). Fix: `chmod 600`. **Note:** rotate semua secrets yang ada di .env adalah next-step kalau VPS pernah ada user lain — hanya tutdo, jadi rendah risk historical leak.
+    4. **C4 — Public port exposure:** [`docker-compose.yml`](file:///home/ubuntu/bench/pro-secretary/docker-compose.yml) `n8n` di `0.0.0.0:5678` dan `calcom` di `0.0.0.0:3000` listen public (bypass Caddy total). Switch `ports:` → `expose:` — sekarang cuma docker network internal. Verified: `ss -tlnp` hanya show 22/80/443. Caddy routing tetap work (n8n via Caddy 200, cal.com 307 redirect).
+  - **Tier 2 fixes applied (TODAY):**
+    5. **C1 — SSH PermitRootLogin:** Was `yes`. Verified zero successful root login last 7 days, no risk. Set `no`, sshd_t passed, reload OK. Existing tutdo session unaffected.
+    6. **C2 — fail2ban installed:** Was inactive. Pre-condition: 2,258 failed SSH attempts last 24h. Configure `/etc/fail2ban/jail.d/sshd.local` dengan `maxretry=5 findtime=10m bantime=1h`. Service active, status sshd jail running, sudah filter 2 attempts.
+    7. **M5 — exim4 investigation:** Listen `127.0.0.1:25`, default Debian MTA. Zero delivery 7 hari, mail queue kosong, spool kosong. **Decision:** keep. Loopback-only ≠ attack surface, removal break package chain. Low priority.
+  - **Findings deferred (need separate decision/effort):**
+    - **C6 — Cal.com webhook signature verification missing** [`n8n/workflows/calcom-webhook.json`](file:///home/ubuntu/bench/pro-secretary/n8n/workflows/calcom-webhook.json): anyone can POST fake booking. Need separate fix: register webhook dengan secret di Cal.com `Webhook` table column, verify HMAC di n8n workflow.
+    - **H2 — LLM prompt injection:** No defense. Saat ini 1-user system, real-world risk low. Defer until user grow.
+    - **H3 — Docker socket mounted di langgraph-agent** [`docker-compose.yml:91`](file:///home/ubuntu/bench/pro-secretary/docker-compose.yml#L91): needed for `/vps` per-container stats. Removal = redesign (use `tecnativa/docker-socket-proxy` with restricted permissions). Defer — requires architecture decision.
+    - **M2 — No rate limiting** on FastAPI: real risk LLM cost burn if AGENT_SECRET leak. Defer until proper monitoring di place.
+    - **M3 — File upload Telegram tanpa size/type check:** R2 cost burn risk. Need `bot.py handle_document` validation. Trivial fix, defer karena impact rendah saat ini.
+    - **Dependencies CVE claims by librarian:** Reported CVE-2026-25628 (qdrant-client), CVE-2026-34070 (langchain-core), CVE-2026-27794 (langgraph), CVE-2025-43859 (h11). **NOT verified independently** — LLM agents notoriously hallucinate CVE numbers. Need run `pip-audit` against requirements.txt before any upgrade decision. Major version bumps (langgraph 0.2.60 → 1.x) carries breaking change risk, premature without verified justification.
+    - Docker image `:latest` tags (n8n, calcom, python:3.11-slim, caddy:2-alpine) — supply chain mutability risk nyata. Defer pin until version selection done.
+  - **Verification post-deploy:**
+    - All 5 container `Up healthy` post-recreate
+    - `/api/system_status` 10/10 green
+    - Caddy still routes: n8n.jeeva.asia 200, cal.jeeva.asia 307
+    - Direct port 5678/3000 from `localhost`: connection refused ✓
+    - SSH session from existing client: works ✓
+    - fail2ban sshd jail: active, filtering ✓
+  - **Commits (3):**
+    - `fix(security): constant-time secret check + symlink containment` (deploy 25891876780, 1m2s green)
+    - `fix(security): expose n8n + calcom internal-only, route via Caddy` (deploy 25891979869, 55s green)
+    - `docs: log security hardening in TASK.md` (pending)
+  - **VPS state changes (not in repo, recorded here):**
+    - `chmod 600 /opt/ai-secretary/.env`
+    - `sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config`
+    - `apt install fail2ban` + `/etc/fail2ban/jail.d/sshd.local` config
+  - **Files:** MOD `langgraph-agent/app/main.py`, `langgraph-agent/app/sync.py`, `docker-compose.yml`, TASK.md.
 
 - ✅ [2026-05-15 06:20 WIB] Timezone Audit + Comprehensive WIB Fix
   - **Trigger:** User request audit semua pengaturan timezone untuk konsistensi WIB. Sebelumnya hanya Asia/Jakarta sebagian (n8n cron, agent env), banyak titik silent fall-through ke UTC.

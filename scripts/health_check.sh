@@ -12,10 +12,15 @@ QDRANT_API_KEY="${QDRANT_API_KEY:-}"
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_ALLOWED_USERS="${TELEGRAM_ALLOWED_USERS:-}"
 CHECK_TUNNEL_SERVICE="${CHECK_TUNNEL_SERVICE:-llm-tunnel.service}"
+GRACE_SECONDS="${HEALTH_GRACE_SECONDS:-60}"
+STATE_FILE="${HEALTH_STATE_FILE:-/var/lib/ai-secretary/health-state}"
+
+mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null || true
 
 ALERT=""
 CHECKED=0
 FAILED=0
+SKIPPED=""
 
 check_http() {
     local url="$1"
@@ -33,6 +38,18 @@ check_container_http() {
     echo "$code"
 }
 
+container_age_seconds() {
+    local container="$1"
+    local started
+    started=$(docker inspect "$container" --format "{{.State.StartedAt}}" 2>/dev/null) || return 1
+    [[ -z "$started" ]] && return 1
+    local started_epoch
+    started_epoch=$(date -d "$started" +%s 2>/dev/null) || return 1
+    local now_epoch
+    now_epoch=$(date +%s)
+    echo $(( now_epoch - started_epoch ))
+}
+
 for service_info in "${SERVICES[@]}"; do
     IFS='|' read -r name target <<< "$service_info"
     CHECKED=$((CHECKED + 1))
@@ -40,6 +57,10 @@ for service_info in "${SERVICES[@]}"; do
     if [[ "$target" == container:* ]]; then
         IFS=':' read -r _ container proto host_port <<< "$target"
         url="${proto}:${host_port}"
+        if age=$(container_age_seconds "$container") && (( age < GRACE_SECONDS )); then
+            SKIPPED+="⏳ $name in grace period (age=${age}s)\n"
+            continue
+        fi
         status_code=$(check_container_http "$container" "$url")
     else
         status_code=$(check_http "$target")
@@ -71,8 +92,12 @@ if [ -n "$CHECK_TUNNEL_SERVICE" ] && command -v systemctl >/dev/null 2>&1; then
     fi
 fi
 
+PREV_STATE=""
+[[ -f "$STATE_FILE" ]] && PREV_STATE=$(cat "$STATE_FILE" 2>/dev/null || true)
+
 if [ -n "$ALERT" ]; then
     echo -e "HEALTH CHECK FAILED ($FAILED/$CHECKED):\n$ALERT"
+    [[ -n "$SKIPPED" ]] && echo -e "skipped:\n$SKIPPED"
 
     if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USERS" ]; then
         curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -81,8 +106,18 @@ if [ -n "$ALERT" ]; then
 ${ALERT}" > /dev/null 2>&1
     fi
 
+    echo "FAILED" > "$STATE_FILE"
     exit 1
 else
     echo "OK: $CHECKED/$CHECKED checks passed ($(date '+%Y-%m-%d %H:%M:%S'))"
+    [[ -n "$SKIPPED" ]] && echo -e "skipped:\n$SKIPPED"
+
+    if [[ "$PREV_STATE" == "FAILED" ]] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USERS" ]; then
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_ALLOWED_USERS}" \
+            -d text="✅ RECOVERED ($(date '+%H:%M')) — $CHECKED/$CHECKED checks pass" > /dev/null 2>&1
+    fi
+
+    echo "OK" > "$STATE_FILE"
     exit 0
 fi

@@ -156,9 +156,9 @@ async def schedule_today() -> dict[str, Any]:
 async def sync_vault_endpoint(req: SyncVaultRequest) -> dict[str, Any]:
     try:
         result = sync_vault(req.vault_path)
-    except Exception as exc:
+    except Exception:
         logger.exception("sync_vault failed")
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="sync failed")
     return result
 
 

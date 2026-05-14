@@ -1,3 +1,4 @@
+import logging
 import os
 
 QDRANT_URL = os.getenv("QDRANT_URL", "").rstrip("/")
@@ -8,6 +9,12 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/"
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
+
+if LLM_BASE_URL and not LLM_BASE_URL.startswith(("https://", "http://localhost", "http://127.")):
+    logging.getLogger("agent").warning(
+        "LLM_BASE_URL=%s is not HTTPS and not loopback; API key will transit in cleartext",
+        LLM_BASE_URL,
+    )
 
 CALCOM_API_KEY = os.getenv("CALCOM_API_KEY", "")
 CALCOM_BASE_URL = os.getenv("CALCOM_BASE_URL", "http://calcom:3000").rstrip("/")

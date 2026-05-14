@@ -20,6 +20,7 @@ AGENT_SECRET = os.getenv("AGENT_SECRET", "")
 LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+MAX_COMMAND_TEXT_LEN = int(os.getenv("MAX_COMMAND_TEXT_LEN", "2000"))
 ALLOWED_UPLOAD_EXTS = {
     "pdf", "txt", "md", "rtf",
     "docx", "doc", "xlsx", "xls", "csv", "pptx", "ppt",
@@ -143,6 +144,11 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     task_text = " ".join(context.args)
+    if len(task_text) > MAX_COMMAND_TEXT_LEN:
+        await update.message.reply_text(
+            f"⚠️ Terlalu panjang ({len(task_text)} karakter). Maks {MAX_COMMAND_TEXT_LEN}."
+        )
+        return
     await update.message.reply_chat_action("typing")
     try:
         r = await _agent_post(
@@ -167,6 +173,11 @@ async def cmd_cari(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     query = " ".join(context.args)
+    if len(query) > MAX_COMMAND_TEXT_LEN:
+        await update.message.reply_text(
+            f"⚠️ Query terlalu panjang ({len(query)}). Maks {MAX_COMMAND_TEXT_LEN}."
+        )
+        return
     await update.message.reply_chat_action("typing")
     try:
         r = await _agent_post(
@@ -202,6 +213,11 @@ async def cmd_catat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     note = " ".join(context.args)
+    if len(note) > MAX_COMMAND_TEXT_LEN:
+        await update.message.reply_text(
+            f"⚠️ Catatan terlalu panjang ({len(note)}). Maks {MAX_COMMAND_TEXT_LEN}."
+        )
+        return
     await update.message.reply_chat_action("typing")
     try:
         r = await _agent_post(

@@ -66,6 +66,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/catat <note> - Catat sesuatu\n"
         "/briefing - Daily briefing\n"
         "/eod - End-of-day summary\n"
+        "/sync - Sync Obsidian vault\n"
         "/model - Ganti/lihat model AI\n\n"
         "Atau kirim pesan biasa untuk chat."
     )
@@ -250,6 +251,31 @@ async def cmd_eod(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @authorized
+async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏳ Sync Obsidian vault...")
+    try:
+        r = await _agent_post("/api/sync_vault", {}, timeout=120.0)
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Sync gagal (HTTP {r.status_code}).")
+        return
+
+    data = r.json()
+    files = data.get("files", 0)
+    upserted = data.get("chunks_upserted", 0)
+    deleted = data.get("chunks_deleted", 0)
+    await update.message.reply_text(
+        f"✅ Sync selesai\n"
+        f"• Files: {files}\n"
+        f"• Chunks upserted: {upserted}\n"
+        f"• Chunks deleted (orphans): {deleted}"
+    )
+
+
+@authorized
 async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global current_model
     if not context.args:
@@ -334,6 +360,7 @@ async def post_init(application: Application):
         BotCommand("catat", "Catat sesuatu"),
         BotCommand("briefing", "Daily briefing"),
         BotCommand("eod", "End-of-day summary"),
+        BotCommand("sync", "Sync Obsidian vault → knowledge"),
         BotCommand("model", "Ganti/lihat model AI"),
     ]
     await application.bot.set_my_commands(commands)
@@ -356,6 +383,7 @@ def main():
     app.add_handler(CommandHandler("catat", cmd_catat))
     app.add_handler(CommandHandler("briefing", cmd_briefing))
     app.add_handler(CommandHandler("eod", cmd_eod))
+    app.add_handler(CommandHandler("sync", cmd_sync))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

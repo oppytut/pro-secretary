@@ -65,6 +65,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/cari <query> - Cari di knowledge base\n"
         "/catat <note> - Catat sesuatu\n"
         "/briefing - Daily briefing\n"
+        "/eod - End-of-day summary\n"
         "/model - Ganti/lihat model AI\n\n"
         "Atau kirim pesan biasa untuk chat."
     )
@@ -230,6 +231,25 @@ async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @authorized
+async def cmd_eod(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏳ Menyiapkan EOD summary...")
+    try:
+        r = await _agent_post(
+            "/api/eod_summary",
+            {"user_id": update.effective_user.id},
+            timeout=90.0,
+        )
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code == 200:
+        await update.message.reply_text(r.json().get("response", "EOD summary kosong."))
+    else:
+        await update.message.reply_text(f"⚠️ Gagal membuat EOD summary (HTTP {r.status_code}).")
+
+
+@authorized
 async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global current_model
     if not context.args:
@@ -313,6 +333,7 @@ async def post_init(application: Application):
         BotCommand("cari", "Cari di knowledge base"),
         BotCommand("catat", "Catat sesuatu"),
         BotCommand("briefing", "Daily briefing"),
+        BotCommand("eod", "End-of-day summary"),
         BotCommand("model", "Ganti/lihat model AI"),
     ]
     await application.bot.set_my_commands(commands)
@@ -334,6 +355,7 @@ def main():
     app.add_handler(CommandHandler("cari", cmd_cari))
     app.add_handler(CommandHandler("catat", cmd_catat))
     app.add_handler(CommandHandler("briefing", cmd_briefing))
+    app.add_handler(CommandHandler("eod", cmd_eod))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

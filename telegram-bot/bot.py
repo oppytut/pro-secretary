@@ -19,6 +19,15 @@ AGENT_URL = os.getenv("AGENT_URL", "http://langgraph-agent:8090").rstrip("/")
 AGENT_SECRET = os.getenv("AGENT_SECRET", "")
 LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+ALLOWED_UPLOAD_EXTS = {
+    "pdf", "txt", "md", "rtf",
+    "docx", "doc", "xlsx", "xls", "csv", "pptx", "ppt",
+    "jpg", "jpeg", "png", "gif", "webp", "heic",
+    "json", "yaml", "yml", "html", "epub",
+    "zip",
+}
+
 current_model = LLM_MODEL_DEFAULT
 
 logging.basicConfig(
@@ -451,12 +460,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import re
     import boto3
     from io import BytesIO
 
     document = update.message.document
+
+    if document.file_size and document.file_size > MAX_UPLOAD_BYTES:
+        await update.message.reply_text(
+            f"⚠️ File terlalu besar ({document.file_size // 1024 // 1024} MB). "
+            f"Maks {MAX_UPLOAD_BYTES // 1024 // 1024} MB."
+        )
+        return
+
+    raw_name = document.file_name or f"upload-{document.file_unique_id}"
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", raw_name).strip("._")[:120] or "upload"
+
+    ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+    if ext and ext not in ALLOWED_UPLOAD_EXTS:
+        await update.message.reply_text(
+            f"⚠️ Ekstensi .{ext} tidak diizinkan. "
+            f"Diizinkan: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}"
+        )
+        return
+
     file = await context.bot.get_file(document.file_id)
     file_bytes = await file.download_as_bytearray()
+
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        await update.message.reply_text("⚠️ File melebihi limit setelah download.")
+        return
 
     s3 = boto3.client(
         "s3",
@@ -466,14 +499,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         region_name="auto",
     )
 
-    key = f"telegram-uploads/{document.file_name}"
+    key = f"telegram-uploads/{safe_name}"
     s3.upload_fileobj(
         BytesIO(file_bytes),
         os.getenv("R2_BUCKET", "secretary-files"),
         key,
     )
 
-    await update.message.reply_text(f"📁 File '{document.file_name}' disimpan ke storage.")
+    await update.message.reply_text(f"📁 File '{safe_name}' disimpan ke storage.")
 
 
 async def post_init(application: Application):

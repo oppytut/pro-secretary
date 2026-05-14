@@ -11,7 +11,7 @@ services:
   # ORCHESTRATOR - n8n
   # ============================================
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.20.7@sha256:ab26afca1a78fdb9b042eb6285565b869cdf1fd9c465cdcd9e2e5e7f764957d3
     container_name: n8n
     restart: unless-stopped
     expose:
@@ -119,7 +119,7 @@ services:
   # SCHEDULING - Cal.com
   # ============================================
   calcom:
-    image: calcom/cal.com:latest
+    image: calcom/cal.com:latest@sha256:ace3bb1219fb7306585ab9f4d94d41af7ee064c343db0498173436bbe857bd49
     container_name: calcom
     restart: unless-stopped
     expose:
@@ -203,7 +203,7 @@ services:
   # REVERSE PROXY - Caddy
   # ============================================
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:86deaf5e3d3408a6ccec08fbb79989783dd26e206ae10bcf78a801dc8c9ab794
     container_name: caddy
     restart: unless-stopped
     ports:

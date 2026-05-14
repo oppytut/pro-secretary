@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-14 23:42 WIB  
+**Last Updated:** 2026-05-15 00:12 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -33,7 +33,6 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **OPTIONAL:** Cal.com memory di 96.7% (1.55GB / 1.61GB) — perlu monitoring. Kalau sering OOM, naikkan limit di `docker-compose.yml` `calcom.deploy.resources.limits.memory: 1536M → 2048M`. VPS punya 8GB+8GB swap, ample.
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
 - [ ] **OPTIONAL:** Personal journal workflow — bot tanya 21:30 "apa yang kamu kerjakan hari ini?", auto-index ke knowledge.
 - [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
@@ -43,6 +42,20 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 00:12 WIB] Cal.com Memory False Alarm — `/vps` Working Set Fix
+  - **Trigger:** TASK.md item "Cal.com memory 96.7%" muncul mencurigakan setelah verifikasi cgroup. User minta investigasi sebelum naikkan limit.
+  - **Diagnosis:** Angka 96.7% berasal dari `memory.current` mentah yang include `inactive_file` (page cache reclaimable). Working set sebenarnya jauh lebih rendah.
+    - Cgroup `memory.stat`: anon=821MB, inactive_file=549MB, active_file=27MB
+    - `docker stats` CLI: 933MB / 1.5GB = **60.78%** (RSS-based)
+    - working_set = usage − inactive_file = ~912MB / 1.5GB = **59.4%** ✓ match
+    - `docker inspect`: OOMKilled=false, RestartCount=0
+    - `journalctl -k --since '7 days ago' | grep oom`: empty (zero OOM events)
+    - Host `vmstat`: si/so all 0, swap used 1MB / 8GB, available 5.3GB
+  - **Root cause `/vps` formula bug:** `app/vps_status.py:165` pakai `stats.cache` (cgroup v1 schema). Host pakai cgroups v2 → key beda jadi `stats.inactive_file`. Code fallback ke 0 → report `usage` mentah → false alarm 95%+.
+  - **Fix:** [vps_status.py](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/vps_status.py#L163-L172) — `reclaimable = stats.get("inactive_file") or stats.get("cache") or 0`. Backward-compat dengan cgroup v1, correct di v2. Match docker stats CLI.
+  - **Decision:** TIDAK naikkan limit Cal.com. Working set 60%, headroom RSS 600MB+, kernel siap drop 549MB cache kalau perlu. Item dihapus dari Active Tasks.
+  - **Files:** MOD `langgraph-agent/app/vps_status.py`, TASK.md
 
 - ✅ [2026-05-14 23:42 WIB] Hari Penuh: /status + /vps + R2 + SMTP + Cal.com Email + 14 commits
   - **Trigger pagi:** Daily Briefing 07:00 fire FAILED dengan ExpressionError "env vars denied" — overnight session sudah fix dengan `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Manual replay sukses. **Verified live di scheduler:** Task Reminder fire UTC 02:00 (09:00 WIB) sukses, plus 13:00, 17:00 sukses, plus EOD Summary 21:00 sukses. Total 4/4 natural workflow fire hari ini.

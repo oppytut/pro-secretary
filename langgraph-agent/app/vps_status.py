@@ -162,8 +162,14 @@ async def container_stats() -> list[dict[str, Any]]:
 
                 mem_used = s.get("memory_stats", {}).get("usage", 0)
                 mem_limit = s.get("memory_stats", {}).get("limit", 0)
-                cache = (s.get("memory_stats", {}).get("stats") or {}).get("cache", 0)
-                mem_used_no_cache = max(0, mem_used - cache)
+                # Working set: subtract reclaimable page cache so we report what
+                # actually creates OOM pressure, matching `docker stats` CLI.
+                #   cgroup v1 schema: stats.cache
+                #   cgroup v2 schema: stats.inactive_file
+                # Falling back to either keeps this correct on both kernels.
+                stats = s.get("memory_stats", {}).get("stats") or {}
+                reclaimable = stats.get("inactive_file") or stats.get("cache") or 0
+                mem_used_no_cache = max(0, mem_used - reclaimable)
 
                 return {
                     "name": name,

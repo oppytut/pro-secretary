@@ -19,12 +19,18 @@ FAILED=0
 
 check_http() {
     local url="$1"
-    curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$url" 2>/dev/null || echo "000"
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$url" 2>/dev/null)
+    [[ -z "$code" ]] && code="000"
+    echo "$code"
 }
 
 check_container_http() {
     local container="$1" url="$2"
-    docker exec "$container" sh -c "curl -s -o /dev/null -w '%{http_code}' --max-time 15 '$url'" 2>/dev/null || echo "000"
+    local code
+    code=$(docker exec "$container" sh -c "curl -s -o /dev/null -w '%{http_code}' --max-time 15 '$url'" 2>/dev/null)
+    [[ -z "$code" ]] && code="000"
+    echo "$code"
 }
 
 for service_info in "${SERVICES[@]}"; do

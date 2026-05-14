@@ -294,19 +294,21 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     failed = data.get("failed", 0)
     total = data.get("total", 0)
 
-    lines = ["🏥 *System Status*\n"]
+    lines = ["🏥 System Status", ""]
     for c in checks:
         icon = "✅" if c["ok"] else "❌"
         lat = f"{c['latency_ms']}ms"
         detail = c.get("detail", "")
-        lines.append(f"{icon} `{c['name']}` ({lat}) — {detail}")
+        lines.append(f"{icon} {c['name']} ({lat}) — {detail}")
 
     if failed == 0:
-        lines.append("\n✅ Semua sistem operasional")
+        lines.append("")
+        lines.append("✅ Semua sistem operasional")
     else:
-        lines.append(f"\n⚠️ {failed}/{total} system bermasalah")
+        lines.append("")
+        lines.append(f"⚠️ {failed}/{total} system bermasalah")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines))
 
 
 @authorized

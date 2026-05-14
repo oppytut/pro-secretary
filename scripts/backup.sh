@@ -62,8 +62,27 @@ find "$BACKUP_DIR" -maxdepth 1 -name "*.tar.gz*" -mtime +"$RETENTION_DAYS" -dele
 BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 echo "[$(date)] Backup completed: $BACKUP_FILE ($BACKUP_SIZE)"
 
+R2_UPLOADED=""
+if [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -n "${R2_ENDPOINT:-}" ] && [ -n "${R2_BUCKET:-}" ]; then
+    if command -v aws >/dev/null 2>&1; then
+        R2_KEY="backups/$(basename "$BACKUP_FILE")"
+        if AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
+           AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+           aws s3 cp "$BACKUP_FILE" "s3://${R2_BUCKET}/${R2_KEY}" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --no-progress 2>&1 | tail -3; then
+            R2_UPLOADED=" → R2:${R2_BUCKET}/${R2_KEY}"
+            echo "[$(date)] Uploaded to R2: ${R2_BUCKET}/${R2_KEY}"
+        else
+            echo "[$(date)] R2 upload failed (non-fatal)"
+        fi
+    else
+        echo "[$(date)] aws CLI not installed, skipping R2 upload"
+    fi
+fi
+
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USERS" ]; then
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
         -d chat_id="${TELEGRAM_ALLOWED_USERS}" \
-        -d text="✅ Backup $DATE ($BACKUP_SIZE)" > /dev/null 2>&1
+        -d text="✅ Backup $DATE ($BACKUP_SIZE)${R2_UPLOADED}" > /dev/null 2>&1
 fi

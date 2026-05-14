@@ -7,7 +7,7 @@
 import os
 import hashlib
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -75,7 +75,7 @@ def sync_vault():
                         "source_file": relative_path,
                         "chunk_index": i,
                         "file_hash": file_hash,
-                        "synced_at": datetime.now().isoformat(),
+                        "synced_at": datetime.now(timezone.utc).isoformat(),
                         "folder": relative_path.split("/")[0],
                     },
                 )

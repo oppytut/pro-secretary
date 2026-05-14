@@ -5,7 +5,9 @@ import os
 import socket
 import subprocess
 import time
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -219,7 +221,13 @@ async def check_obsidian() -> dict:
         if points:
             last_sync = points[0].payload.get("synced_at", "unknown")
             if last_sync != "unknown":
-                last_sync = last_sync.split("T")[1][:5] + " UTC"
+                try:
+                    dt = datetime.fromisoformat(last_sync.replace("Z", "+00:00"))
+                    last_sync = dt.astimezone(ZoneInfo(config.TIMEZONE)).strftime(
+                        "%H:%M %Z"
+                    )
+                except (ValueError, TypeError):
+                    last_sync = last_sync.split("T")[1][:5] + " UTC"
     except Exception:
         pass
 

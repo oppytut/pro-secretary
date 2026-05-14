@@ -32,6 +32,7 @@ services:
       - AGENT_SECRET=${AGENT_SECRET}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+      - TZ=${TIMEZONE}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/home/node/.n8n/workflows
@@ -212,6 +213,7 @@ services:
     environment:
       - N8N_HOST=${N8N_HOST}
       - CALCOM_HOST=${CALCOM_HOST}
+      - TZ=${TIMEZONE}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

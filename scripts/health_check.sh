@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+export TZ="${TZ:-Asia/Jakarta}"
+
 SERVICES=(
     "n8n|http://localhost:5678/healthz"
     "calcom|http://localhost:3000/"

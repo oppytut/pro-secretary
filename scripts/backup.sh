@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+export TZ="${TZ:-Asia/Jakarta}"
+
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/ai-secretary}"
 DATE=$(date +%Y-%m-%d_%H%M)
 RETENTION_DAYS="${RETENTION_DAYS:-30}"

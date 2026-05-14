@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -64,16 +65,17 @@ def store_note(content: str, source: str = "telegram", user_id: str | int | None
 async def get_today_schedule() -> list[dict[str, Any]]:
     if not config.CALCOM_API_KEY:
         return []
-    now = datetime.now(timezone.utc)
-    end = now + timedelta(days=1)
+    tz = ZoneInfo(config.TIMEZONE)
+    start_local = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:
             r = await client.get(
                 f"{config.CALCOM_BASE_URL}/api/v1/bookings",
                 headers={"Authorization": f"Bearer {config.CALCOM_API_KEY}"},
                 params={
-                    "afterStart": now.isoformat(),
-                    "beforeEnd": end.isoformat(),
+                    "afterStart": start_local.isoformat(),
+                    "beforeEnd": end_local.isoformat(),
                 },
             )
             if r.status_code >= 400:

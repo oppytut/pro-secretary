@@ -101,5 +101,8 @@ jobs:
             docker compose build --pull telegram-bot langgraph-agent
             docker compose up -d --remove-orphans
             docker image prune -f
-            sleep 15
+            sleep 20
             docker compose ps --format "table {{.Name}}\t{{.Status}}"
+            echo "=== post-deploy health probes ==="
+            docker exec langgraph-agent curl -fsS --max-time 5 http://localhost:8090/health
+            docker exec n8n wget -qO- --timeout 5 http://localhost:5678/healthz

@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 11:36 WIB  
+**Last Updated:** 2026-05-15 13:40 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -43,6 +43,35 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 13:40 WIB] Continuous Backup Drill + CI Traffic-Serving Probes
+  - **Trigger:** User minta lanjut. Saran kuat: automasi verifikasi yang barusan kita kerjakan manual, supaya keep proving itself tanpa intervensi.
+  - **1) `scripts/verify_backup.sh`** NEW — closes loop pada manual restore drill 2026-05-15:
+    - Pick latest archive di `BACKUP_DIR`, extract ke `mktemp -d` (auto-cleanup via trap EXIT)
+    - 5 integrity checks aggregated: n8n workflows JSON parse + count, n8n SQLite `PRAGMA integrity_check`, vault tarball markdown count, configs `.env` 4 critical keys (AGENT_SECRET, DATABASE_URL, QDRANT_URL, TELEGRAM_BOT_TOKEN), `docker compose config --quiet` validates restored compose
+    - Single Telegram report with full pass/fail detail + age in hours
+    - Exit code 0 / 1 untuk monitoring integration
+    - Handle GPG-encrypted archive otomatis kalau passphrase file ada
+    - **Smoke test on VPS** vs real archive `2026-05-15_0954.tar.gz`: ALL 5/5 PASS, exit 0, Telegram report delivered: `✅ Backup verify PASS: 2026-05-15_0954.tar.gz (age 3h)` plus 5 ✓ details.
+  - **2) Weekly cron** schedule via `scripts/install_cron.sh`:
+    - `0 3 * * 0` Sunday 03:00 WIB (after Saturday backup at 02:30, gives 30min headroom)
+    - Output ke `/var/log/backup-verify.log` (already covered by logrotate config)
+    - Filter pattern updated: `verify_backup\.sh` added to `crontab | grep -Ev` agar idempotent re-run tidak duplicate
+    - Bootstrap log file ownership di same loop dengan 3 log lain
+    - **Installed live on VPS:** 4 cron entries now active (health 5min, backup 02:30, sync 30min, verify Sunday 03:00).
+  - **3) CI post-deploy health probes** [`.github/workflows/deploy.yml:96-99`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/deploy.yml#L96-L99):
+    - Was: `sleep 15 && docker compose ps` — only proved containers Up, not actually serving traffic
+    - Now: `sleep 20 && docker compose ps && docker exec langgraph-agent curl -fsS http://localhost:8090/health && docker exec n8n wget -qO- http://localhost:5678/healthz`
+    - **Verified live in CI run 25904248505 (50s green):**
+      - Agent probe returned `{"status":"ok","missing_env":[],"embedding_model":"sentence-transformers/all-MiniLM-L6-v2","embedding_dim":384}`
+      - n8n probe returned `{"status":"ok"}`
+    - Future deploy yang ship code yang crash di startup akan fail loud (curl `-f` exit non-zero kalau HTTP non-2xx atau no response), bukan diam-diam green.
+  - **What this prevents (long-term):**
+    - **Backup drift unnoticed**: drill 2026-05-15 sukses tapi 6 bulan kemudian asumsi yang sama tidak teruji. Sekarang weekly proof.
+    - **Phantom green deploy**: CI report success while bot actually dead in container. Sekarang CI gagal eksplisit.
+  - **Files:** NEW `scripts/verify_backup.sh`. MOD `scripts/install_cron.sh`, `.github/workflows/deploy.yml`.
+  - **VPS state:** cron entry `0 3 * * 0 verify_backup.sh` installed, log file `/var/log/backup-verify.log` ready.
+  - **First scheduled fire:** Sunday 2026-05-17 03:00 WIB. Akan kirim Telegram report otomatis tanpa intervensi.
 
 - ✅ [2026-05-15 11:36 WIB] Vault Self-Awareness Refresh — system docs now match live state, Qdrant re-indexed
   - **Trigger:** Vault `system/*.md` + `operations/*.md` last touched 2026-05-14 07:43 WIB. Sejak itu: 3 round security (19→0 CVE), TZ overhaul, langgraph 0.2→1.x, slowapi rate limit, image digest pin, paths-ignore CI, dependabot, logrotate, backup drill (silent fail discovery + fix). Bot ditanya "bagaimana fix LLM connection" akan dapat troubleshooting.md versi lama, missing semua context security. **Sistem self-aware lag 1-2 minggu di belakang dirinya sendiri.**

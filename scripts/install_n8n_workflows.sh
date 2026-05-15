@@ -64,6 +64,7 @@ docker exec n8n n8n import:workflow --separate --input=/tmp/workflows-import
 echo
 echo "activating imported workflows by name"
 POST_IMPORT="$(docker exec n8n n8n list:workflow 2>/dev/null)"
+ACTIVATED_ANY=0
 for name in "${IMPORT_NAMES[@]}"; do
     id="$(printf '%s\n' "$POST_IMPORT" | awk -F'|' -v n="$name" '$2 == n { print $1; exit }')"
     if [[ -z "$id" ]]; then
@@ -72,7 +73,25 @@ for name in "${IMPORT_NAMES[@]}"; do
     fi
     echo "activate $name (id=$id)"
     docker exec n8n n8n update:workflow --id="$id" --active=true
+    ACTIVATED_ANY=1
 done
+
+# n8n 1.x writes active=true to DB but does NOT hot-reload schedule triggers
+# in the running process. Without restart, cron-based workflows will silently
+# skip their next fire window. Restart is required after activation.
+# See TASK.md 2026-05-16 entry for the silent-fail incident this prevents.
+if [[ "${ACTIVATED_ANY}" -eq 1 ]]; then
+    echo
+    echo "restarting n8n to register schedule triggers in running process"
+    docker restart n8n >/dev/null
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        if docker exec n8n wget -qO- http://localhost:5678/healthz 2>/dev/null | grep -q '"status":"ok"'; then
+            echo "n8n healthy after restart (attempt $i)"
+            break
+        fi
+        sleep 3
+    done
+fi
 
 echo
 echo "active workflows now:"

@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 09:04 WIB  
+**Last Updated:** 2026-05-15 09:23 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -36,12 +36,41 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
 - [ ] **OPTIONAL:** Personal journal workflow — bot tanya 21:30 "apa yang kamu kerjakan hari ini?", auto-index ke knowledge.
 - [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
+- [ ] **VPS-deploy step (manual):** jalankan `bash scripts/install_logrotate.sh` di VPS sekali saja untuk activate logrotate (config sudah ada di repo, installer ready).
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
 ### Blocked/Waiting
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 09:23 WIB] Defensive Maintenance Trio — Dependabot + CI skip-md + logrotate
+  - **Trigger:** User minta saran langkah selanjutnya saat ada banyak waktu luang. Pilih kategori "tidak menambah behavior baru, hanya jaga yang sudah ada" konsisten dengan principle "stop building tanpa real usage feedback dulu".
+  - **1) Dependabot config** [`.github/dependabot.yml`](file:///home/ubuntu/bench/pro-secretary/.github/dependabot.yml) — 5 update entries weekly Monday 06:00 WIB:
+    - `pip /langgraph-agent` (fastapi, langgraph, qdrant-client, fastembed, dll) dengan grouping `minor-patch` + `security`
+    - `pip /telegram-bot` (python-telegram-bot, httpx, boto3) dengan grouping sama
+    - `github-actions /` (currently appleboy/ssh-action SHA-pinned, akan auto-bump SHA + comment version)
+    - `docker /langgraph-agent` + `docker /telegram-bot` (FROM `python:3.11-slim` digest auto-update)
+    - **NOT covered:** `docker-compose.yml` image tags (n8n, calcom, caddy) — Dependabot tidak track docker-compose, perlu manual review quarterly via `docker pull <image>:<tag> && docker inspect | grep RepoDigests`. Anti-drift mechanism untuk 0-CVE state.
+    - YAML validated: 5 entries, ekosistem `pip,pip,github-actions,docker,docker`, parses clean. Inlined (tidak pakai YAML anchor `<<: *`) untuk hindari risiko Dependabot schema validator reject extension keys.
+    - **Decision:** group `version-updates` minor+patch tunggal PR (review noise minimal), pisahkan `security-updates` (treat as priority).
+  - **2) CI skip-rebuild for docs-only** [`.github/workflows/deploy.yml:6-11`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/deploy.yml#L6-L11) — tambah `paths-ignore`:
+    - `**.md`, `LICENSE`, `.gitignore`, `docs/**`, `.sisyphus/**`
+    - Sebelumnya: setiap commit termasuk docs-only trigger 2-3 menit deploy yang rebuild semua container, boros menit GHA.
+    - Sekarang: docs-only commit skip workflow entirely. Code commits unchanged (deploy normal).
+    - `workflow_dispatch` tetap berfungsi untuk manual force-deploy via `gh workflow run deploy.yml`.
+  - **3) logrotate** untuk 3 cron log file:
+    - Config [`ops/logrotate/ai-secretary`](file:///home/ubuntu/bench/pro-secretary/ops/logrotate/ai-secretary): `/var/log/{health-check,backup,vault-sync}.log`, weekly, rotate 4, compress (delaycompress), missingok, notifempty, copytruncate, dateext `-%Y%m%d`.
+    - Installer [`scripts/install_logrotate.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_logrotate.sh) — idempotent `install -m 0644 -o root -g root` ke `/etc/logrotate.d/ai-secretary` + dry-run debug verify.
+    - **Strategy:** `copytruncate` (bukan `create`) karena cron jobs run as `tutdo` user, copytruncate sidestep ownership/permission issue. Race window saat copy+truncate ditolerir untuk low-throughput logs (5-min cron / 30-min cron / 1x sehari).
+    - **Local verified end-to-end:** `logrotate -fv` di `/tmp/lr-test/` — original log truncated ke 0B, dated copy `*-20260515` dibuat, `delaycompress` correctly defer gzip ke next cycle.
+    - VPS deploy: 1 manual step `ssh tutdo@159.223.40.74` + `cd /opt/ai-secretary && git pull && bash scripts/install_logrotate.sh`. Setelah itu auto via `/etc/cron.daily/logrotate`.
+  - **What this prevents:**
+    - **Renovate/Dependabot absence** → 6 bulan lagi kembali ke 19+ CVE silently. Sekarang weekly alert + grouped PR.
+    - **CI waste** → docs commit ~2-3 min × N commits/week wasted. Sekarang 0.
+    - **Log balloon** → `/var/log/{health-check,vault-sync,backup}.log` tanpa rotation = disk fill silently 3-6 bulan. Sekarang weekly rotate, retention 4 minggu compressed.
+  - **Files:** NEW `.github/dependabot.yml`, `ops/logrotate/ai-secretary`, `scripts/install_logrotate.sh`. MOD `.github/workflows/deploy.yml`, `TASK.md`.
+  - **Verification:** YAML schema parse OK, bash syntax OK, logrotate dry-run + force-run produces correct output di sandbox.
 
 - ✅ [2026-05-15 09:00 WIB] Health Check Postmortem — False Alert Fix
   - **Trigger:** User report 24x ⚠️ HEALTH ALERT di Telegram setiap 5 menit dari 06:45 WIB. "❌ n8n DOWN (HTTP 000)" + "❌ calcom DOWN (HTTP 000)".

@@ -1,0 +1,75 @@
+{
+  "name": "Personal Journal",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 30 21 * * *"
+            }
+          ]
+        }
+      },
+      "id": "9b1a1f1f-0005-4000-8000-000000000001",
+      "name": "21:30 daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://langgraph-agent:8090/api/journal_prompt",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Agent-Secret",
+              "value": "={{$env.AGENT_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "9b1a1f1f-0005-4000-8000-000000000002",
+      "name": "Send journal prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    }
+  ],
+  "connections": {
+    "21:30 daily": {
+      "main": [
+        [
+          {
+            "node": "Send journal prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Jakarta"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "9b1a1f1f-0005-4000-8000-000000000000"
+}

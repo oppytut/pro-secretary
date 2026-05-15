@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from . import config, llm, system_status, telegram, tools, vps_status, workflow
+from . import config, journal, llm, system_status, telegram, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -94,6 +94,25 @@ class NotifyRequest(BaseModel):
     chat_id: str | int | None = None
 
 
+JOURNAL_PROMPT_MARKER = "📓 Personal Journal"
+
+JOURNAL_PROMPT_TEXT = (
+    f"{JOURNAL_PROMPT_MARKER}\n\n"
+    "Apa yang kamu kerjakan hari ini? Reply pesan ini untuk mencatat — "
+    "akan otomatis masuk ke knowledge base."
+)
+
+
+class JournalEntry(BaseModel):
+    text: str = Field(..., min_length=1, max_length=5000)
+    user_id: str | int | None = None
+
+
+class JournalPromptRequest(BaseModel):
+    chat_id: str | int | None = None
+    text: str | None = None
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     missing = config.assert_ready()
@@ -173,6 +192,45 @@ async def sync_vault_endpoint(req: SyncVaultRequest) -> dict[str, Any]:
 @limiter.limit("60/minute")
 async def notify_endpoint(request: Request, req: NotifyRequest) -> dict[str, Any]:
     result = await telegram.send_message(req.text, chat_id=req.chat_id)
+    if not result.get("ok"):
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=result.get("error") or result)
+    return result
+
+
+@app.post("/api/journal", dependencies=[Depends(verify_secret)])
+@limiter.limit("30/minute")
+async def journal_append(request: Request, req: JournalEntry) -> dict[str, Any]:
+    result = journal.append_entry(req.text)
+    if result.get("status_code") != 200:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR
+            if result["status_code"] >= 500
+            else status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error") or "journal write failed",
+        )
+    try:
+        sync = sync_vault()
+        result["sync"] = {
+            "files": sync.get("files"),
+            "chunks_upserted": sync.get("chunks_upserted"),
+        }
+    except Exception:
+        logger.exception("journal post-write sync failed")
+        result["sync"] = {"error": "sync failed (entry persisted)"}
+    return result
+
+
+@app.post("/api/journal_prompt", dependencies=[Depends(verify_secret)])
+@limiter.limit("10/minute")
+async def journal_prompt(request: Request, req: JournalPromptRequest) -> dict[str, Any]:
+    text = req.text or JOURNAL_PROMPT_TEXT
+    if JOURNAL_PROMPT_MARKER not in text:
+        text = f"{JOURNAL_PROMPT_MARKER}\n\n{text}"
+    result = await telegram.send_message(
+        text,
+        chat_id=req.chat_id,
+        reply_markup={"force_reply": True, "input_field_placeholder": "Tulis catatan hari ini…"},
+    )
     if not result.get("ok"):
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=result.get("error") or result)
     return result

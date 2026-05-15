@@ -21,6 +21,8 @@ LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 MAX_COMMAND_TEXT_LEN = int(os.getenv("MAX_COMMAND_TEXT_LEN", "2000"))
+MAX_JOURNAL_LEN = int(os.getenv("MAX_JOURNAL_LEN", "5000"))
+JOURNAL_PROMPT_MARKER = "📓 Personal Journal"
 ALLOWED_UPLOAD_EXTS = {
     "pdf", "txt", "md", "rtf",
     "docx", "doc", "xlsx", "xls", "csv", "pptx", "ppt",
@@ -79,7 +81,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/sync - Sync Obsidian vault\n"
         "/status - Cek status semua komponen\n"
         "/vps - Cek resource VPS\n"
-        "/model - Ganti/lihat model AI\n\n"
+        "/model - Ganti/lihat model AI\n"
+        "/journal <isi> - Catat journal (atau reply pesan 21:30)\n\n"
         "Atau kirim pesan biasa untuk chat."
     )
 
@@ -448,8 +451,59 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Model switched to: {current_model}")
 
 
+async def _submit_journal(update: Update, text: str) -> None:
+    text = text.strip()
+    if not text:
+        await update.message.reply_text("Gunakan: /journal <isi catatan>")
+        return
+    if len(text) > MAX_JOURNAL_LEN:
+        await update.message.reply_text(
+            f"⚠️ Catatan terlalu panjang ({len(text)} karakter). Maks {MAX_JOURNAL_LEN}."
+        )
+        return
+
+    await update.message.reply_chat_action("typing")
+    try:
+        r = await _agent_post(
+            "/api/journal",
+            {"text": text, "user_id": update.effective_user.id},
+            timeout=120.0,
+        )
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Gagal menyimpan journal (HTTP {r.status_code}).")
+        return
+
+    data = r.json()
+    file_path = data.get("file", "journal")
+    sync = data.get("sync") or {}
+    chunks = sync.get("chunks_upserted")
+    suffix = f" · indexed ({chunks} chunks)" if chunks else ""
+    await update.message.reply_text(f"📓 Tercatat di {file_path}{suffix}.")
+
+
+@authorized
+async def cmd_journal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = " ".join(context.args) if context.args else ""
+    await _submit_journal(update, text)
+
+
+def _is_journal_reply(update: Update) -> bool:
+    reply = update.message.reply_to_message if update.message else None
+    if not reply or not reply.text:
+        return False
+    return JOURNAL_PROMPT_MARKER in reply.text
+
+
 @authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if _is_journal_reply(update):
+        await _submit_journal(update, update.message.text or "")
+        return
+
     user_message = update.message.text
     await update.message.reply_chat_action("typing")
 
@@ -539,6 +593,7 @@ async def post_init(application: Application):
         BotCommand("status", "Cek status semua komponen"),
         BotCommand("vps", "Cek resource VPS"),
         BotCommand("model", "Ganti/lihat model AI"),
+        BotCommand("journal", "Catat journal harian"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered.")
@@ -564,6 +619,7 @@ def main():
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("vps", cmd_vps))
     app.add_handler(CommandHandler("model", cmd_model))
+    app.add_handler(CommandHandler("journal", cmd_journal))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 

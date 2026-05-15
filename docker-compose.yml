@@ -86,7 +86,7 @@ services:
       - TZ=${TIMEZONE}
     volumes:
       - langgraph_cache:/app/.fastembed_cache
-      - ./vault:/vault:ro
+      - ./vault:/vault:rw
       - /proc:/host/proc:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/backups:/host/var/backups:ro

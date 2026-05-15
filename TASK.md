@@ -34,8 +34,8 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ### Active Tasks
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
-- [ ] **OPTIONAL:** Personal journal workflow — bot tanya 21:30 "apa yang kamu kerjakan hari ini?", auto-index ke knowledge.
 - [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
+- [ ] **WAITING:** Personal Journal acid test — natural cron fire 21:30 WIB hari ini akan jadi bukti pertama prompt + reply detection + auto-index chain bekerja end-to-end di production scheduler.
 - [ ] **USER-ACTION (1 menit):** Enable Dependabot alerts di GitHub UI: repo Settings → Code security → "Dependabot alerts" + "Dependabot security updates" → toggle on. Repo punya `.github/dependabot.yml` (version updates aktif weekly), tapi alerts (proactive CVE feed) butuh one-time toggle terpisah. Strongly recommended untuk close loop pada 0-CVE state.
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
@@ -43,6 +43,40 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 14:30 WIB] Personal Journal Workflow — bot tanya 21:30, reply auto-index ke knowledge
+  - **Trigger:** User pilih dari 4 opsi next-direction. Konsisten dengan principle "behavior baru yang tutup loop" — bukan tambah feature random tapi closes loop pada self-documenting daily work.
+  - **Mekanisme:** n8n cron 21:30 WIB → POST `/api/journal_prompt` → agent kirim Telegram dengan `force_reply` markup + magic marker `📓 Personal Journal`. Bot detect reply via `reply_to_message.text contains marker` → POST `/api/journal` → tulis ke `vault/journal/YYYY-MM.md` (per-month, append-only, WIB timestamp header) → trigger `sync_vault()` → Qdrant `knowledge` collection upsert. Bonus: `/journal <text>` command sebagai manual escape hatch (tidak harus tunggu 21:30).
+  - **Design decisions:**
+    - **Per-month file** bukan per-day — vault tidak banjir ratusan file kecil, tetap chunkable. Format `# Journal Mei 2026` header + `## YYYY-MM-DD HH:MM WIB` per entry. Separator `\n## ` matches existing [`sync.py:36`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/sync.py#L36) chunker priority — entry boundary akan jadi chunk boundary natural.
+    - **Vault mount RW**: [`docker-compose.yml:89`](file:///home/ubuntu/bench/pro-secretary/docker-compose.yml#L89) flip `:ro` → `:rw`. Required untuk write. Risk minimal, single-user trusted system, agent sudah hold semua kunci sensitif (LLM API key, R2, Qdrant). Trade-off accepted.
+    - **Force reply markup** lebih natural daripada button keyboard — Telegram-idiomatic, native iOS/Android UX shows reply UI di-snap ke pesan tertentu, ngga ganggu chat lain.
+    - **Auto-sync dalam endpoint** bukan deferred — entry langsung searchable, user merasa "tercatat" instan. Sync failure non-fatal: entry tetap persisted di vault, errornya cuma muncul di response payload (logged via `logger.exception`).
+    - **Rate limit:** `/api/journal` 30/min (cap diary spam), `/api/journal_prompt` 10/min (lebih ketat, dipakai cron only).
+    - **Validation:** Pydantic enforce `min_length=1`, `max_length=5000` — match [`journal.py:13`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/journal.py#L13) `MAX_ENTRY_LEN`. 422 surfaces clean error message ke user.
+  - **Files NEW:**
+    - [`langgraph-agent/app/journal.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/journal.py) (74 lines) — `append_entry(text, now)` writes to `{VAULT_PATH}/journal/{YYYY-MM}.md`, ensures monthly header on first entry, atomic append via `path.open("a")`. Time anchored to `ZoneInfo(config.TIMEZONE)` (Asia/Jakarta) — WIB di header line.
+    - [`n8n/workflows/personal-journal.json`](file:///home/ubuntu/bench/pro-secretary/n8n/workflows/personal-journal.json) (74 lines) — clone of EOD pattern, 2 nodes: schedule trigger `0 30 21 * * *` → HTTP POST `/api/journal_prompt`. Timezone `Asia/Jakarta` di settings.
+  - **Files MOD:**
+    - [`langgraph-agent/app/main.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/main.py) — import journal, add `JournalEntry`/`JournalPromptRequest` Pydantic models, add `JOURNAL_PROMPT_MARKER` + `JOURNAL_PROMPT_TEXT` constants, add 2 endpoints (`/api/journal` + `/api/journal_prompt`) gated by `verify_secret` + `@limiter.limit`.
+    - [`langgraph-agent/app/telegram.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/telegram.py) — `send_message` accepts optional `reply_markup: dict[str, Any]`, passes through to Telegram API.
+    - [`telegram-bot/bot.py`](file:///home/ubuntu/bench/pro-secretary/telegram-bot/bot.py) — `JOURNAL_PROMPT_MARKER` constant, `MAX_JOURNAL_LEN=5000`, `_submit_journal()` helper, `_is_journal_reply()` detector, `cmd_journal()` for `/journal <text>`, dispatch in `handle_message` (reply → journal, else → chat). Plus BotCommand registered.
+    - [`docker-compose.yml`](file:///home/ubuntu/bench/pro-secretary/docker-compose.yml#L89) — vault mount `:ro` → `:rw`.
+  - **Local verification (sebelum push):**
+    - `python -m py_compile` 4 files: ALL_PY_OK
+    - `docker compose config --quiet`: COMPOSE_OK
+    - `lsp_diagnostics`: 0 new errors (style noise pre-existing matches codebase pattern)
+    - JSON parse personal-journal.json: OK
+    - **Driver test journal.py:** tmpdir vault, 2 entries → file `journal/2026-05.md` correct format ✓, empty rejected (400) ✓, oversize rejected (400) ✓, header `# Journal May 2026` + 2 `## YYYY-MM-DD HH:MM WIB` blocks present ✓
+    - **TestClient `/api/journal`:** 401 unauth ✓, 200 authed → file written + sync called ✓, 422 empty ✓, 422 oversize ✓
+    - **TestClient `/api/journal_prompt`** (httpx mocked): payload to Telegram exact: `chat_id="111"`, marker in text, `reply_markup.force_reply: true`, `input_field_placeholder: "Tulis catatan hari ini…"`, `disable_web_page_preview: true` ✓
+    - **Bot reply detection:** marker present in `reply_to_message.text` → True, plain text → False, no reply → False ✓
+  - **What this enables:**
+    - Daily journal capture tanpa friction — buka Telegram, reply pesan 21:30. Tidak perlu buka Obsidian, tidak perlu inget folder mana.
+    - Knowledge base self-feeding: setiap entry auto-index, future query "minggu lalu kerja apa?" akan retrieval semantic match ke journal entry hari yang relevan.
+    - Continuous self-documentation: vault sekarang punya 3 source — system docs (architecture, API), operations (cron, troubleshooting), dan journal (apa yang terjadi). All searchable from same `/cari` command.
+  - **First acid test:** Cron natural fire 21:30 WIB malam ini (~7 jam dari sekarang). Akan jadi bukti end-to-end production: scheduler → agent → Telegram prompt → user reply (manual step) → bot dispatch → vault write → Qdrant sync.
+  - **Manual go-live steps post-deploy:** SSH ke VPS → `docker exec n8n n8n import:credentials --input=/home/node/.n8n/workflows/personal-journal.json` (atau import via UI) → activate workflow di n8n UI → manual trigger sekali untuk verifikasi prompt arrived di Telegram, reply, check vault file + Qdrant chunks_upserted increment.
 
 - ✅ [2026-05-15 13:40 WIB] Continuous Backup Drill + CI Traffic-Serving Probes
   - **Trigger:** User minta lanjut. Saran kuat: automasi verifikasi yang barusan kita kerjakan manual, supaya keep proving itself tanpa intervensi.

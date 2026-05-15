@@ -1,0 +1,37 @@
+name: Deactivate n8n workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_ids:
+        description: 'Space-separated n8n workflow IDs to deactivate'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deactivate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Deactivate workflows
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2  # v1.2.5
+        env:
+          IDS: ${{ inputs.workflow_ids }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: IDS
+          script: |
+            for id in $IDS; do
+              echo "deactivating $id"
+              docker exec n8n n8n update:workflow --id="$id" --active=false
+            done
+            echo
+            echo "active workflows now:"
+            docker exec n8n n8n list:workflow --active=true

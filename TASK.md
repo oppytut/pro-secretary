@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 09:28 WIB  
+**Last Updated:** 2026-05-15 10:04 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -43,6 +43,38 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 10:04 WIB] Backup Restore Drill — found + fixed silent failure (2 days zero backup)
+  - **Trigger:** User minta lanjut step kategori "tidak tambah behavior baru, perkuat yang ada". Pilih backup restore drill karena `backup.sh` sudah scheduled cron 02:30 WIB sejak 2026-05-13 tapi belum pernah ada bukti archive yang dihasilkan benar-benar bisa di-restore. **Backup yang tidak pernah dites = bukan backup.**
+  - **Discovery (CRITICAL):** `/var/backups/ai-secretary/` **tidak exist** di VPS. Backup gagal silently 2 hari berturut-turut.
+    - Root cause: cron user `tutdo` tidak punya write permission ke `/var/backups/` (parent owned `root:root drwxr-xr-x`). `mkdir -p` di [`backup.sh:17`](file:///home/ubuntu/bench/pro-secretary/scripts/backup.sh#L17) gagal `Permission denied`. `set -euo pipefail` abort pada line 17, tidak ada trap ERR, tidak ada Telegram alert path. Semua nightly run sejak 2026-05-13 fail mute, hanya `Permission denied` di `/var/log/backup.log` (yang baru di-rotate jadi 0B oleh logrotate kemarin, ironically).
+    - Verified: `sudo cat /var/log/backup.log-20260515` → 1 line `mkdir: cannot create directory ‘/var/backups/ai-secretary’: Permission denied`.
+  - **Bootstrap fix (out-of-band, manual on VPS):**
+    - `sudo mkdir -p /var/backups/ai-secretary && sudo chown tutdo:tutdo && sudo chmod 700`
+    - Manual `bash scripts/backup.sh` → first successful run ever: 312KB at `2026-05-15_0954.tar.gz`, 17.6s duration, R2 upload OK to `s3://secretary-files/backups/2026-05-15_0954.tar.gz`.
+  - **Restore drill — actually USE the archive (NOT just unpack):**
+    - Layer 1 (outer tar.gz): contains 4 files inside `2026-05-15_0954/`: `n8n-workflows.json`, `n8n-data.tar.gz`, `obsidian-vault.tar.gz`, `configs.tar.gz`. ✓
+    - **Test 1 — n8n SQLite:** extract `n8n-data.tar.gz`, `sqlite3 database.sqlite 'PRAGMA integrity_check'` → `ok`. Query `workflow_entity` → 4 rows: Cal.com Booking Indexer, Daily Briefing, EOD Summary, Task Reminder, all `active=1`. `credentials_entity` → 0 rows (expected; workflows pakai env var, bukan n8n credential store). ✓
+    - **Test 2 — n8n workflows JSON:** parse OK, 4 workflows with all required keys (`active, activeVersionId, connections, createdAt, nodes, ...`), re-importable. ✓
+    - **Test 3 — configs:** `tar -xzf configs.tar.gz` → 38 entries. `.env` 33 lines / 25 keys. Source test in subshell: AGENT_SECRET, DATABASE_URL, QDRANT_URL, TELEGRAM_BOT_TOKEN all populated. ✓
+    - **Test 4 — docker-compose.yml validity:** `docker compose -f restored/docker-compose.yml --env-file restored/.env config --quiet` → exit 0 ✓
+    - **Test 5 — vault content match:** restored vault md5 vs live `/opt/ai-secretary/vault` → identical hash `9eefb46ff87bc795414a13d6e534cb94`. 10/10 markdown files preserved byte-perfect. ✓
+  - **Repo fixes (3 commits):**
+    1. `fix(ops): backup actually runs + ERR notify + restore drill script` (commit `d89c559`):
+       - [`scripts/install_cron.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_cron.sh): bootstrap `BACKUP_DIR` dengan proper ownership saat install. Future cold-install tidak akan pernah hit bug ini lagi.
+       - [`scripts/backup.sh:18-29`](file:///home/ubuntu/bench/pro-secretary/scripts/backup.sh#L18-L29): tambah `notify_failure()` + `trap 'notify_failure $LINENO' ERR`. Future failure → Telegram alert `❌ Backup FAILED at line N (exit M)` sebelum exit. Eliminates silent failure mode.
+       - [`scripts/restore.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/restore.sh) NEW: inspect-mode restore script. Extract archive (handles `.tar.gz` + `.tar.gz.gpg` + `s3://` URLs), then for each component PRINT verified docker/sqlite commands (NOT auto-apply, prevents accidents). Based on actual drill, NOT theoretical README example.
+    2. CI re-run: deploy 25897807109 first attempt failed exit 4 = transient `appleboy/ssh-action` binary download 504 Gateway Timeout from `github.com/appleboy/drone-ssh/releases` (6 retries × 504). NOT our code. `gh run rerun` → green 44s. Workflow infra issue worth noting for future debugging.
+    3. `fix(ops): restore.sh markdown count regex (over-escaped)` (commit pending push): bash heredoc + `grep -c` had `\\.md$` (over-escaped to literal backslash) instead of `\.md$`. Tested locally → counts 2 .md files correctly.
+  - **Live verification on VPS post-deploy:** `bash scripts/restore.sh /var/backups/ai-secretary/2026-05-15_0954.tar.gz /tmp/restore-smoke` produces correctly-formatted inspection output for all 5 sections (n8n workflows / n8n volume / vault / configs / Qdrant cloud reminder). All extract steps work, RESTORE commands shown are syntactically correct.
+  - **Files:** MOD `scripts/backup.sh`, `scripts/install_cron.sh`. NEW `scripts/restore.sh`.
+  - **VPS state changes (out-of-band, recorded):**
+    - `sudo mkdir -p /var/backups/ai-secretary`
+    - `sudo chown tutdo:tutdo /var/backups/ai-secretary`
+    - `sudo chmod 700 /var/backups/ai-secretary`
+    - First archive present: `2026-05-15_0954.tar.gz` (312KB local + R2 mirror)
+  - **Behavioral implication:** tonight 02:30 WIB cron run akan jadi acid test pertama untuk full automated path. ERR trap + Telegram alert siap menangkap kalau ada regression. Worst case: alert fires, kita tau langsung — bukan diam-diam 2 hari.
+  - **Discovery vs deliberate:** Drill ini menemukan bug yang user TIDAK punya cara tau ada (backup directory missing tidak surface kemana-mana). Tanpa drill, sistem akan terus "berjalan" tapi 0 archive disimpan untuk N bulan. Justifikasi paling kuat untuk principle "test the lifeline before you need it".
 
 - ✅ [2026-05-15 09:27 WIB] Defensive Maintenance Trio — Dependabot + CI skip-md + logrotate (DEPLOYED LIVE)
   - **Trigger:** User minta saran langkah selanjutnya saat ada banyak waktu luang. Pilih kategori "tidak menambah behavior baru, hanya jaga yang sudah ada" konsisten dengan principle "stop building tanpa real usage feedback dulu".

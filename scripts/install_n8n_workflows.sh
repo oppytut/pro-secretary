@@ -14,20 +14,66 @@ if ! docker ps --format '{{.Names}}' | grep -qx n8n; then
     exit 1
 fi
 
-echo "copying workflows into n8n container"
-docker exec n8n mkdir -p /tmp/workflows-import
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq required on host" >&2
+    exit 1
+fi
+
+EXISTING="$(docker exec n8n n8n list:workflow 2>/dev/null)"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
+
+declare -a IMPORT_NAMES=()
+
 for f in "${WORKFLOW_DIR}"/*.json; do
+    name="$(jq -r '.name' "$f")"
+    if [[ -z "$name" || "$name" == "null" ]]; then
+        echo "skip $f: missing .name" >&2
+        continue
+    fi
+
+    existing_id="$(printf '%s\n' "$EXISTING" | awk -F'|' -v n="$name" '$2 == n { print $1; exit }')"
+
+    out="${WORK}/$(basename "$f")"
+    if [[ -n "$existing_id" ]]; then
+        echo "upsert  $name (id=$existing_id)"
+        jq --arg id "$existing_id" '.id = $id' "$f" > "$out"
+    else
+        echo "create  $name (new)"
+        jq 'del(.id)' "$f" > "$out"
+    fi
+    IMPORT_NAMES+=("$name")
+done
+
+if [[ ${#IMPORT_NAMES[@]} -eq 0 ]]; then
+    echo "no workflows to import"
+    exit 0
+fi
+
+docker exec n8n rm -rf /tmp/workflows-import
+docker exec n8n mkdir -p /tmp/workflows-import
+for f in "${WORK}"/*.json; do
     docker cp "$f" "n8n:/tmp/workflows-import/$(basename "$f")"
 done
 
-echo "importing"
+echo
+echo "importing ${#IMPORT_NAMES[@]} workflow(s)"
 docker exec n8n n8n import:workflow --separate --input=/tmp/workflows-import
 
-echo "activating all imported workflows"
-docker exec n8n sh -c 'n8n list:workflow | tail -n +2 | while IFS= read -r line; do
-  id=$(printf "%s" "$line" | cut -d"|" -f1)
-  [ -n "$id" ] && n8n update:workflow --id="$id" --active=true
-done'
+echo
+echo "activating imported workflows by name"
+POST_IMPORT="$(docker exec n8n n8n list:workflow 2>/dev/null)"
+for name in "${IMPORT_NAMES[@]}"; do
+    id="$(printf '%s\n' "$POST_IMPORT" | awk -F'|' -v n="$name" '$2 == n { print $1; exit }')"
+    if [[ -z "$id" ]]; then
+        echo "WARN: imported '$name' but cannot resolve id" >&2
+        continue
+    fi
+    echo "activate $name (id=$id)"
+    docker exec n8n n8n update:workflow --id="$id" --active=true
+done
 
-echo "done. listing:"
-docker exec n8n n8n list:workflow
+echo
+echo "active workflows now:"
+docker exec n8n n8n list:workflow --active=true

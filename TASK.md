@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 06:45 WIB  
+**Last Updated:** 2026-05-15 07:23 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -42,6 +42,48 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 07:23 WIB] Security Hardening Round 2 — Tier 1+2+3 Closeout
+  - **Continuation:** sesi sebelumnya tutup 7 finding (C5 timing-attack, H1 symlink, C3 .env perms, C4 internal-only, C1 SSH root, C2 fail2ban, M5 exim4 keep). Round ini tackle remaining tier 1-2 plus deps upgrade konservatif.
+  - **`pip-audit` ground-truth verification:**
+    - Bot requirements: **0 CVE** (3 packages clean: python-telegram-bot, httpx, boto3)
+    - Agent requirements: **19 CVE di 8 packages** — librarian's claims (CVE-2026-25628 qdrant, CVE-2026-34070 langchain, dll) **VERIFIED real**, bukan hallucination LLM. Decision: drop skepticism, treat librarian output as authoritative.
+  - **Fixes applied & deployed:**
+    1. **M3 — File upload validation** [`bot.py handle_document`](file:///home/ubuntu/bench/pro-secretary/telegram-bot/bot.py): 50MB size limit (configurable via `MAX_UPLOAD_BYTES`), extension whitelist (16 common doc/image types), filename sanitize via regex `[^A-Za-z0-9._-]` → `_`, length cap 120 chars. Closes R2 cost-burn vector + malware filename injection.
+    2. **M6 — SHA pin GitHub Action** [`deploy.yml:18`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/deploy.yml#L18): `appleboy/ssh-action@v1` (mutable) → `@0ff4204d59e8e51228ff73bce53f80d53301dee2  # v1.2.5`. Tag-mutation supply chain attack closed.
+    3. **Image digest pin** [`docker-compose.yml`](file:///home/ubuntu/bench/pro-secretary/docker-compose.yml): `n8nio/n8n:latest` → `n8nio/n8n:2.20.7@sha256:ab26afca...`, `calcom/cal.com:latest@sha256:ace3bb12...`, `caddy:2-alpine@sha256:86deaf5e...`. [Dockerfiles](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/Dockerfile): `python:3.11-slim@sha256:a5b427ac...`. All 4 base images pinned to immutable digests.
+    4. **#15 #17 #18 — Trivial hardening batch:**
+       - `bot.py` [`MAX_COMMAND_TEXT_LEN=2000`](file:///home/ubuntu/bench/pro-secretary/telegram-bot/bot.py): cap `/task /cari /catat` text args. Bound LLM/qdrant inputs.
+       - [`main.py:159`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/main.py#L159) sync_vault_endpoint: drop `str(exc)` from HTTPException detail. Full traceback stays in `logger.exception`, user gets generic "sync failed".
+       - [`config.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/config.py): warn on startup if `LLM_BASE_URL` not HTTPS (and not loopback). Catches misconfig.
+    5. **M2 — Rate limiting via slowapi** ([`main.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/main.py)): default 120/min per remote IP, tighter caps where it matters: `/api/chat 20/min`, `/api/briefing` & `/api/eod_summary 10/min`, `/api/notify 60/min`. **Verified live**: 12 parallel briefing calls → Counter({200: 10, 429: 2}) — exact match limit.
+    6. **Conservative deps patch** ([`requirements.txt`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/requirements.txt)): closed 8/19 CVE within minor versions:
+       - `langchain-core 0.3.28 → 0.3.85` — fixes CVE-2025-65106, CVE-2025-68664, CVE-2026-40087, CVE-2026-44843
+       - `python-dotenv 1.0.1 → 1.2.2` — fixes CVE-2026-28684
+       - `langsmith 0.2.11 → 0.8.4` (auto-pulled by langchain-core) — fixes CVE-2026-41182, CVE-2026-45134
+       - Slowapi added: `slowapi==0.1.9`
+  - **Deferred (need major bump + regression test, separate session):**
+    - 11 CVE remaining: `langgraph 0.2.60 → 1.0.10` (CVE-2026-28277), `langchain-openai 0.2.14 → 1.1.14` (CVE-2026-41488), `langgraph-checkpoint 2.1.2 → 4.0.0` (CVE-2025-64439, CVE-2026-27794), `pillow 10.4.0 → 12.x` via fastembed bump (5 CVE), `starlette 0.41.3 → 0.49.1` via fastapi bump (CVE-2025-54121, CVE-2025-62727).
+    - **C6 — Cal.com webhook signature verification:** webhook URL public via Caddy. Threat realistic tapi untuk implement HMAC verify perlu: edit n8n workflow JSON (HMAC node), update register script (insert `secret` column), set new env, regression test booking. ~1-2 jam dengan banyak unknown soal Cal.com self-host signature semantics. Defer — sesi terpisah.
+    - **H2 — LLM prompt injection defense:** real-world risk masih rendah pada stack 1-user; bisa jadi prioritas kalau user grow.
+    - **H3 — Docker socket mount:** required oleh `/vps` per-container stats. Replacement (e.g. `tecnativa/docker-socket-proxy`) = redesign endpoint. Defer.
+    - **M4 — Caddy basic auth defense-in-depth:** ditolak setelah analisis. n8n sudah punya basic auth built-in, Cal.com harus public buat booking flow, webhook tidak bawa Authorization header. Marginal benefit, tinggi risk break chain.
+  - **Bug fix incidental selama refactor M2:** `req: BriefingRequest = Body(default_factory=BriefingRequest)` trigger pydantic forward-ref bug. Revert ke `req: BriefingRequest | None = None`. Briefing 422 → 200 restored. Tidak masuk metric, tapi reminder bahwa slowapi `@limiter.limit` butuh explicit `request: Request` first param.
+  - **Verification post-final-deploy:**
+    - 5 container `Up healthy`, image digests confirmed pinned
+    - `/api/briefing` 200, `/api/system_status` 10/10 green
+    - Rate limit live-tested: 10 OK + 2 429 = exactly limit
+    - Container running `langchain-core 0.3.85`, `python-dotenv 1.2.2`, `langsmith 0.8.4` (auto-pulled new), `slowapi 0.1.9`
+    - **Daily Briefing 07:00 WIB natural fire SUKSES** post-changes: agent log `POST /api/briefing 200 OK`, `POST /api/notify 200 OK`. Full chain end-to-end verified.
+  - **6 commits pushed selama round 2:**
+    - `fix(security): pin docker images by digest, validate file uploads, sha pin ssh-action`
+    - `fix(security): trivial hardening batch — input limits, error sanitize, https warn`
+    - `fix(security): rate-limit LLM-heavy endpoints via slowapi`
+    - `fix(api): briefing/eod accept empty body via Body default_factory` (incidental)
+    - `fix(api): briefing body Optional, drop Body(default_factory) forward-ref bug`
+    - `fix(security): patch deps to close 8/19 CVEs (langchain-core, python-dotenv)`
+  - **Files:** MOD `langgraph-agent/requirements.txt`, `langgraph-agent/app/main.py`, `langgraph-agent/app/config.py`, `langgraph-agent/Dockerfile`, `telegram-bot/Dockerfile`, `telegram-bot/bot.py`, `docker-compose.yml`, `.github/workflows/deploy.yml`, TASK.md.
+  - **Score:** 14/24 finding closed (58%). 10 deferred dengan justification — 8 butuh major-bump deps, 2 butuh feature design decision (C6 webhook HMAC, H3 socket-proxy redesign).
 
 - ✅ [2026-05-15 06:45 WIB] Security Hardening Pass — High-Confidence Critical/High Fixes
   - **Trigger:** User minta security review. 2 background agent (explore + librarian) + direct VPS check surface 24+ findings.

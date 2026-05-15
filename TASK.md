@@ -36,6 +36,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
 - [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
 - [ ] **WAITING:** Personal Journal acid test — natural cron fire 21:30 WIB hari ini akan jadi bukti pertama prompt + reply detection + auto-index chain bekerja end-to-end di production scheduler.
+- [ ] **TECH-DEBT:** `scripts/install_n8n_workflows.sh` tidak idempotent — re-run buat duplicate workflow (n8n import tidak dedupe by name). Fix: script harus list existing by name → deactivate/delete sebelum import, atau gunakan `n8n update:workflow --id=<existing> --input=<file>` untuk upsert. Sementara: setelah run install workflow, manual cek `n8n list:workflow --active=true` dan deactivate dups via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="<ids>"`.
 - [ ] **USER-ACTION (1 menit):** Enable Dependabot alerts di GitHub UI: repo Settings → Code security → "Dependabot alerts" + "Dependabot security updates" → toggle on. Repo punya `.github/dependabot.yml` (version updates aktif weekly), tapi alerts (proactive CVE feed) butuh one-time toggle terpisah. Strongly recommended untuk close loop pada 0-CVE state.
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
@@ -43,6 +44,41 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 15:33 WIB] Personal Journal Live Deploy + n8n Workflow CLI Tooling
+  - **Trigger:** Setelah implementasi journal selesai + lokal verified (entry sebelumnya), user pilih "Commit, push, activate live". Eksekusi 3 langkah berakhir 4 commit total dan menemukan hazard tersembunyi yang harus segera di-fix.
+  - **1) Code deploy (commit `f0b4800`):**
+    - Deploy run 25906941729 sukses 1m22s setelah 13 menit GHA queue stall (runner availability outage; status page tidak menunjukkan apa-apa, run akhirnya dimulai sendiri tanpa intervensi). Status page lying — penalty soft.
+    - Health probe live: `{"status":"ok","missing_env":[],"embedding_model":"sentence-transformers/all-MiniLM-L6-v2","embedding_dim":384}` ✓
+    - Endpoint `/api/journal` + `/api/journal_prompt` aktif di production agent (TestClient lokal sudah verify shape, container restart pakai code baru).
+  - **2) n8n workflow import (commit `<follow-up>`):**
+    - **Discovery:** `deploy.yml` tidak otomatis run `scripts/install_n8n_workflows.sh`. Script ada di repo unwired sejak beberapa waktu — workflow JSON di repo dan workflow di n8n DB jadi 2 source of truth yang harus disinkronkan manual.
+    - **Decision:** TIDAK wire script ke `deploy.yml` setiap push. Auto-import-on-every-deploy akan auto-activate semua workflow termasuk yang user sengaja deactivate untuk testing. Scope creep + risiko regresi behavior.
+    - **Solution:** workflow_dispatch GHA dedicated [`install-n8n-workflows.yml`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/install-n8n-workflows.yml) — manual trigger via `gh workflow run install-n8n-workflows.yml`. SSH ke VPS, `git pull`, run script. Idempotent kalau script sendiri idempotent.
+  - **3) HAZARD DISCOVERED — n8n import duplicates by name:**
+    - Run `install-n8n-workflows.yml` 1x → script `n8n import:workflow --separate --input=/tmp/workflows-import` melihat 5 file JSON, **buat 5 workflow baru tanpa cek nama existing**. Lalu activate semua. Hasil: 9 workflow aktif total (4 original × 2 + 1 Personal Journal baru).
+    - **Behavioral implication kalau tidak ditangkap:** Daily Briefing 07:00 WIB besok pagi akan **fire 2x** (2 workflow paralel kirim briefing duplikat). Same untuk EOD 21:00 (2x), Task Reminder 09/13/17 (2x × 3 = 6x sehari), Cal.com Booking Indexer (double-write). User notifikasi spam plus risiko Qdrant double-upsert per booking.
+    - **Hazard ditangkap dari log GHA:** `n8n list:workflow` output di akhir script men-show **9 entry** dengan nama duplikat. Cross-reference ID lama vs baru menunjukkan: szDKTe2Rysii4Gy6 = original Cal.com vs UuEzAAWPk1AQYdJc = dup, dst.
+  - **Fix immediate (commit `<follow-up-2>`): `deactivate-n8n-workflow.yml` workflow_dispatch dengan input `workflow_ids`:**
+    - One-shot tool deactivate by ID list. SSH → loop `n8n update:workflow --id=$id --active=false`.
+    - Jalanin dengan 4 ID dup: `UuEzAAWPk1AQYdJc i1fuXOe7tZfo280k oTMfOWhForiWGzzv eJFklJaY7yePkPJR`.
+    - Run 25908312633 sukses 30s. CLI verified active workflows now exact: 5 entries, 1 each (Cal.com, Daily Briefing, EOD, Task Reminder, **Personal Journal**).
+    - **Cron crisis averted.** Tomorrow morning behavior identical dengan kemarin minus journal yang sekarang baru fire 21:30.
+  - **Files NEW:**
+    - [`.github/workflows/install-n8n-workflows.yml`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/install-n8n-workflows.yml) (25 lines) — dispatch-only, SSH ke VPS, git pull + run install script
+    - [`.github/workflows/deactivate-n8n-workflow.yml`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/deactivate-n8n-workflow.yml) (37 lines) — dispatch dengan input `workflow_ids`, deactivate by ID list
+  - **Personal Journal — go-live state:**
+    - Active di n8n dengan ID `0wZd9GD1NMmgAN2Z`
+    - Schedule trigger `0 30 21 * * *` Asia/Jakarta — natural fire pertama: **21:30 WIB malam ini (2026-05-15)** (~6 jam dari sekarang)
+    - Endpoint `/api/journal_prompt` siap; agent live dengan slowapi rate limit 10/min; reply_markup force_reply siap dikirim
+    - Endpoint `/api/journal` siap; rate limit 30/min; vault mount RW; sync_vault auto-trigger
+  - **Acid tests (3 berurutan, harus pass semua):**
+    1. **Manual smoke** — user kirim `/journal first test entry` di Telegram. Bot harus balas `📓 Tercatat di journal/2026-05.md · indexed (N chunks)`. Jika balasan ini muncul → endpoint chain bot→agent→vault→sync proven.
+    2. **Manual prompt smoke** — user trigger `gh workflow run install-n8n-workflows.yml` ATAU agen kirim manual via Telegram bot dengan reply ke pesan "📓 Personal Journal\n\nApa yang...". Reply detection harus route ke journal, bukan chat. Jika konfirmasi muncul → dispatch chain proven.
+    3. **Cron natural fire** — 21:30 WIB malam ini. Telegram dapat pesan dengan force_reply UI. User reply, vault file ada entry, Qdrant chunks_upserted bertambah. Jika ini sukses → seluruh chain (cron → agent → Telegram → user reply → bot detect → agent write → sync) proven end-to-end di production scheduler.
+  - **Follow-up technical debt (deferred, dokumented untuk future):**
+    - **`scripts/install_n8n_workflows.sh` tidak idempotent** — re-run akan tambah dups lagi. Fix yang bener: script harus list workflow existing by name dulu, deactivate atau delete sebelum import. Atau pakai `n8n update:workflow --id=<existing> --input=<file>` untuk upsert. Belum di-fix karena fokus ke cron crisis dulu. Add ke active tasks.
+    - **Future imports** harus dijalankan dengan hati-hati: setelah run, langsung cek `docker exec n8n n8n list:workflow --active=true` dan deactivate dups manual via dispatch baru.
 
 - ✅ [2026-05-15 14:30 WIB] Personal Journal Workflow — bot tanya 21:30, reply auto-index ke knowledge
   - **Trigger:** User pilih dari 4 opsi next-direction. Konsisten dengan principle "behavior baru yang tutup loop" — bukan tambah feature random tapi closes loop pada self-documenting daily work.

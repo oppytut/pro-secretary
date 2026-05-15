@@ -107,7 +107,7 @@ echo "========================================"
 echo "obsidian-vault.tar.gz"
 echo "========================================"
 if [ -f obsidian-vault.tar.gz ]; then
-    echo "  files: $(tar -tzf obsidian-vault.tar.gz | grep -c '\\.md$') markdown"
+    echo "  files: $(tar -tzf obsidian-vault.tar.gz | grep -c '\.md$') markdown"
     echo "  total entries: $(tar -tzf obsidian-vault.tar.gz | wc -l)"
     echo
     echo "  RESTORE:"

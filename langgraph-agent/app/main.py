@@ -4,7 +4,7 @@ import hmac
 import logging
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -190,19 +190,13 @@ async def vps_status_endpoint() -> dict[str, Any]:
 
 @app.post("/api/briefing", response_model=ChatResponse, dependencies=[Depends(verify_secret)])
 @limiter.limit("10/minute")
-async def briefing(
-    request: Request,
-    req: BriefingRequest = Body(default_factory=BriefingRequest),
-) -> ChatResponse:
+async def briefing(request: Request, req: BriefingRequest | None = None) -> ChatResponse:
     return ChatResponse(response=await _build_summary(mode="morning"))
 
 
 @app.post("/api/eod_summary", response_model=ChatResponse, dependencies=[Depends(verify_secret)])
 @limiter.limit("10/minute")
-async def eod_summary(
-    request: Request,
-    req: BriefingRequest = Body(default_factory=BriefingRequest),
-) -> ChatResponse:
+async def eod_summary(request: Request, req: BriefingRequest | None = None) -> ChatResponse:
     return ChatResponse(response=await _build_summary(mode="eod"))
 
 

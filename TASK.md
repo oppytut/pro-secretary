@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 08:39 WIB  
+**Last Updated:** 2026-05-15 09:04 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -42,6 +42,18 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 09:00 WIB] Health Check Postmortem — False Alert Fix
+  - **Trigger:** User report 24x ⚠️ HEALTH ALERT di Telegram setiap 5 menit dari 06:45 WIB. "❌ n8n DOWN (HTTP 000)" + "❌ calcom DOWN (HTTP 000)".
+  - **Root cause:** Bug yang saya buat saat C4 security fix earlier. [`scripts/health_check.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/health_check.sh) probe `curl http://localhost:5678` dan `:3000` dari host. Setelah C4 switch services dari `ports:` (host-bound) ke `expose:` (network-internal), localhost host tidak lagi listen di port itu. Connection refused → HTTP 000 → false alert.
+  - **Diagnosis verification:**
+    - From host: `curl localhost:5678` → connection refused
+    - From inside container: `docker exec n8n wget localhost:5678/healthz` → 200 OK ✓
+    - Services healthy, hanya probe path salah
+  - **Fix [`scripts/health_check.sh:6-10`](file:///home/ubuntu/bench/pro-secretary/scripts/health_check.sh#L6-L10):** switch n8n + calcom probes ke `container:` mode (sama seperti langgraph-agent). Plus `check_container_http` enhanced dengan wget fallback karena alpine images n8n + calcom tidak ship curl, hanya wget.
+  - **Live test:** `OK: 5/5 checks passed` setelah deploy. State file FAILED → OK transition trigger ✅ RECOVERED message ke Telegram automatic.
+  - **Commit:** `fix(ops): health_check probes via docker exec, not host localhost` (deploy 25896046786, 46s green)
+  - **Files:** MOD `scripts/health_check.sh`
 
 - ✅ [2026-05-15 08:39 WIB] Security Round 3 — Major Bump Sweep (19 → 0 CVE)
   - **Continuation:** round 2 closed 8/19 CVE conservatively. Sisa 11 butuh major bump. User minta lanjut.
@@ -1004,52 +1016,75 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-14 23:42 WIB]** Sesi handoff ke OpenCode session lain. **Status: production-stable, all green.** 30+ jam continuous engineering session selesai dengan 23 commits total dalam 36 jam terakhir.
+> **[2026-05-15 09:04 WIB]** Sesi handoff ke OpenCode session lain. **Status: production-stable, all green, 0 known CVE.** Sesi continuous ~9 jam (23:42 → 09:04 WIB) ship 16 commits, semua CI green dan deploy verified end-to-end.
 >
-> **What's live:**
-> - 5 container healthy (n8n, calcom, langgraph-agent, telegram-bot, caddy)
-> - 12 agent endpoint, 11 Telegram command, 4 active n8n workflows (Daily Briefing 07:00, EOD Summary 21:00, Task Reminder 09/13/17 weekday, Cal.com Booking Indexer)
-> - LLM tunnel autossh+systemd durable (NRestarts=1 sejak install kemarin sore)
-> - Backup ke R2 active (jadwal harian 02:30 UTC)
-> - SMTP via Resend port 2587 (DigitalOcean block 25/465/587, jadi pakai alt port)
-> - Cal.com email + webhook chain verified real-fire
-> - `/status` (10 health checks) + `/vps` (resource dashboard, per-container) — both green
-> - Knowledge base 10 doc, auto-sync 30min, `/cari` self-aware
-> - Health monitoring 5min cron dengan grace period 60s + recovery message
+> **What changed this session (newest first):**
+> - `fix(ops): health_check probes via docker exec, not host localhost` — fix false alert pasca C4 yang ngirim 24x ⚠️ HEALTH ALERT 5-menit-sekali ke Telegram dari 06:45 WIB
+> - `fix(security): close remaining 11 CVEs via fastapi/fastembed/langgraph major bump` — 19 → 0 CVE total (langchain-core dan langchain-openai sengaja di-drop dari explicit deps karena ZERO `from langchain` import di app/, transitive only)
+> - `fix(security): patch deps to close 8/19 CVEs (langchain-core, python-dotenv)` — round 2 conservative patch
+> - `fix(api): briefing body Optional, drop Body(default_factory) forward-ref bug` — incidental dari slowapi integration
+> - `fix(security): rate-limit LLM-heavy endpoints via slowapi` — 20/min chat, 10/min briefing+eod, 60/min notify, 120/min default. Live-tested: 12 parallel briefing → 10 OK + 2 429
+> - `fix(security): trivial hardening batch — input limits, error sanitize, https warn`
+> - `fix(security): pin docker images by digest, validate file uploads, sha pin ssh-action`
+> - `fix(security): expose n8n + calcom internal-only, route via Caddy` — public port 5678/3000 closed, hanya 22/80/443 listen
+> - `fix(security): constant-time secret check + symlink containment` — `hmac.compare_digest` + vault symlink resolve check
+> - `fix(tz): anchor schedule window to WIB, propagate TZ to all containers` — bug nyata di `tools.get_today_schedule()`: window pakai UTC rolling 24h, EOD 21:00 WIB sebenarnya surface meeting BESOK. Fix: `ZoneInfo` anchor ke WIB midnight
+> - `fix(ops): /vps memory uses cgroup v2 inactive_file, not v1 cache` — Cal.com 96.7% adalah false alarm, working set sebenarnya 60%
 >
-> **Recent commits (newest first, today's session):**
-> - `feat: /vps command — VPS resource dashboard with per-container stats`
-> - `feat(calcom): wire SMTP env vars for booking notifications`
-> - `fix(bot): /status plain text — Markdown breaks on detail strings`
-> - `feat: /status command — 9-component health dashboard`
-> - `feat(ops): health_check grace period + recovery message`
-> - `fix(ops): health_check.sh duplicate '000' on curl fail`
-> - 8 commits dari overnight session (lihat "Recently Completed" entry sebelumnya)
+> **VPS state changes (not in repo, recorded):**
+> - `chmod 600 /opt/ai-secretary/.env` (was 0664 world-readable)
+> - `sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config` + `systemctl reload ssh`
+> - `apt install fail2ban` + `/etc/fail2ban/jail.d/sshd.local` (maxretry=5, findtime=10m, bantime=1h)
+> - `timedatectl set-timezone Asia/Jakarta` (was Etc/UTC)
 >
-> **Yang DITINGGAL untuk next session:**
-> - User minta voice handler diundur ke weekend (effort tinggi, butuh segar)
-> - Cal.com Cal.com calcom memory 96.7% — monitor via `/vps`, naikkan limit kalau sering OOM
+> **Yang VERIFIED live (jangan rusak):**
+> - `pip-audit` 0 known vulnerabilities
+> - All 5 container `Up healthy`, image digests pinned (n8n:2.20.7, calcom:latest, caddy:2-alpine, python:3.11-slim digest-locked)
+> - SSH `PermitRootLogin no`, fail2ban active filtering 2+ failed attempts
+> - Public ports listening: hanya 22, 80, 443
+> - `/api/system_status` 10/10 green
+> - `/api/briefing` 200, `/api/chat` end-to-end via langgraph 1.x StateGraph 200
+> - Daily Briefing 07:00 WIB natural fire SUKSES post-all-changes (verified via agent log)
+> - Health check 5-min cron probes via docker exec, not host localhost
+> - Rate limit live-tested: 10 OK + 2 429 = exactly limit
+> - Times semua WIB-anchored: container WIB, host WIB, n8n cron WIB, vault sync timestamp UTC stored / WIB display
+>
+> **Critical defer items (BUKAN bugs, sengaja tidak dikerjakan dengan justification):**
+> - **C6 — Cal.com webhook signature verification:** ~1-2 jam dengan banyak unknown soal Cal.com self-host signature semantics. Workflow saat ini stable. Defer ke sesi terpisah.
+> - **H2 — LLM prompt injection defense:** real-world risk masih rendah saat 1-user. Defer sampai user grow.
+> - **H3 — Docker socket mount removal:** required oleh `/vps` per-container stats. Replacement = redesign endpoint via socket-proxy. Defer.
+> - **M4 — Caddy basic auth defense-in-depth:** rejected after analysis. n8n sudah punya basic auth built-in, Cal.com perlu public buat booking, webhook tidak bawa Authorization header.
+>
+> **Yang DITINGGAL untuk next session (open work):**
+> - **EOD Summary 21:00 WIB tonight** akan jadi acid test pertama untuk full langgraph 1.x stack + slowapi rate limit + image-pinned deploy. Verify content quality.
+> - **Daily Briefing 07:00 WIB tomorrow** acid test 2 — pastikan WIB-anchor window correct dengan langgraph 1.x.
+> - Voice handler (~2-3 jam) — diundur ke weekend (user explicit)
 > - Personal journal workflow ide masih open
-> - User action: kalau mau test Cal.com email beneran, kirim booking via Cal.com UI public link ke email real (bukan `webhook-test@example.com`), check inbox + Resend dashboard
+> - **Renovate/Dependabot setup** ~15 menit — sistem di 0 CVE sekarang, tanpa automated alert akan kembali ke 19+ dalam 6 bulan. Strongly recommended sebagai 1-time investment.
+> - **CI optimization** ~10 menit — `deploy.yml` rebuild semua container untuk setiap commit termasuk `*.md` only. Skip rebuild kalau diff cuma docs.
+> - **logrotate setup** ~10 menit — `/var/log/health-check.log` + `vault-sync.log` + `backup.log` tidak punya rotation, balloon over time.
 >
 > **Important repo state:**
 > - Branch `main`, working tree clean, semua commits pushed
-> - 4 GitHub Secrets baru di-set hari ini: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, plus 5 SMTP_*
-> - VPS env tunnel + n8n cron + crontab semua match repo state
-> - Vault `/opt/ai-secretary/vault/` ada 10 markdown doc (4 seed + 6 system docs yang saya tambahkan overnight)
+> - Total commits sesi ini: 16 (TZ + memory false alarm + 3 round security + health check fix + docs)
+> - 0 GitHub Secret baru di-set (semua security fixes pakai existing secrets)
+> - VPS env semua match repo state
 >
 > **Cara kerja yang sudah disepakati:**
-> - Selalu commit + push (CI auto-deploy ke VPS)
+> - Selalu commit + push (CI auto-deploy ke VPS via `appleboy/ssh-action@0ff4204` SHA-pinned)
 > - Test via Telegram setelah deploy untuk confirm UX
 > - Kalau butuh trigger deploy tanpa commit baru: `gh workflow run deploy.yml --ref main`
-> - SSH ke VPS: `ssh tutdo@159.223.40.74`
-> - Kalau perlu lihat `/api/...` real-time response, pakai pattern: `docker exec langgraph-agent sh -c 'curl -sS -H "X-Agent-Secret: \$AGENT_SECRET" -H Content-Type:application/json -d {} http://localhost:8090/api/...' | jq .`
+> - SSH ke VPS: `ssh tutdo@159.223.40.74` (root login disabled — must use tutdo)
+> - Real-time agent test pattern: `docker exec langgraph-agent sh -c 'curl -sS -H "X-Agent-Secret: \$AGENT_SECRET" -H Content-Type:application/json -d {} http://localhost:8090/api/...' | jq .`
+> - **WARNING:** kalau test endpoint via curl shell escape JSON-body sering pecah dengan 422. Pakai Python httpx via `docker exec langgraph-agent python3 -c "..."` lebih reliable buat parameterized body.
+> - Internal services tidak bisa di-curl dari host localhost lagi — pakai container exec atau via Caddy public URL.
 >
 > **User decision logged:**
-> - Voice, journal, retention policy — semua diundur, savor sistem dulu
-> - Stop building tanpa real usage feedback dulu
+> - Voice, journal — diundur, savor sistem dulu
+> - "Stop building tanpa real usage feedback dulu" — sangat ditekankan
+> - Hari ini sesi exception — defensive hardening (TZ correctness + 0 CVE) yang dibenarkan tanpa "real usage" justifikasi karena cegah data corruption + security hole
 >
-> **Communication style:** User suka direct, no preamble, action-oriented. Sub-30-jam awake constraint perlu di-respect — sarankan tidur kalau detect kelelahan.
+> **Communication style:** User direct, no preamble, action-oriented Bahasa Indonesia (Sisyphus respond Bahasa Inggris technical, prose Bahasa Indonesia). User awake 30+ jam — sarankan istirahat kalau detect kelelahan.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

@@ -36,7 +36,6 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
 - [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
 - [ ] **WAITING:** Personal Journal acid test — natural cron fire 21:30 WIB hari ini akan jadi bukti pertama prompt + reply detection + auto-index chain bekerja end-to-end di production scheduler.
-- [ ] **TECH-DEBT:** `scripts/install_n8n_workflows.sh` tidak idempotent — re-run buat duplicate workflow (n8n import tidak dedupe by name). Fix: script harus list existing by name → deactivate/delete sebelum import, atau gunakan `n8n update:workflow --id=<existing> --input=<file>` untuk upsert. Sementara: setelah run install workflow, manual cek `n8n list:workflow --active=true` dan deactivate dups via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="<ids>"`.
 - [ ] **USER-ACTION (1 menit):** Enable Dependabot alerts di GitHub UI: repo Settings → Code security → "Dependabot alerts" + "Dependabot security updates" → toggle on. Repo punya `.github/dependabot.yml` (version updates aktif weekly), tapi alerts (proactive CVE feed) butuh one-time toggle terpisah. Strongly recommended untuk close loop pada 0-CVE state.
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
@@ -44,6 +43,31 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 15:55 WIB] install_n8n_workflows.sh idempotent — closes duplicate-on-rerun bug
+  - **Trigger:** Tech-debt yang baru ditemukan beberapa jam tadi (4 dups dibuat saat journal install). User pilih option #1 "perkuat yang ada" — fix script supaya re-run aman, bukan tunggu sampai bug muncul lagi.
+  - **Root cause confirmed via n8n source:** [`packages/cli/src/commands/import/workflow.ts`](https://github.com/n8n-io/n8n/blob/master/packages/cli/src/commands/import/workflow.ts) → `transactionManager.upsert(WorkflowEntity, workflow, ['id'])`. Upsert kunci adalah field `.id` di JSON. Repo workflow files (calcom, daily-briefing, eod, task-reminder, personal-journal) tidak punya field `id` — n8n generate nanoId baru tiap import, hasilnya row baru. Lalu script lama `n8n list:workflow | activate-all` mengaktifkan SEMUA termasuk yang lama → N duplikat fire bareng.
+  - **Fix [`scripts/install_n8n_workflows.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_n8n_workflows.sh):**
+    - Pre-import: `docker exec n8n n8n list:workflow` → parse pipe-separated `id|name`, build map.
+    - Per-file: `jq -r '.name'` → lookup existing id by name. Match → `jq --arg id $existing_id '.id = $id'` inject. No match → `jq 'del(.id)'` ensure clean state.
+    - Import via `docker cp` ke tmp dir (dengan idempotent `rm -rf` reset) lalu `n8n import:workflow --separate`.
+    - Activation scoped: hanya activate workflow yang baru saja di-import (lookup by name lagi post-import), bukan blanket `activate-all`. Workflow yang user sengaja deactivate untuk testing tetap deactive.
+    - WARN log kalau imported name tidak resolvable post-import (defensive).
+  - **Local verification (sebelum push):**
+    - `bash -n` syntax OK
+    - jq id-injection round-trip pada semua 5 workflow file: name → existing_id → injected_id match
+    - Mock list parser: lookup 5 known names + 1 unknown, hasil benar
+  - **Live verification — 2 dispatch berturut-turut (criteria: count tetap 5, ID identik):**
+    - **Run 1** ([25909026606](https://github.com/oppytut/pro-secretary/actions/runs/25909026606)): semua 5 detected sebagai "upsert" dengan ID existing dari run journal install sebelumnya. Post-import: 5 active, IDs `szDKTe2Rysii4Gy6, 4a1c7QMrxgffMABX, hRce3bCUSyDjpI8m, yEWfXGxZNZ9gSsl6, 0wZd9GD1NMmgAN2Z`.
+    - **Run 2** ([25909151547](https://github.com/oppytut/pro-secretary/actions/runs/25909151547)): same 5 upserts. Post-import: 5 active, **same IDs as run 1** ✓. Hash collision-free.
+    - **Conclusion:** idempotent. Re-run aman. Bug closed permanently.
+  - **Deprecation noted (non-blocking):** `n8n update:workflow --id=X --active=true` raise deprecation warning di n8n 2.20.7. Modern syntax: `n8n workflow update --id=X --active=true` (subcommand split). Belum di-fix karena old syntax masih functional. Bisa di-update kalau eventually break — risiko cuma cosmetic warning, bukan failure.
+  - **Files:** MOD `scripts/install_n8n_workflows.sh` (jadi 95 lines, was 33).
+  - **Commit:** [`<hash>`](pending) `fix(ops): install_n8n_workflows.sh idempotent — upsert by name`. CI deploy 25908954315 green (1m08s). 2 dispatch test runs both green.
+  - **What this prevents long-term:**
+    - **Re-run hazard**: 6 bulan lagi user atau next-agent jalanin install dispatch tanpa context, tidak akan create duplikat lagi.
+    - **Cron multi-fire**: kalau Personal Journal entry edited di repo dan re-imported, tidak akan jadi 2 cron 21:30.
+    - **Activation scope creep**: workflow yang user sengaja deactivate untuk testing/maintenance tidak akan dipaksa aktif kembali oleh re-run install.
 
 - ✅ [2026-05-15 15:33 WIB] Personal Journal Live Deploy + n8n Workflow CLI Tooling
   - **Trigger:** Setelah implementasi journal selesai + lokal verified (entry sebelumnya), user pilih "Commit, push, activate live". Eksekusi 3 langkah berakhir 4 commit total dan menemukan hazard tersembunyi yang harus segera di-fix.

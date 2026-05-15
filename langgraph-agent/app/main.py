@@ -6,6 +6,9 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from . import config, llm, system_status, telegram, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
@@ -17,7 +20,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("agent")
 
+limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
 app = FastAPI(title="pro-secretary agent", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.on_event("startup")
@@ -100,7 +106,8 @@ async def health() -> dict[str, Any]:
 
 
 @app.post("/api/chat", response_model=ChatResponse, dependencies=[Depends(verify_secret)])
-async def chat(req: ChatRequest) -> ChatResponse:
+@limiter.limit("20/minute")
+async def chat(request: Request, req: ChatRequest) -> ChatResponse:
     reply = await workflow.run_chat(req.message, req.user_id, req.model)
     return ChatResponse(response=reply)
 
@@ -163,7 +170,8 @@ async def sync_vault_endpoint(req: SyncVaultRequest) -> dict[str, Any]:
 
 
 @app.post("/api/notify", dependencies=[Depends(verify_secret)])
-async def notify_endpoint(req: NotifyRequest) -> dict[str, Any]:
+@limiter.limit("60/minute")
+async def notify_endpoint(request: Request, req: NotifyRequest) -> dict[str, Any]:
     result = await telegram.send_message(req.text, chat_id=req.chat_id)
     if not result.get("ok"):
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=result.get("error") or result)
@@ -181,12 +189,14 @@ async def vps_status_endpoint() -> dict[str, Any]:
 
 
 @app.post("/api/briefing", response_model=ChatResponse, dependencies=[Depends(verify_secret)])
-async def briefing(req: BriefingRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+async def briefing(request: Request, req: BriefingRequest) -> ChatResponse:
     return ChatResponse(response=await _build_summary(mode="morning"))
 
 
 @app.post("/api/eod_summary", response_model=ChatResponse, dependencies=[Depends(verify_secret)])
-async def eod_summary(req: BriefingRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+async def eod_summary(request: Request, req: BriefingRequest) -> ChatResponse:
     return ChatResponse(response=await _build_summary(mode="eod"))
 
 

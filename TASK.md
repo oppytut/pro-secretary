@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 10:04 WIB  
+**Last Updated:** 2026-05-15 11:36 WIB  
 **Project:** AI Personal Secretary Stack  
 **Status:** 🟢 Production — All Health Checks Green
 
@@ -43,6 +43,35 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-15 11:36 WIB] Vault Self-Awareness Refresh — system docs now match live state, Qdrant re-indexed
+  - **Trigger:** Vault `system/*.md` + `operations/*.md` last touched 2026-05-14 07:43 WIB. Sejak itu: 3 round security (19→0 CVE), TZ overhaul, langgraph 0.2→1.x, slowapi rate limit, image digest pin, paths-ignore CI, dependabot, logrotate, backup drill (silent fail discovery + fix). Bot ditanya "bagaimana fix LLM connection" akan dapat troubleshooting.md versi lama, missing semua context security. **Sistem self-aware lag 1-2 minggu di belakang dirinya sendiri.**
+  - **Strategy:** Edit langsung di VPS vault (bind-mounted, gitignored — vault berisi personal notes). Re-trigger `/api/sync_vault` untuk update Qdrant. Verify search hit new content.
+  - **Files updated (8 total: 5 modified, 2 new, 1 untouched):**
+    - **MOD `system/architecture.md`** (51 lines) — 5 container dengan digest pin, internal-only `expose:` post-C4, slowapi rate limits, host hardening (PermitRootLogin no, fail2ban), TZ discipline, last-hardened state.
+    - **MOD `system/agent-api.md`** (52 lines) — 12 endpoints (was 10, missing `/api/system_status` + `/api/vps_status`), explicit rate limits per endpoint, `hmac.compare_digest` auth, internal-only network, input length caps.
+    - **MOD `system/qdrant-collections.md`** (41 lines) — fastembed ONNX clarification, vault sync via `/api/sync_vault` (NOT deprecated standalone script), UUIDv5 deterministic IDs, symlink containment.
+    - **MOD `operations/cron-jobs.md`** (40 lines) — backup time corrected ke 02:30 WIB (host TZ Asia/Jakarta sekarang), tambah systemd timers (logrotate.timer, llm-tunnel.service), bootstrap requirement explicit.
+    - **MOD `operations/deploy.md`** (60 lines) — paths-ignore (`**.md`, `LICENSE`, `.gitignore`, `docs/**`, `.sisyphus/**`), Dependabot config + alerts toggle reminder, transient `appleboy/ssh-action` 504 known issue.
+    - **MOD `operations/troubleshooting.md`** (82 lines) — tambah 6 entries baru: EOD bug TZ, Health 000 post-C4, Backup directory missing, HTTP 429 rate limit, CI drone-ssh 504, container boot grace period, /vps memory false alarm cgroup v2.
+    - **NEW `operations/backup-restore.md`** (66 lines) — what's backed up + drill verified components + failure mode + manual disaster recovery 10-step order.
+    - **NEW `operations/security.md`** (60 lines) — 0 CVE baseline, 5 hardening layers, deferred items dengan justification, action item Dependabot alerts toggle, audit cadence, last-hardened timeline.
+  - **Re-index verification:**
+    - `POST /api/sync_vault` returns `{"files":12,"chunks_upserted":72,"chunks_deleted":0}` (was 10 files / 30 chunks before).
+    - Search hit new content via 4 test queries:
+      - "slowapi rate limit" → `operations/security.md` score **0.37** (with snippet "Rate limit per remote IP via slowapi")
+      - "image digest pin security" → `operations/security.md` score **0.48** (header "Security Posture, Current state: 0 known CVE")
+      - "backup permission denied bootstrap" → `operations/troubleshooting.md` score **0.59** (snippet "Backup directory missing / silent fail, Bug ditemukan 2026-05-15")
+      - "langgraph 1 StateGraph" → `system/agent-api.md` score **0.27**
+    - Bot sekarang akurat self-aware: tanya "ada bug apa di backup" → langsung ke troubleshooting.md section yang benar.
+  - **What this fixes:**
+    - User pakai `/cari` atau chat biasa tentang sistem → dapat info terkini (slowapi, digest pin, backup bug, dll)
+    - Future agent baru baca vault → dapat snapshot lengkap state proyek (tidak harus baca 1100-line TASK.md untuk produktif)
+    - Self-documentation closes loop: changes → vault refresh → sync → searchable
+  - **Files changed (vault, on VPS, NOT in repo — gitignored):**
+    - 5 MOD: `system/{architecture,agent-api,qdrant-collections}.md`, `operations/{cron-jobs,deploy,troubleshooting}.md`
+    - 2 NEW: `operations/{backup-restore,security}.md`
+    - Total: 452 lines vault docs (was ~243, +86%)
 
 - ✅ [2026-05-15 10:04 WIB] Backup Restore Drill — found + fixed silent failure (2 days zero backup)
   - **Trigger:** User minta lanjut step kategori "tidak tambah behavior baru, perkuat yang ada". Pilih backup restore drill karena `backup.sh` sudah scheduled cron 02:30 WIB sejak 2026-05-13 tapi belum pernah ada bukti archive yang dihasilkan benar-benar bisa di-restore. **Backup yang tidak pernah dites = bukan backup.**

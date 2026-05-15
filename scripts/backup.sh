@@ -14,6 +14,17 @@ DEPLOY_PATH="${DEPLOY_PATH:-/opt/ai-secretary}"
 OBSIDIAN_VAULT_PATH="${OBSIDIAN_VAULT_PATH:-${DEPLOY_PATH}/vault}"
 BACKUP_PASSPHRASE_FILE="${BACKUP_PASSPHRASE_FILE:-/root/.backup-passphrase}"
 
+notify_failure() {
+    local exit_code=$?
+    local line_no=$1
+    if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USERS" ]; then
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_ALLOWED_USERS}" \
+            -d text="❌ Backup FAILED at line ${line_no} (exit ${exit_code}). Check /var/log/backup.log" > /dev/null 2>&1 || true
+    fi
+}
+trap 'notify_failure $LINENO' ERR
+
 mkdir -p "$BACKUP_DIR/$DATE"
 
 echo "[$(date)] Starting backup: $DATE"

@@ -1,8 +1,43 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 13:46 WIB  
+**Last Updated:** 2026-05-15 17:36 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 Production — All Health Checks Green
+**Status:** 🟢 Production — All Health Checks Green | Personal Journal LIVE, awaiting first cron acid test 21:30 WIB
+
+---
+
+## 🤝 FOR NEXT SESSION (read this first)
+
+**Where we left off:** Personal Journal feature shipped end-to-end + tech-debt found-and-closed in same session. 6 commits today (`f0b4800` → latest). All code verified locally + live. Production state clean.
+
+**The ONLY active acid test pending tonight:**
+- ⏰ **21:30 WIB (~4 jam dari Last Updated):** n8n cron `Personal Journal` first natural fire. Expect: Telegram message dengan force_reply markup + marker `📓 Personal Journal`. User reply → bot detect (lihat [`telegram-bot/bot.py:_is_journal_reply`](file:///home/ubuntu/bench/pro-secretary/telegram-bot/bot.py)) → POST `/api/journal` → write `vault/journal/2026-05.md` → trigger `sync_vault()` → Qdrant chunks_upserted naik. Konfirmasi balik ke user.
+- **If it fires correctly:** mark journal acid test ✅, no action needed.
+- **If it FAILS:** check `docker logs n8n` for the workflow execution + `docker logs langgraph-agent` for endpoint hits. Most likely failure modes: (a) `force_reply` markup not honored (Telegram API change?), (b) marker text mismatch breaking `_is_journal_reply`, (c) vault write permission (compose mount changed `:ro` → `:rw` in commit `f0b4800`, must persist after deploy).
+
+**Production endpoints added today:**
+- `POST /api/journal` — append to vault, auto-sync, rate limit 30/min
+- `POST /api/journal_prompt` — send Telegram with force_reply markup, rate limit 10/min
+- Bot command `/journal <text>` — manual escape hatch
+- n8n workflow `Personal Journal` (id `0wZd9GD1NMmgAN2Z`) — cron `0 30 21 * * *` Asia/Jakarta
+
+**CI tooling added today:**
+- [`.github/workflows/install-n8n-workflows.yml`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/install-n8n-workflows.yml) — workflow_dispatch, run via `gh workflow run install-n8n-workflows.yml`
+- [`.github/workflows/deactivate-n8n-workflow.yml`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/deactivate-n8n-workflow.yml) — workflow_dispatch with `workflow_ids` input. Run via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="<id1> <id2>"`
+- [`scripts/install_n8n_workflows.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_n8n_workflows.sh) — now idempotent (verified 2 consecutive runs). Re-run aman.
+
+**Active n8n workflows (verified live, 5 total):** Cal.com Booking Indexer, Daily Briefing, EOD Summary, Task Reminder, **Personal Journal**.
+
+**What NOT to do without checking:**
+- Don't re-run install script casually — it's idempotent NOW but if you add new workflow JSON without unique `.name`, behavior is undefined.
+- Don't wire `install_n8n_workflows.sh` into `deploy.yml` — it would auto-reactivate workflows user mungkin sengaja deactivate. Keep it dispatch-only.
+- Don't change vault mount back to `:ro` — journal write requires `:rw`.
+
+**Next-step recommendations (sorted, you choose):**
+1. **WAIT** — let acid test fire 21:30 WIB tonight. Most aligned with "stop building tanpa real usage feedback".
+2. **Voice handler** (~2-3 jam) — Whisper transcribe Telegram voice → route to chat. Game-changer for daily UX.
+3. **Caddy alpine TZ** (5-10 menit) — `apk add tzdata` so reverse proxy logs WIB instead of UTC. Cosmetic.
+4. **n8n CLI deprecation** (10 menit) — `n8n update:workflow` is deprecated, use `n8n workflow update`. Forward-compat only, current syntax still works.
 
 ---
 
@@ -12,11 +47,11 @@
 Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerjaan user, berjalan lokal dengan kontrol penuh.
 
 ### Tech Stack
-- **Orchestrator:** n8n (workflow automation, 3 active workflows: Daily Briefing, Task Reminder, Cal.com Booking Indexer)
+- **Orchestrator:** n8n (workflow automation, **5 active workflows**: Daily Briefing, Task Reminder, Cal.com Booking Indexer, EOD Summary, **Personal Journal**)
 - **AI Engine:** LangGraph agent (custom FastAPI container, replaces unavailable OpenFang)
 - **Interface:** Telegram bot
 - **Scheduling:** Cal.com (webhook → n8n registered)
-- **Knowledge:** Obsidian vault (bind-mounted into agent, auto-sync 30min)
+- **Knowledge:** Obsidian vault (bind-mounted into agent **rw** since 2026-05-15, auto-sync 30min)
 - **Memory:** Qdrant Cloud (384-dim, all-MiniLM-L6-v2 via fastembed)
 - **LLM:** OpenAI-compatible provider via SSH tunnel (durable via autossh+systemd)
 - **Files:** Cloudflare R2 (S3-compatible object storage)
@@ -27,6 +62,15 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - **Location:** `/home/ubuntu/bench/pro-secretary/`
 - **Remote:** `github.com:oppytut/pro-secretary.git`
 - **Branch:** `main`
+
+### Today's Commit Trail (latest first)
+- `<latest>` docs: TASK.md handoff for next session
+- `<hash>` docs: TASK.md handoff — install script idempotent, tech-debt closed
+- `<hash>` fix(ops): install_n8n_workflows.sh idempotent — upsert by name
+- `6c2de94` docs: TASK.md handoff — journal live deploy + n8n duplicate hazard fix
+- `d8c6b71` ci: workflow_dispatch to deactivate n8n workflows by id
+- `c6995b3` ci: workflow_dispatch to import n8n workflows on demand
+- `f0b4800` feat(journal): personal journal — n8n cron 21:30 prompt + force_reply auto-index
 
 ---
 

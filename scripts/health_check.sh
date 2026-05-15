@@ -4,8 +4,8 @@ set -euo pipefail
 export TZ="${TZ:-Asia/Jakarta}"
 
 SERVICES=(
-    "n8n|http://localhost:5678/healthz"
-    "calcom|http://localhost:3000/"
+    "n8n|container:n8n:http://localhost:5678/healthz"
+    "calcom|container:calcom:http://localhost:3000/"
     "langgraph-agent|container:langgraph-agent:http://localhost:8090/health"
 )
 
@@ -35,7 +35,15 @@ check_http() {
 check_container_http() {
     local container="$1" url="$2"
     local code
-    code=$(docker exec "$container" sh -c "curl -s -o /dev/null -w '%{http_code}' --max-time 15 '$url'" 2>/dev/null)
+    code=$(docker exec "$container" sh -c "
+        if command -v curl >/dev/null 2>&1; then
+            curl -s -o /dev/null -w '%{http_code}' --max-time 15 '$url'
+        elif command -v wget >/dev/null 2>&1; then
+            wget -qO- --server-response --timeout=15 '$url' 2>&1 | awk '/^  HTTP/{c=\$2} END{print c}'
+        else
+            echo 000
+        fi
+    " 2>/dev/null)
     [[ -z "$code" ]] && code="000"
     echo "$code"
 }

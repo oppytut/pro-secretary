@@ -1,43 +1,45 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-15 17:36 WIB  
+**Last Updated:** 2026-05-16 05:35 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 Production — All Health Checks Green | Personal Journal LIVE, awaiting first cron acid test 21:30 WIB
+**Status:** 🟢 Production — All Health Checks Green | Personal Journal cron silent-fail FIXED, install script now restarts n8n on activation
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Personal Journal feature shipped end-to-end + tech-debt found-and-closed in same session. 6 commits today (`f0b4800` → latest). All code verified locally + live. Production state clean.
+**Where we left off:** Personal Journal acid test 21:30 WIB **GAGAL silent** semalam. Root cause: n8n 1.x `update:workflow --active=true` writes DB tapi tidak hot-reload schedule trigger di running process. Workflow di-activate ~15:33 WIB tadi siang via dispatch tapi n8n container last restarted 14 Mei 23:57 UTC → trigger tidak ter-load, cron 21:30 tidak fire. Fixed dengan restart n8n + permanent guard di `install_n8n_workflows.sh`. Acid test journal sekarang re-armed untuk 21:30 WIB malam ini.
 
-**The ONLY active acid test pending tonight:**
-- ⏰ **21:30 WIB (~4 jam dari Last Updated):** n8n cron `Personal Journal` first natural fire. Expect: Telegram message dengan force_reply markup + marker `📓 Personal Journal`. User reply → bot detect (lihat [`telegram-bot/bot.py:_is_journal_reply`](file:///home/ubuntu/bench/pro-secretary/telegram-bot/bot.py)) → POST `/api/journal` → write `vault/journal/2026-05.md` → trigger `sync_vault()` → Qdrant chunks_upserted naik. Konfirmasi balik ke user.
-- **If it fires correctly:** mark journal acid test ✅, no action needed.
-- **If it FAILS:** check `docker logs n8n` for the workflow execution + `docker logs langgraph-agent` for endpoint hits. Most likely failure modes: (a) `force_reply` markup not honored (Telegram API change?), (b) marker text mismatch breaking `_is_journal_reply`, (c) vault write permission (compose mount changed `:ro` → `:rw` in commit `f0b4800`, must persist after deploy).
+**Current state pasca-fix:**
+- n8n restarted 2026-05-15 22:34 UTC (= 16 Mei 05:34 WIB). Startup log konfirmasi: `Activated workflow "Personal Journal" (ID: 0wZd9GD1NMmgAN2Z)` — schedule trigger sekarang loaded di running process.
+- Endpoint `/api/journal_prompt` verified manual fire: 200 + Telegram delivered + force_reply markup correct.
+- 1 Telegram prompt journal terkirim ke user pas 05:13 WIB sebagai bagian dari diagnosis (test fire, real message). User boleh ignore atau jadikan first journal entry.
 
-**Production endpoints added today:**
-- `POST /api/journal` — append to vault, auto-sync, rate limit 30/min
-- `POST /api/journal_prompt` — send Telegram with force_reply markup, rate limit 10/min
-- Bot command `/journal <text>` — manual escape hatch
-- n8n workflow `Personal Journal` (id `0wZd9GD1NMmgAN2Z`) — cron `0 30 21 * * *` Asia/Jakarta
+**The acid tests pending in next 24h:**
+- ⏰ **07:00 WIB hari ini (T+1.5h):** Daily Briefing fire ke-2 setelah n8n restart. Verifikasi: trigger registry rebuild benar-benar persist setelah restart, semua 4 schedule workflow lain juga ke-load ulang correct.
+- ⏰ **21:30 WIB malam ini (T+16h):** Personal Journal **re-armed acid test**. Sekarang dengan trigger ter-load di running process. Expect Telegram prompt + force_reply markup. User reply → bot detect → POST `/api/journal` → vault `journal/2026-05.md` → sync_vault.
+- ⏰ **02:30 WIB Sunday (T+21h):** Backup `trap ERR` tetap acid test (unchanged from prior).
+- ⏰ **03:00 WIB Sunday (T+22h):** Weekly `verify_backup.sh` first natural fire.
 
-**CI tooling added today:**
-- [`.github/workflows/install-n8n-workflows.yml`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/install-n8n-workflows.yml) — workflow_dispatch, run via `gh workflow run install-n8n-workflows.yml`
-- [`.github/workflows/deactivate-n8n-workflow.yml`](file:///home/ubuntu/bench/pro-secretary/.github/workflows/deactivate-n8n-workflow.yml) — workflow_dispatch with `workflow_ids` input. Run via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="<id1> <id2>"`
-- [`scripts/install_n8n_workflows.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_n8n_workflows.sh) — now idempotent (verified 2 consecutive runs). Re-run aman.
+**The fix this session shipped:**
+- [`scripts/install_n8n_workflows.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_n8n_workflows.sh) — script sekarang restart n8n setelah activation (jika ada workflow yang ter-activate). 10-attempt healthcheck loop tunggu container ready. Dengan ini, future `gh workflow run install-n8n-workflows.yml` aman: trigger ter-load tanpa intervensi manual.
 
-**Active n8n workflows (verified live, 5 total):** Cal.com Booking Indexer, Daily Briefing, EOD Summary, Task Reminder, **Personal Journal**.
+**Active n8n workflows (verified live, 5 total, post-restart):** Cal.com Booking Indexer, Daily Briefing, EOD Summary, Task Reminder, Personal Journal.
 
 **What NOT to do without checking:**
-- Don't re-run install script casually — it's idempotent NOW but if you add new workflow JSON without unique `.name`, behavior is undefined.
-- Don't wire `install_n8n_workflows.sh` into `deploy.yml` — it would auto-reactivate workflows user mungkin sengaja deactivate. Keep it dispatch-only.
+- Don't run `n8n update:workflow --active=true` di VPS langsung tanpa restart n8n setelah. Itu cara yang barusan menyebabkan silent fail. Pakai dispatch `gh workflow run install-n8n-workflows.yml` yang sekarang sudah handle.
+- Don't wire `install_n8n_workflows.sh` ke `deploy.yml`. Auto-import-on-every-deploy + auto-restart akan kacau-kan workflow yang user sengaja deactivate.
 - Don't change vault mount back to `:ro` — journal write requires `:rw`.
 
+**Open EOD/journal data anomaly (separate investigation, in progress):**
+- EOD bot 21:00 WIB tadi malam flag duplicate task: 2× "Review proposal Client A" (high + urgent). Background explore agent (`bg_f10fbd27`) running untuk diagnosis: bug di `/api/task` dedup logic vs leftover test data. Result not yet collected. Continue this thread next session via background_output.
+
 **Next-step recommendations (sorted, you choose):**
-1. **WAIT** — let acid test fire 21:30 WIB tonight. Most aligned with "stop building tanpa real usage feedback".
-2. **Voice handler** (~2-3 jam) — Whisper transcribe Telegram voice → route to chat. Game-changer for daily UX.
-3. **Caddy alpine TZ** (5-10 menit) — `apk add tzdata` so reverse proxy logs WIB instead of UTC. Cosmetic.
-4. **n8n CLI deprecation** (10 menit) — `n8n update:workflow` is deprecated, use `n8n workflow update`. Forward-compat only, current syntax still works.
+1. **WAIT** — let acid tests fire (07:00 briefing, 21:30 journal re-armed). Most aligned with "stop building tanpa real usage feedback".
+2. **Resolve dup task investigation** (~30 menit if it's a bug) — collect explore agent result, decide cleanup vs fix.
+3. **Voice handler** (~2-3 jam) — Whisper transcribe Telegram voice → route to chat. Game-changer for daily UX.
+4. **Caddy alpine TZ** (5-10 menit) — `apk add tzdata` so reverse proxy logs WIB instead of UTC. Cosmetic.
+5. **n8n CLI deprecation** (10 menit) — `n8n update:workflow` is deprecated, use `n8n workflow update`. Forward-compat only.
 
 ---
 
@@ -79,7 +81,9 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ### Active Tasks
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
 - [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
-- [ ] **WAITING:** Personal Journal acid test — natural cron fire 21:30 WIB hari ini akan jadi bukti pertama prompt + reply detection + auto-index chain bekerja end-to-end di production scheduler.
+- [ ] **WAITING (re-armed after silent-fail fix):** Personal Journal acid test — natural cron fire 21:30 WIB malam ini. Sebelumnya 15 Mei 21:30 GAGAL silent karena trigger tidak ter-load di running n8n process. Fixed via restart 16 Mei 05:34 WIB. Endpoint chain manual-fire OK.
+- [ ] **WAITING:** Daily Briefing 07:00 WIB hari ini — first fire post n8n restart. Verifikasi semua schedule trigger persist setelah restart.
+- [ ] **OPEN INVESTIGATION:** EOD bot 21:00 WIB 15 Mei flag duplicate task "Review proposal Client A" (high + urgent). Background explore agent `bg_f10fbd27` running untuk diagnosis dedup vs leftover data. Collect via `background_output(task_id="bg_f10fbd27")` next session.
 - [ ] **USER-ACTION (1 menit):** Enable Dependabot alerts di GitHub UI: repo Settings → Code security → "Dependabot alerts" + "Dependabot security updates" → toggle on. Repo punya `.github/dependabot.yml` (version updates aktif weekly), tapi alerts (proactive CVE feed) butuh one-time toggle terpisah. Strongly recommended untuk close loop pada 0-CVE state.
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
@@ -87,6 +91,37 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-16 05:34 WIB] Personal Journal silent-fail fix — n8n restart on activation
+  - **Trigger:** User report EOD Summary 21:00 WIB 15 Mei delivered correctly (acid test ✅) tapi tidak ada laporan dari Personal Journal 21:30 WIB. Investigation reveals acid test journal **gagal silent**.
+  - **Diagnosis chain:**
+    - Vault `journal/` dir tidak ada di `/opt/ai-secretary/vault/` (expected: cron fire creates dir on first reply)
+    - Agent log zero hit untuk `/api/journal_prompt` di window 14:30 UTC (= 21:30 WIB) — n8n tidak pernah call agent
+    - Container start times verified: langgraph-agent up sejak 15 Mei 08:48 UTC (well before cron window). Log retention complete, ada hit `/health` dan `/api/sync_vault`. Bukan log rotation issue.
+    - n8n `list:workflow --active=true`: shows Personal Journal aktif (5 entries correct, 4 dups inactive ✓)
+    - n8n container `StartedAt`: **2026-05-14 23:57:18 UTC** (~14:30 WIB 15 Mei). Workflow di-activate via `install-n8n-workflows.yml` dispatch ~15:33 WIB 15 Mei (after this).
+  - **Root cause:** n8n 1.x writes `active=true` ke `workflow_entity` table tapi **tidak hot-reload schedule trigger di running process**. Workflow active di DB tapi scheduler in-memory tidak ter-register → cron tidak fire.
+    - Match exactly dengan known issue noted di TASK.md baris 588 (entry 2026-05-13 16:20): _"n8n update:workflow --active=true butuh restart untuk apply"_
+    - EOD Summary 21:00 WIB sukses karena workflow itu di-activate **sebelum** container start terakhir (history activation di-import dari before).
+    - Personal Journal di-activate sesudah container start → silent fail.
+  - **Verification before fix:**
+    - Manual test endpoint `/api/journal_prompt` dari agent exec → `200 OK`, `{"ok":true,"delivered":1}`, Telegram message terkirim. Endpoint chain WORKS PERFECTLY. Bug pure di n8n trigger registry, bukan di agent code.
+    - 1 prompt journal terkirim ke user pas 05:13 WIB sebagai bagian diagnostic fire (full disclosure: real Telegram message, bukan dry-run).
+  - **Fix applied:**
+    1. **Immediate:** `docker compose restart n8n` (downtime ~16s, healthcheck back to OK). n8n startup log konfirmasi: `Activated workflow "Personal Journal" (ID: 0wZd9GD1NMmgAN2Z)` — schedule trigger sekarang ter-load di running process.
+    2. **Permanent guard:** [`scripts/install_n8n_workflows.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_n8n_workflows.sh) — script sekarang track `ACTIVATED_ANY` flag, kalau ada workflow yang ter-activate, restart n8n setelah loop activation done. 10-attempt healthcheck loop (3s interval) tunggu container ready sebelum exit. Future `gh workflow run install-n8n-workflows.yml` aman: trigger ter-load tanpa intervensi manual.
+  - **Why this wasn't caught earlier:** Sesi sebelumnya (15:55 WIB) fix idempotency dan run install dispatch 2× — both runs bilang "active workflows now: 5". Ground truth itu `list:workflow --active=true` dari DB, bukan trigger registry di running process. Verification gap. Idempotent script sudah benar, tapi tidak menjamin in-memory state match DB state. Lesson: kalau bahasa CLI bilang "activated", tidak otomatis berarti "scheduling".
+  - **Files MOD:** `scripts/install_n8n_workflows.sh` (was 79 lines, now 98 lines, +19 lines).
+  - **VPS state changes (recorded):**
+    - `docker compose restart n8n` once at 22:34 UTC 15 Mei. n8n start time now `2026-05-15T22:34:16.625Z`.
+    - All other containers untouched: langgraph-agent, calcom, telegram-bot, caddy still up since 15 Mei.
+  - **Acid test status:**
+    - 15 Mei 21:30 WIB Personal Journal: ❌ silent fail (root cause documented above)
+    - 16 Mei 21:30 WIB Personal Journal: 🔄 **re-armed**, expect Telegram prompt + force_reply markup
+    - 16 Mei 07:00 WIB Daily Briefing: 🔄 first fire post-restart, regression-test other schedules persist
+  - **What this prevents long-term:**
+    - Future workflow activation via dispatch akan handle restart automatically. Repeat silent-fail blocked.
+    - Documentation in TASK.md provides debugging breadcrumb: "if cron not firing, check (a) workflow active in DB, (b) trigger registered in running process via `docker logs n8n | grep 'Activated workflow'`".
 
 - ✅ [2026-05-15 15:55 WIB] install_n8n_workflows.sh idempotent — closes duplicate-on-rerun bug
   - **Trigger:** Tech-debt yang baru ditemukan beberapa jam tadi (4 dups dibuat saat journal install). User pilih option #1 "perkuat yang ada" — fix script supaya re-run aman, bukan tunggu sampai bug muncul lagi.

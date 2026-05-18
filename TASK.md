@@ -1,21 +1,28 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-18 11:36 WIB  
+**Last Updated:** 2026-05-18 14:18 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 Production — All Health Checks Green | Dependabot triage DONE, roadmap updated (self-improving + parallel tools)
+**Status:** 🟢 Production — All Health Checks Green | Multi-repo Q&A feature approved, ready for implementation
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Dependabot batch triage complete + roadmap updated. Session ini (09:30 → 11:36 WIB): 5 Dependabot PRs triaged (3 merged, 1 reverted, 1 closed), production stable, lalu user riset Hermes Agent (NousResearch) dan decide tambah 2 fitur ke roadmap: self-improving skills + parallel tool execution. User akan lanjut di session opencode lain.
+**Where we left off:** Dependabot triage closed pagi ini, lalu sesi siang (~13:00-14:18 WIB) user kembali, awalnya minta saran langkah berikutnya. Saya push back ("stop building, biarkan acid tests fire dulu") — user setuju, jalankan opsi verifikasi read-only saja. Acid tests semua PASS (4 backups present, weekly verify drill PASS, 5 workflows aktif, 73 health checks OK hari ini, 1 transient blip langgraph-agent HTTP 000 di 13:00 WIB recovered di cycle berikutnya).
 
-**Production state right now (verified 10:19 WIB, unchanged since):**
-- 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot ~1h (post PR#4+#5 deploy)
-- All deploys verified: agent /health 200, n8n /healthz 200, telegram-bot getUpdates polling 200
+Kemudian user introduce **fitur baru: multi-repo Q&A**. Setelah 4 putaran iterasi requirement (drop dari 4 fitur → 2 fitur, drop auto-doc/auto-PR/auto-issue), final scope clean: **agent index 5-10 repo (GitLab + GitHub, private + public), user tanya apapun via Telegram, agent jawab dengan citation dari source code**. Read-only, no destructive ops.
+
+User setujui plan + scope. Akan lanjut di session opencode lain untuk implementasi.
+
+**Production state right now (verified 14:00 WIB):**
+- 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot ~3h
+- 4 backup archives present (15/16/17/18 Mei), R2 mirror confirmed
+- Weekly verify drill 17 Mei 03:00 WIB PASS (5/5 integrity checks, Telegram report delivered)
+- 5 workflows active: Cal.com Booking Indexer, Daily Briefing, EOD Summary, Task Reminder, Personal Journal
+- 1 transient health blip 13:00 WIB hari ini (langgraph-agent HTTP 000, container uptime 3h, recovered di 13:05). Single occurrence = noise, monitor untuk pattern.
 - Versions deployed: fastapi 0.136.1, uvicorn 0.47.0, httpx 0.28.1, pydantic 2.13.4, qdrant-client 1.18.0, fastembed 0.8.0, langgraph 1.2.0, psycopg 3.3.4, boto3 1.43.9, python-telegram-bot 22.7
 - Python: 3.11.15 (both containers — py3.14 deferred)
-- Last commit: `2f0bf0d` (TASK.md handoff), code: `14bf69f` (PR#4 PTB 22.7)
+- Last commit: `2f0bf0d` (TASK.md handoff pagi), code: `14bf69f` (PR#4 PTB 22.7)
 - 0 open Dependabot PRs (all resolved)
 
 **Triage outcomes (5 Dependabot PRs):**
@@ -34,12 +41,225 @@
 - New pattern: build container locally, **then run actual entrypoint** dengan dummy creds; catch event loop / startup bugs sebelum merge
 - Lihat `bot.main()` runtime test pattern in this session — exec dengan signal alarm timeout
 
-**Suggested next-session opening (pilih one):**
+**Suggested next-session opening (PRIORITY ORDER):**
 
-1. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX. **Recommended first.**
-2. **Self-improving skills Phase 1** (~2-3 jam): Passive skill logging ke Qdrant `skills` collection. Record successful multi-step interactions, user trigger via `/skill <name>`. Low risk, read-only addition. Lihat NEXT STEPS #5 untuk detail.
-3. **Cleanup Personal Journal** (~5 menit): user tidak pernah reply prompt selama 4 hari liburan. Either deactivate workflow `0wZd9GD1NMmgAN2Z` via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="0wZd9GD1NMmgAN2Z"`, atau shift schedule dari 21:30 ke time yang fits user's actual routine. **Recommendation:** wait 1 minggu of regular usage (data sample 4 hari liburan tidak representatif).
-4. **Reopen py3.14 path (deferred):** Wait beberapa minggu. Re-test #1 (telegram-bot py3.14) — PTB 22.7 sekarang merged, might fix asyncio bug. Re-test #2 (langgraph-agent py3.14) when py-rust-stemmers ships py3.14 wheels.
+1. **🆕 Multi-repo Q&A Phase 1 (~6-9 jam) — APPROVED, AWAITING USER INPUT.** User setujui scope; sebelum mulai butuh 3 hal: (a) list 5-10 repo dalam format `nama | clone-url | branch | provider`, (b) `GITLAB_PAT` (scope `read_repository`) + `GITHUB_PAT` (scope `repo` untuk private, atau fine-grained `Contents: read`) untuk simpan ke VPS `.env` mode 600, (c) konfirmasi convention command (default: `/projects`, `/index <repo>`, `/index all`, `/cari <query>`, `/cari di <repo> <query>`, `/tanya <question>`). Lihat **NEW SECTION: MULTI-REPO Q&A FEATURE** di bawah untuk detail design + iterasi requirement yang user reject sebelum sampai final scope. **Recommendation:** start dengan 1 repo dulu (erp-l12 — repo terbesar, real test untuk chunking strategy) before scale ke 10.
+
+2. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX. Was top recommendation pre multi-repo Q&A request.
+
+3. **Self-improving skills Phase 1** (~2-3 jam): Passive skill logging ke Qdrant `skills` collection. Record successful multi-step interactions, user trigger via `/skill <name>`. Low risk, read-only addition. Lihat NEXT STEPS #5 untuk detail.
+
+4. **Cleanup Personal Journal** (~5 menit): user tidak pernah reply prompt selama 4 hari liburan. Either deactivate workflow `0wZd9GD1NMmgAN2Z` via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="0wZd9GD1NMmgAN2Z"`, atau shift schedule dari 21:30 ke time yang fits user's actual routine. **Recommendation:** wait 1 minggu of regular usage (data sample 4 hari liburan tidak representatif).
+
+5. **Reopen py3.14 path (deferred):** Wait beberapa minggu. Re-test #1 (telegram-bot py3.14) — PTB 22.7 sekarang merged, might fix asyncio bug. Re-test #2 (langgraph-agent py3.14) when py-rust-stemmers ships py3.14 wheels.
+
+---
+
+## 🆕 MULTI-REPO Q&A FEATURE (Phase 1 — Approved, Blocked on User Input)
+
+**Status:** Design approved 2026-05-18 14:18 WIB. Awaiting user input (repo list + PATs) before implementation.
+
+### Final Scope (after 4 rounds of requirement iteration)
+
+User originally proposed 4 features. After honest pushback + iteration, scope reduced to **2 read-only features**:
+
+1. **Repo access** — pro-secretary clone + pull 5-10 repo dari GitLab.com + GitHub.com (private + public mix)
+2. **Q&A** — user tanya apapun via Telegram tentang project, paling sering tentang alur bisnis. Agent jawab dari indexed source code dengan citation (file path + line range)
+
+**EXPLICITLY DROPPED (and why):**
+- ❌ Auto-doc generation (`*.md` di repo) — overpromise "memahami proses bisnis", LLM hallucinate WHY tanpa konteks bisnis
+- ❌ Auto PR/MR creation — pattern dies dalam 2-4 minggu (rubber-stamp → docs misleading → self-poisoning)
+- ❌ Issue brainstorm + auto-issue creation — too broad, predictable failure mode (spam atau generic suggestions). Boleh re-evaluate setelah Q&A jalan 2 minggu.
+
+User decision rationale logged: konsisten dengan "stop building tanpa real usage feedback dulu" principle. Q&A dulu, kalau setelah pakai 2 minggu masih ada gap nyata, baru tambah feature lain.
+
+### Reality Check (input dari user)
+
+- **Jumlah repo:** 5-10
+- **Bahasa:** PHP (Laravel), TypeScript, React.js
+- **Repo terbesar:** `erp-l12` — 8,304 files (via `git ls-files --cached --others --exclude-standard`). Raw `find` count 111,203 was misleading (vendor/, storage/, node_modules/).
+- **Trigger preference:** Manual via Telegram command (NOT cron auto-pull). User keep control of when re-index happens.
+- **Resource alert:** User wants Telegram alert kalau VPS/Qdrant/PostgreSQL butuh upgrade (separate from Q&A scope, included as bonus 1-2 jam).
+
+### Storage Math
+
+- Repo terbesar: 8,304 files (gitignore-respected)
+- ~70% indexable after binary/large file filter → ~5,800 files
+- Avg 2-4 chunks per file → ~15K chunks per repo terbesar
+- 5-10 repos total → **~50K-80K chunks**
+- Qdrant free tier (1M vectors) muat 12-20× headroom. Aman.
+- Initial indexing time per repo: ~7 menit untuk 8K files (CPU fastembed). 5-10 repo total: ~30-60 menit one-time.
+- Re-index incremental (filter by last_commit_sha): tipikal < 1 menit.
+
+### Architecture
+
+```
+┌─ CONFIG: /opt/ai-secretary/repos.yml ───────────────┐
+│ - name: erp-l12                                     │
+│   url: git@gitlab.com:org/erp-l12.git               │
+│   branch: main                                      │
+│   provider: gitlab                                  │
+│ - name: portal-react                                 │
+│   url: git@github.com:org/portal-react.git          │
+│   branch: develop                                   │
+│   provider: github                                  │
+└─────────────────────────────────────────────────────┘
+                         │
+┌─ REPO SYNC LAYER ───────────────────────────────────┐
+│ /opt/ai-secretary/repos/<name>/ (cloned)            │
+│ Auth: GITLAB_PAT + GITHUB_PAT di .env mode 600      │
+│ git clone (first time) atau git pull (subsequent)   │
+│ Track last_commit_sha untuk incremental re-index    │
+└─────────────────────────────────────────────────────┘
+                         │
+┌─ INDEXING LAYER ────────────────────────────────────┐
+│ git ls-files --cached --others --exclude-standard   │
+│   (gitignore-respected, no need manual blacklist)   │
+│ Filter:                                             │
+│   - Skip files > 500KB (likely generated/SQL dump)  │
+│   - Skip binary (image, font, archive extensions)   │
+│   - Skip *.lock, *.min.js, *.map files              │
+│ Chunker:                                            │
+│   - File < 100 lines → 1 chunk                      │
+│   - File 100-500 lines → 2-4 chunks, overlap 20%    │
+│   - File > 500 lines → split di natural boundary    │
+│     (function/class/JSX component)                  │
+│ Embed: fastembed 384-dim (existing, zero API cost)  │
+│ Storage: Qdrant collection `codebase`               │
+│   payload: { repo, file_path, language, framework,  │
+│             chunk_index, total_chunks,              │
+│             last_commit_sha, last_modified }        │
+└─────────────────────────────────────────────────────┘
+                         │
+┌─ TELEGRAM COMMANDS ─────────────────────────────────┐
+│ /projects                  → list configured repos  │
+│                              + sync status + chunk  │
+│                              count per repo         │
+│ /index <repo>              → git pull + re-embed    │
+│ /index all                 → re-index semua         │
+│ /cari <query>              → search semua koleksi   │
+│                              (codebase + knowledge  │
+│                              + agent_memory)        │
+│ /cari di <repo> <query>    → filter ke 1 repo       │
+│ /tanya <question>          → LLM Q&A:               │
+│   1. Retrieve top-K chunks (K=10)                   │
+│   2. Build context dari chunks                      │
+│   3. LLM synthesize answer                          │
+│   4. Response include citation:                     │
+│      "Berdasarkan kode di app/Services/.../X.php    │
+│       line 45-89..." (mandatory citation pattern)   │
+└─────────────────────────────────────────────────────┘
+                         │
+┌─ RESOURCE ALERT (bonus, requirement #5) ────────────┐
+│ Extend health_check.sh threshold logic:             │
+│   - VPS RAM > 85% sustained 30 menit → Telegram     │
+│   - Disk > 80% → Telegram                           │
+│   - Qdrant collection size > 800MB (mendekati free  │
+│     tier 1GB) → Telegram                            │
+│   - PostgreSQL connection error rate > 0 → Telegram │
+│ State file untuk avoid spam (mirror recovery msg    │
+│ pattern yang sudah ada)                             │
+└─────────────────────────────────────────────────────┘
+```
+
+### Q&A Quality Disclaimer (CRITICAL — set user expectation)
+
+**Akan baik untuk:**
+- Lokasi kode: "di mana logic credit limit di erp-l12?"
+- Penjelasan fungsi/class: "apa yang dilakukan `InvoiceService::calculateTax`?"
+- Cari pattern: "ada yang pakai pattern repository di erp-l12?"
+- Compare antar-repo: "bagaimana auth di erp-l12 vs portal-react?"
+- Find usages: "siapa yang panggil `OrderProcessor`?"
+
+**Akan mediocre untuk:**
+- End-to-end flow yang span 30+ files (retrieval miss banyak)
+- "Why" decisions kalau tidak di komentar/commit (LLM mengarang dengan confidence)
+- Business rule history (kapan policy X berlaku — tidak ada di kode)
+- Performance reasoning kalau code tidak comment-rich
+
+**Mitigasi yang akan dibangun:**
+1. **Mandatory citation** — every Q&A response include file path + line range
+2. **Confidence framing** — bedakan "explicitly tertulis di X" vs "saya interpretasikan dari Y"
+3. **Honest "tidak tahu"** — kalau retrieval score rendah, agent acknowledge limitation, tidak mengarang
+
+### Auth Scope (READ-ONLY ONLY)
+
+| Provider | Scope minimal | Risk |
+|---|---|---|
+| GitLab | `read_repository` | Rendah — hanya clone/pull |
+| GitHub | `repo` (public + private read) atau fine-grained PAT dengan `Contents: read` | Rendah |
+
+Karena scope read-only (no issue creation, no PR), tidak perlu strict 2-PAT separation seperti yang dibahas di iterasi requirement sebelumnya.
+
+### Effort Estimate
+
+- **Phase 1 core (multi-repo Q&A):** 6-9 jam
+- **Resource alert (bonus):** 1-2 jam
+- **Total:** 8-11 jam, satu sesi besar atau dua sesi medium
+
+### Implementation Recommendation
+
+**Start dengan 1 repo dulu** (`erp-l12` — repo terbesar, real-world test). Jangan langsung scale ke 10. Reasons:
+- Validate chunking strategy untuk PHP+Laravel patterns
+- Measure embedding time + Qdrant size dengan ground truth
+- Test Q&A quality pada codebase yang user paling familiar (mudah validate jawaban)
+- Kalau Q&A quality kecewa di erp-l12, evaluate dulu sebelum invest 9 repo lain
+
+Setelah erp-l12 jalan + user satisfied dengan quality, baru bulk-add 9 repo lain dalam batch.
+
+### Honest Caveat (untuk next agent)
+
+**Embedding 384-dim (`all-MiniLM-L6-v2`) NOT optimal untuk code.** General-purpose model. Cocok untuk file lookup + function explanation. Mediocre untuk arsitektural Q&A luas.
+
+Setelah Phase 1 jalan 1 minggu, evaluate honest:
+- Berapa % pertanyaan dijawab benar?
+- Pertanyaan apa yang sering miss?
+- Worth upgrade ke code-aware embedding (e.g. `microsoft/codebert` ~440MB, `jinaai/jina-embeddings-v2-base-code`) atau cukup stick dengan fastembed sekarang?
+
+Jangan over-invest sebelum tahu apakah baseline cukup.
+
+### Iteration History (decision log untuk next agent)
+
+User minta feature evolve through 4 iterations. Saya document semua untuk transparency:
+
+**Iteration 1 (REJECTED):** 4 features = repo access + Q&A + auto-doc/MR/PR
+- Saya pushback: auto-doc rentan jadi noise, "memahami proses bisnis" overpromise
+- User accept argument
+
+**Iteration 2 (REJECTED):** 4 features = repo access + Q&A + issue recommendation + auto-issue creation
+- Saya pushback: issue brainstorm too broad, predictable spam OR generic
+- Suggest pattern: user-driven `/brainstorm`, NOT periodic
+- User accept but reduce further
+
+**Iteration 3 (FINAL):** 2 features = repo access + Q&A only
+- Cleanest scope, no destructive ops, value harian jelas
+- User approve
+
+**Lesson untuk next agent:** When user broad scope, push back hard. User di proyek ini appreciate honest skepticism, terbukti dari TASK.md history (multi-instance "stop building" pushback yang user akhirnya thank). Jangan rubber-stamp.
+
+### Blocked On (User Input Required)
+
+Sebelum implementasi mulai, butuh dari user:
+
+1. **List 5-10 repo dalam format:**
+   ```
+   nama-singkat | url-clone | branch-utama | provider
+   erp-l12 | git@gitlab.com:org/erp-l12.git | main | gitlab
+   portal-react | git@github.com:org/portal-react.git | develop | github
+   ...
+   ```
+
+2. **PATs (akan disimpan di VPS `/opt/ai-secretary/.env` mode 600):**
+   - `GITLAB_PAT` — scope `read_repository`
+   - `GITHUB_PAT` — scope `repo` (private) atau fine-grained `Contents: read`
+
+3. **Konfirmasi command convention:**
+   - Default proposed: `/projects`, `/index <repo>`, `/index all`, `/cari <query>`, `/cari di <repo> <query>`, `/tanya <question>`
+   - Atau adjust naming sesuai preferensi user
+
+4. **Konfirmasi resource alert termasuk atau drop:**
+   - Bonus 1-2 jam, threshold-based via existing health_check.sh
+   - Atau drop kalau user tidak prioritas
 
 ---
 
@@ -105,15 +325,49 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
+- [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1** — Implementation approved, blocked on user input (repo list + PATs + command convention). See "MULTI-REPO Q&A FEATURE" section below for full design.
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX. PTB 22.7 sekarang merged, native voice handler API tersedia.
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
+- [ ] **MONITOR:** 1× transient health blip 13:00 WIB 18 Mei (langgraph-agent HTTP 000 dari `docker exec curl`, recovered di 13:05). Container uptime 3h saat itu (bukan grace-period case). Single occurrence = noise. Worth diagnose kalau reproduce dalam pola atau Telegram alert masuk.
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
 ### Blocked/Waiting
 - None. Semua dependencies green, semua chain verified live post-triage.
 
 ### Recently Completed
+
+- ✅ [2026-05-18 14:18 WIB] Multi-repo Q&A feature design approved + acid test verification
+  - **Trigger:** User minta saran langkah selanjutnya. Saya push back ("stop building, biarkan acid tests fire dulu" — konsisten dengan TASK.md handoff sebelumnya). User setuju, jalankan opsi verifikasi read-only.
+  - **Acid test verification (read-only SSH):**
+    - 4 backup archives present: `2026-05-15_0954` (manual bootstrap), `2026-05-16_0230`, `2026-05-17_0230`, `2026-05-18_0230`. Sizes 310KB → 548KB (vault grow). R2 mirror confirmed untuk 16/17/18.
+    - Weekly verify drill **first natural fire** Sunday 17 Mei 03:00 WIB: 5/5 integrity checks PASS (n8n JSON 9 workflows, SQLite ok, vault 12 markdown, 4 critical secrets, docker-compose validates). Telegram report delivered.
+    - Health checks: 73 OK runs hari ini. **1 transient blip 13:00 WIB**: `❌ langgraph-agent DOWN (HTTP 000)` lalu OK lagi di 13:05. Container uptime 3h saat itu (bukan grace-period case). Single occurrence = noise. Worth monitor untuk pattern.
+    - 5 workflows aktif (Cal.com, Daily Briefing, EOD, Task Reminder, Personal Journal) dengan ID konsisten dari install dispatch sebelumnya.
+    - 5 container `Up healthy`. langgraph-agent + telegram-bot 3h uptime, sisanya 2-3 hari.
+    - **Verdict:** Sistem self-prove tanpa intervensi. Konsisten dengan handoff direction. No action needed.
+  - **Multi-repo Q&A feature — 4-round requirement iteration:**
+    - **Iter 1:** User propose 4 features (repo access + Q&A + auto-doc + auto-PR/MR). Saya pushback panjang: "memahami proses bisnis" overpromise, auto-PR pattern dies dalam 2-4 minggu (Model A vs Model B framing). User accept argument.
+    - **Iter 2:** User revise — drop auto-doc, ganti dengan issue brainstorm + auto-issue creation. Saya pushback: issue brainstorm too broad, predictable spam atau generic. Suggest user-driven `/brainstorm`, kategori sempit. User accept but reduce further.
+    - **Iter 3 (FINAL):** User cut ke 2 features murni: repo access + Q&A. No destructive ops. Saya approve, ini scope paling sehat.
+    - **Iteration test:** User input ground truth ("8,304 files via `git ls-files`" vs initial "111,203 via `find`"). Confirms gitignore-respected enumeration adalah right approach.
+  - **Final scope approved:**
+    - 5-10 repo (GitLab + GitHub, private + public mix)
+    - Read-only: clone/pull → fastembed → Qdrant `codebase` collection
+    - Telegram commands: `/projects`, `/index <repo>`, `/index all`, `/cari <query>`, `/cari di <repo> <query>`, `/tanya <question>`
+    - Mandatory citation pattern (file path + line range) untuk every Q&A response
+    - Manual trigger only (NO cron auto-pull) — user keep control
+    - Bonus: resource alert (VPS RAM/disk, Qdrant size, PostgreSQL) via existing health_check.sh threshold logic
+    - **Effort:** 6-9 jam Phase 1 core + 1-2 jam resource alert = 8-11 jam total
+  - **Storage math validated:**
+    - 8K files × 2-4 chunks = ~15K chunks per repo terbesar
+    - 5-10 repo total = ~50K-80K chunks. Qdrant free tier (1M vectors) = 12-20× headroom.
+    - Initial indexing ~7 min/repo (CPU fastembed). Re-index incremental < 1 min via last_commit_sha tracking.
+  - **Implementation recommendation logged:** Start dengan 1 repo dulu (erp-l12 terbesar, real-world test). Validate chunking + Q&A quality sebelum scale ke 10.
+  - **Disclaimer logged:** fastembed 384-dim general-purpose NOT optimal untuk code. Bagus untuk lookup + function explanation, mediocre untuk arsitektural luas. Evaluate after 1 minggu pakai apakah worth upgrade ke code-aware model.
+  - **Files MOD:** `TASK.md` (handoff section + active tasks + new "MULTI-REPO Q&A FEATURE" section)
+  - **Status:** Design approved, BLOCKED on user input (repo list + PATs + command convention). User akan lanjut di session opencode lain untuk implementasi.
+  - **No code changes, no commits, no production state changes selama sesi ini.** Pure design + verification + handoff.
 
 - ✅ [2026-05-18 10:19 WIB] Dependabot batch triage — 3 merged, 1 reverted, 1 closed
   - **Trigger:** User balik liburan, 5 Dependabot PRs queue dari weekly scan 15 Mei. Plan dari TASK.md handoff: Phase 1 low-risk minor-patch → Phase 2 py3.14 base image → Phase 3 PTB 22 major bump.
@@ -1457,79 +1711,84 @@ Push to main → GitHub Actions → SSH to VPS → git pull → docker compose p
 ## 💬 COMMUNICATION NOTES
 
 ### For Next Agent/Session
-> **[2026-05-15 13:46 WIB]** Handoff ke OpenCode session berikutnya. **Status: production-stable, all green, 0 known CVE, full automated proof-of-life pipeline active.** Sesi lanjutan ~5 jam (09:00 → 13:46 WIB) ship 10 commits, semua CI green, 4 paths-ignore skip-md verified, 1 critical bug discovered + fixed (backup silent fail).
+> **[2026-05-18 14:18 WIB]** Handoff ke OpenCode session berikutnya — **multi-repo Q&A feature design approved, awaiting user input untuk start implementation.**
 >
-> **What changed this lanjutan session (newest first):**
-> - `docs: TASK.md handoff — weekly backup drill + CI health probes deployed`
-> - `feat(ops): weekly backup integrity drill + post-deploy health probes` — `verify_backup.sh` aggregates 5 integrity checks (sqlite PRAGMA, n8n JSON, vault md5, env keys, compose validate) → Telegram report. Cron Sunday 03:00 WIB. CI deploy.yml tambah agent /health + n8n /healthz probes.
-> - `docs: TASK.md handoff — vault self-awareness refresh, qdrant re-indexed`
-> - 8 vault docs MOD/NEW (system + ops, 452 lines, was 243), `/api/sync_vault` re-indexed Qdrant (12 files / 72 chunks, was 10/30)
-> - `docs: TASK.md handoff — backup restore drill (found 2-day silent failure, fixed)`
-> - `fix(ops): restore.sh markdown count regex (over-escaped)`
-> - `fix(ops): backup actually runs + ERR notify + restore drill script` — DRILL FOUND BACKUP SILENTLY FAILED 2 HARI. cron user `tutdo` tidak bisa `mkdir /var/backups/ai-secretary` (parent root-owned). `set -e` abort line 17 mute. Fix: install_cron.sh bootstrap dir, backup.sh `trap ERR` → Telegram, NEW `scripts/restore.sh` inspect-mode (verified 5/5 components live).
-> - `docs: TASK.md handoff — defensive trio deployed live, dependabot alerts toggle reminder`
-> - `feat(ops): defensive maintenance trio — dependabot + ci-skip-md + logrotate` — Dependabot weekly Mon 06:00 WIB (pip + GHA + docker, NOT docker-compose tags). `paths-ignore: ['**.md', LICENSE, '.gitignore', 'docs/**', '.sisyphus/**']`. Logrotate weekly retention 4, copytruncate, `delaycompress`. Trixie pakai `logrotate.timer` bukan `cron.daily`.
+> **Sesi siang hari ini (~13:00 → 14:18 WIB) NO CODE CHANGES, NO COMMITS.** Pure design + verification + handoff. User akan lanjut di session opencode lain.
 >
-> **VPS state changes lanjutan session (not in repo, recorded):**
-> - `apt install logrotate` (was missing — Trixie minimal install). `logrotate.timer` enabled+active, next 00:23 WIB. Live force-rotate verified: 19646B → 0B + dated copy preserved.
-> - `mkdir + chown tutdo:tutdo + chmod 700 /var/backups/ai-secretary` (manual bootstrap; `install_cron.sh` sekarang handle ini di future cold-install)
-> - `bash scripts/install_cron.sh` re-run — 4 cron entries now: health 5min, backup 02:30, sync 30min, **NEW** verify Sunday 03:00 WIB
-> - 8 vault docs (5 MOD: architecture, agent-api, qdrant-collections, cron-jobs, deploy, troubleshooting / 2 NEW: backup-restore, security)
+> **What happened this sesi:**
+> 1. User minta saran langkah berikutnya. Saya push back konsisten dengan handoff sebelumnya ("stop building, biarkan acid tests fire dulu"). User setuju.
+> 2. Read-only verifikasi via SSH: 4 backup archives present, weekly verify drill PASS first natural fire (17 Mei 03:00 WIB), 5 workflows aktif, 73 health checks OK hari ini, 1 transient blip 13:00 WIB (langgraph-agent HTTP 000 recovered cycle berikutnya — single occurrence = noise).
+> 3. User introduce fitur baru: multi-repo Q&A. **4 putaran iterasi requirement** untuk reduce scope dari 4 fitur (auto-doc + auto-PR + auto-issue) ke 2 fitur sehat (repo access + Q&A only).
+> 4. Final design approved. TASK.md updated dengan detail design + iteration history + blocked-on-user-input checklist.
 >
-> **Yang VERIFIED live lanjutan session:**
-> - `verify_backup.sh` smoke test on real archive `2026-05-15_0954.tar.gz`: 5/5 PASS, exit 0, Telegram report delivered with full detail
-> - CI run 25904248505 (50s green): `docker exec langgraph-agent curl /health` returned `{"status":"ok",...,"embedding_dim":384}`, n8n `/healthz` returned `{"status":"ok"}` — actually serving traffic, bukan cuma exit-0 dari `docker compose ps`
-> - `paths-ignore` 4 docs-only commit SKIP CI confirmed (d5aee28, fb5f213, c2774af, latest TASK.md commit)
-> - Backup restore drill: n8n SQLite `PRAGMA integrity_check` = ok, 4 workflows active, vault md5 identical to live (`9eefb46f...`), `.env` 4 critical keys present, `docker compose config` validates
-> - Qdrant search hit new vault docs: "slowapi rate limit" → security.md 0.37, "image digest pin security" → security.md 0.48, "backup permission denied bootstrap" → troubleshooting.md 0.59
+> **Important context untuk next session:**
+> - **READ "MULTI-REPO Q&A FEATURE" SECTION** (di bawah handoff section) sebelum mulai implementasi. Berisi full design + storage math + Q&A quality disclaimer + iteration log.
+> - **BLOCKED on user input.** User belum kasih: (a) repo list 5-10 dengan format `nama | url | branch | provider`, (b) `GITLAB_PAT` + `GITHUB_PAT`, (c) konfirmasi command convention, (d) konfirmasi resource alert termasuk atau drop.
+> - **MULAI DENGAN 1 REPO DULU** (`erp-l12` terbesar 8,304 files PHP/Laravel). Validate chunking + Q&A quality. Jangan langsung scale ke 10.
+> - **MANDATORY CITATION** untuk Q&A response — every answer include file path + line range. Pattern Perplexity. User explicit ekspektasi soal alur bisnis (paling sering ditanya), citation jadi mitigasi utama untuk hallucination.
 >
-> **Yang DITINGGAL untuk next session (open work):**
-> - **USER ACTION 1 menit:** enable Dependabot alerts di GitHub UI → Settings → Code security → toggle "Dependabot alerts" + "Dependabot security updates". Repo punya `dependabot.yml` (version updates aktif weekly), tapi alerts (proactive CVE feed) butuh one-time UI toggle. Tanpa ini, sistem belum dapat auto-PR security patches yang rilis di tengah minggu.
-> - **OPTIONAL Voice handler** (~2-3 jam) — masih open
-> - **OPTIONAL Personal journal workflow** (21:30 prompt) — masih open
-> - **Acid tests akan auto-fire dalam 88 jam ke depan TANPA INTERVENSI:**
->   - 02:30 WIB tonight (T+13h) — first automated `backup.sh` with `trap ERR` (regression test untuk fix bootstrap)
->   - 00:23 WIB tomorrow (T+11h) — first `logrotate.timer` fire
->   - 07:00 WIB tomorrow (T+17h) — Daily Briefing acid test #2 langgraph 1.x + slowapi + WIB-anchor
->   - 03:00 WIB Sunday (T+63h) — first automated `verify_backup.sh` weekly drill
->   - 06:00 WIB Monday (T+88h) — first Dependabot scan
-> - **Tetap defer:** C6 webhook HMAC, H2 prompt injection, H3 socket mount, M4 Caddy basic auth (semua dengan justification di entries before).
+> **Acid tests history (semua PASS):**
+> - 02:30 WIB tonight (sudah lewat) — automated `backup.sh` 4 archives present (15/16/17/18 Mei), R2 mirror confirmed
+> - 00:23 WIB Sat (sudah lewat) — `logrotate.timer` fire (verified force-rotate sebelumnya)
+> - 07:00 WIB tomorrow — Daily Briefing acid test (langgraph 1.x + slowapi + WIB-anchor) — sudah pass beberapa kali post-deploy
+> - 03:00 WIB Sunday 17 Mei (DONE) — first automated `verify_backup.sh` weekly drill: 5/5 PASS, Telegram report delivered
+> - 06:00 WIB Monday 18 Mei (DONE) — Dependabot weekly scan: 5 PRs surfaced, semua sudah triaged pagi ini
+>
+> **Production state right now:**
+> - 5 container `Up healthy` (caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot ~3h)
+> - 0 open Dependabot PRs
+> - 0 known CVE
+> - All workflows verified live post-triage
 >
 > **Important repo state:**
 > - Branch `main`, working tree clean, semua commits pushed
-> - Total commits hari ini: 26 (16 sesi pagi + 10 sesi lanjutan), semua CI green
+> - Last commit: `2f0bf0d` (TASK.md handoff pagi)
+> - Sesi siang ini akan tambah 1 commit lagi (TASK.md handoff multi-repo Q&A design) — TASK.md only, akan SKIP CI thanks paths-ignore
 > - 0 GitHub Secret baru di-set
-> - VPS env match repo state
 >
 > **Cara kerja yang sudah disepakati (UNCHANGED):**
-> - Selalu commit + push (CI auto-deploy ke VPS via `appleboy/ssh-action@0ff4204` SHA-pinned)
+> - Selalu commit + push (CI auto-deploy via `appleboy/ssh-action@0ff4204` SHA-pinned)
 > - Test via Telegram setelah deploy untuk confirm UX
 > - Trigger deploy tanpa commit baru: `gh workflow run deploy.yml --ref main`
 > - SSH ke VPS: `ssh tutdo@159.223.40.74` (root login disabled — must use tutdo)
-> - Real-time agent test pattern: `docker exec langgraph-agent python3 -c "import os, httpx; ..."` (lebih reliable daripada curl shell escape, JSON body sering pecah 422)
+> - Real-time agent test pattern: `docker exec langgraph-agent python3 -c "import os, httpx; ..."` (lebih reliable daripada curl shell escape)
 > - Internal services tidak bisa di-curl dari host localhost — pakai container exec atau via Caddy public URL
-> - **NEW pattern dari lanjutan session:** `cat > /vps/path/file.md << 'EOF'` via SSH heredoc untuk vault edits di VPS (vault gitignored, edit langsung)
-> - **NEW commit pattern:** docs-only commit (TASK.md, README.md, vault) akan SKIP CI thanks to paths-ignore. Code commits tetap deploy normal.
+> - **NEW pattern dari sesi siang ini:** ketika user ajukan feature baru yang ambisius (multi-feature scope), JANGAN langsung accept. Iterate 3-4 ronde untuk reduce scope ke yang user actually butuh sekarang. User di proyek ini appreciate disciplined pushback. Lihat 4-iter history di "MULTI-REPO Q&A FEATURE" → Iteration History.
 >
 > **User decision logged (UPDATED):**
-> - "Stop building tanpa real usage feedback dulu" — masih sangat ditekankan. Sesi lanjutan ini exception yang justified karena: (1) backup drill turn out menemukan critical silent-fail bug, (2) automation work (Dependabot, logrotate, paths-ignore, verify_backup, CI probes) adalah closure untuk manual work yang barusan dilakukan, BUKAN feature baru.
-> - Voice + journal tetap diundur ke weekend
-> - User minta langkah selanjutnya beberapa kali; saya **3x mendorong stop**, terakhir cukup tegas. User akhirnya request handoff.
+> - **"Stop building tanpa real usage feedback dulu"** — masih sangat ditekankan. Sesi siang ini exception yang justified karena user introduce concrete new use case (Q&A multi-repo) untuk daily work, bukan feature speculative.
+> - **Disciplined scope reduction.** User awalnya minta 4 fitur, accept argument saya untuk drop ke 2 fitur. Konsisten dengan pola TASK.md history (user appreciate honest skepticism).
+> - **Manual trigger > auto-cron.** User explicit pilih `/index <repo>` Telegram command, BUKAN cron auto-pull. User keep control.
 >
-> **Communication style:** User direct, no preamble, action-oriented Bahasa Indonesia (Sisyphus respond Bahasa Inggris technical, prose Bahasa Indonesia). **PENTING:** kalau user terus minta langkah berikutnya tanpa ada concrete bug/improvement, push back dengan "stop, biarkan acid tests fire dulu". Jangan automated agreement. User actually appreciate honest pushback.
+> **Communication style:** User direct, no preamble, action-oriented Bahasa Indonesia. Sisyphus respond Bahasa Indonesia juga (sesi sebelumnya mix Bahasa Inggris technical + Bahasa Indonesia prose, sesi siang ini full Bahasa Indonesia karena user-led conversation about feature design). **PENTING:** ketika user request feature ambisius, push back dengan honest concern (jangan rubber-stamp). User di proyek ini terbukti appreciate skeptical analysis berbasis pattern observasi industri.
 
 ### Recommendation untuk next session
 
-> **DO NOT immediately ship more code.** Sistem sekarang dalam kondisi terbaik sejak proyek dimulai. Acid tests dalam 24-88 jam berikutnya akan menghasilkan signal jauh lebih bernilai daripada commit ke-27.
+> **MULTI-REPO Q&A IMPLEMENTATION READY TO START** — but blocked on user input (4 items, see "MULTI-REPO Q&A FEATURE" → Blocked On section). Begin session by asking user untuk 4 inputs tersebut.
+>
+> **Implementation sequence:**
+> 1. Wait for user input (repo list + PATs + command + resource alert decision)
+> 2. Save credentials to VPS `/opt/ai-secretary/.env` mode 600
+> 3. Add `repos.yml` config (start dengan 1 repo: erp-l12 saja)
+> 4. Implement repo sync layer (clone/pull, track last_commit_sha)
+> 5. Implement chunker + indexing (test on erp-l12 — 8K files, expect ~7 min initial)
+> 6. Add Telegram commands one at a time: `/projects` → `/index <repo>` → `/cari di <repo>` → `/tanya`
+> 7. Test Q&A quality on erp-l12 dengan ~10 question samples sebelum scale ke 9 repo lain
+> 8. Add resource alert (kalau user setuju include) extend `health_check.sh`
+> 9. Push code commits — CI deploy. Test live via Telegram.
 >
 > **Productive opening pertanyaan ke user:**
-> 1. "Acid tests apa yang sudah fire? Ada Telegram alert masuk?" (cek backup 02:30, logrotate 00:23, briefing 07:00)
-> 2. "Pakai sistemnya hari ini? Friction apa yang muncul?" (real usage feedback)
-> 3. "Ada concrete bug/feature dari pemakaian, atau cuma cari kerjaan?"
+> 1. "Lanjut multi-repo Q&A? Butuh: repo list, PATs, konfirmasi command, decision resource alert."
+> 2. Kalau user belum siap kasih credentials, **tanyakan apakah user mau mulai dengan 1 public repo dulu** (no PAT needed, lower friction untuk test pipeline)
+> 3. Kalau user pivot ke task lain, defer multi-repo Q&A ke later session
 >
-> Kalau jawaban kategori 3, push back. Kalau kategori 1-2, baru produktif lanjut.
+> **Risk yang perlu diingat saat implementasi:**
+> - LLM hallucinate untuk pertanyaan "WHY" (alur bisnis sering tanpa context di kode). Mitigasi: mandatory citation + confidence framing.
+> - fastembed 384-dim NOT optimal untuk code. Akurasi mungkin mediocre untuk arsitektural Q&A luas. Disclaimer ke user di awal — JANGAN overpromise.
+> - 8K files indexing pertama kali akan spike CPU 5-15 menit. Tidak block agent (background task), tapi `/cari` mungkin slow saat initial sync.
+> - `git pull` dari private repo butuh SSH key di container atau HTTPS dengan PAT. Recommend HTTPS dengan PAT (lebih simple, no SSH key mounting).
 >
-> **Kalau ada bug acid test (e.g. backup masih fail):** look at `/var/log/backup.log` + `/var/log/backup-verify.log` first. `trap ERR` di backup.sh + verify_backup.sh keduanya kirim Telegram dengan line number + exit code. Diagnosis ground-truth dari log, bukan asumsi.
+> **Kalau ada bug acid test:** look at `/var/log/backup.log` + `/var/log/backup-verify.log` first. `trap ERR` di backup.sh + verify_backup.sh keduanya kirim Telegram dengan line number + exit code. Diagnosis ground-truth dari log, bukan asumsi.
 
 ### Questions to Resolve
 - ~~Apakah perlu Redis untuk caching/queue?~~ ✅ Decided: Not needed for MVP

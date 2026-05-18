@@ -126,3 +126,14 @@ def set_payload(collection: str, point_id: str, updates: dict[str, Any]) -> None
         points=[point_id],
         wait=True,
     )
+
+
+def delete_points(collection: str, point_ids: list[str]) -> int:
+    if not point_ids:
+        return 0
+    get_client().delete(
+        collection_name=collection,
+        points_selector=qmodels.PointIdsList(points=point_ids),
+        wait=True,
+    )
+    return len(point_ids)

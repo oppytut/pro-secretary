@@ -75,6 +75,10 @@ class TaskListRequest(BaseModel):
     limit: int = Field(20, ge=1, le=100)
 
 
+class TaskDeleteRequest(BaseModel):
+    task_ids: list[str] = Field(..., min_length=1, max_length=50)
+
+
 class NoteRequest(BaseModel):
     content: str = Field(..., min_length=1)
     source: str = "telegram"
@@ -164,6 +168,12 @@ async def task_create(req: TaskCreateRequest) -> dict[str, Any]:
 async def task_list(req: TaskListRequest) -> dict[str, Any]:
     items = tools.list_pending_tasks(limit=req.limit)
     return {"count": len(items), "tasks": items}
+
+
+@app.post("/api/task/delete", dependencies=[Depends(verify_secret)])
+async def task_delete(req: TaskDeleteRequest) -> dict[str, Any]:
+    deleted = tools.delete_tasks(req.task_ids)
+    return {"deleted": deleted, "task_ids": req.task_ids}
 
 
 @app.post("/api/note", dependencies=[Depends(verify_secret)])

@@ -52,6 +52,24 @@ def complete_task(task_id: str) -> None:
     )
 
 
+def delete_tasks(task_ids: list[str]) -> int:
+    return qdrant_helper.delete_points(config.COLL_TASKS, task_ids)
+
+
+def find_pending_tasks_by_title(title_query: str) -> list[dict[str, Any]]:
+    needle = title_query.strip().lower()
+    if not needle:
+        return []
+    matches: list[dict[str, Any]] = []
+    for point in qdrant_helper.scroll(
+        config.COLL_TASKS, filters={"status": "pending"}, limit=100
+    ):
+        title = (point.get("payload", {}).get("title") or "").lower()
+        if needle in title:
+            matches.append(point)
+    return matches
+
+
 def store_note(content: str, source: str = "telegram", user_id: str | int | None = None) -> str:
     payload = {
         "content": content,

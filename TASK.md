@@ -1,39 +1,43 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-18 09:28 WIB  
+**Last Updated:** 2026-05-18 10:19 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 Production — All Health Checks Green | User balik dari liburan, ready to triage Dependabot batch + voice handler
+**Status:** 🟢 Production — All Health Checks Green | Dependabot triage SELESAI (3 merged, 1 reverted, 1 closed)
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** User selesai liburan, akan continue dengan opencode session lain. Selama 4 hari liburan (15-18 Mei), sistem hidup sendiri tanpa intervensi: 4 daily briefing fire ✅, 4 EOD summary fire ✅, 4 nightly backup ✅, 1 weekly verify_backup ✅, Dependabot weekly scan generated 5 PRs (toggle alerts ✅). 1 real bug discovered + fixed mid-liburan: bot hallucinate delete-task confirmation (Qdrant tidak tersentuh) → shipped natural-language delete capability via LangGraph conditional routing → dogfood verified 2 dummy tasks cleaned.
+**Where we left off:** Dependabot batch triage complete dalam 1 jam (09:30 → 10:19 WIB). 4 deploy CI green, 1 incident ditemukan + fixed via revert (PTB 21 + py3.14 incompat asyncio.get_event_loop), 1 PR ditutup (py-rust-stemmers tidak punya py3.14 wheels). Production state stable, semua deps sekarang current minor versions + python-telegram-bot 22.7.
 
-**Production state right now (verified 09:28 WIB):**
-- 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot 13m (post-deploy 26009912132)
-- Health state: `OK`, no Telegram alerts since 15 Mei
-- Qdrant tasks: **0 pending** (post-dogfood cleanup)
-- Vault `journal/` dir: **belum ada** — user tidak pernah reply prompt journal selama liburan, expected behavior, NOT a bug
-- Last commit: `8c64448` (docs), feat: `59b8b82` (delete capability)
+**Production state right now (verified 10:19 WIB):**
+- 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent ~3m (post PR#5 deploy), telegram-bot ~2m (post PR#4 deploy 26011597472)
+- All deploys verified: agent /health 200, n8n /healthz 200, telegram-bot getUpdates polling 200
+- Versions deployed: fastapi 0.136.1, uvicorn 0.47.0, httpx 0.28.1, pydantic 2.13.4, qdrant-client 1.18.0, fastembed 0.8.0, langgraph 1.2.0, psycopg 3.3.4, boto3 1.43.9, python-telegram-bot 22.7
+- Python: 3.11.15 (both containers — py3.14 deferred, see "Closed/Reverted PRs" below)
+- Last commit: `14bf69f` (PR#4 PTB 22.7 merge), revert: `f8a9077` (PR#1 revert), feat: `4ff5e70` (PR#5 minor-patch)
 
-**5 Dependabot PRs OPEN — ready for triage now that user is back:**
+**Triage outcomes (5 Dependabot PRs):**
 
-Sorted by recommended merge order (low risk → high risk):
+| # | Title | Outcome | Notes |
+|---|---|---|---|
+| 3 | telegram-bot minor-patch (httpx 0.27→0.28.1, boto3 1.34→1.43.9) | ✅ Merged | Sandbox green, deploy 26010917169 1m8s |
+| 5 | langgraph-agent minor-patch (uvicorn, pydantic 2.13, qdrant 1.18, langgraph 1.2, psycopg, boto3) | ✅ Merged | Sandbox green, deploy 26010978645 2m32s, /api/chat acid test green (LLM kr/claude-opus-4.7 200 OK) |
+| 1 | telegram-bot Dockerfile py3.14 | ⚠️ Merged then **REVERTED** | python-telegram-bot 21.0 calls `asyncio.get_event_loop()` in main thread — Python 3.14 removed this auto-create behavior. Bot crash-loop. Revert commit `f8a9077`. **Note: TASK.md sebelumnya swap #1/#2 — actual #1=telegram-bot, #2=langgraph-agent.** |
+| 2 | langgraph-agent Dockerfile py3.14 | ❌ **CLOSED** | `pip install` fails: `py-rust-stemmers` (transitive via fastembed) has no py3.14 wheel. Sandbox build fails: `error: linker cc not found`. Defer until py-rust-stemmers ships py3.14 wheels OR willing to bloat Dockerfile dengan rust toolchain (220MB → 800MB+). |
+| 4 | python-telegram-bot 21.0→22.7 | ✅ Merged | Sandbox runtime test on py3.11 reached `InvalidToken` (token validation = polling started OK), no event loop bug. Deploy 26011597472 1m10s, production verified `Application started` + `getUpdates 200 OK`. |
 
-| # | Title | Type | Risk | Recommendation |
-|---|---|---|---|---|
-| 3 | minor-patch group (telegram-bot) | minor/patch | 🟢 Low | **Merge first** — auto-tested by CI, only patch versions |
-| 5 | minor-patch group (langgraph-agent) | minor/patch | 🟢 Low | **Merge second** — same pattern, separate component |
-| 1 | python `3.11-slim → 3.14-slim` (langgraph-agent Dockerfile) | major base image | 🟡 Medium | **Verify after #3 #5 merged** — fastembed ONNX may need recompile, langgraph 1.x compat unknown for 3.14 |
-| 2 | python `3.11-slim → 3.14-slim` (telegram-bot Dockerfile) | major base image | 🟡 Medium | **Pair with #1** — telegram-bot is simpler (no fastembed), but bump together for consistency |
-| 4 | python-telegram-bot `21.0 → 22.x` | major lib | 🔴 High | **Read changelog first** — handler API may have breaking changes, need bot end-to-end test |
+**Sandbox-test-then-merge pattern (NEW, learned from PR#1 incident):**
+- CI hanya trigger pada push to main, BUKAN pada PR — merge IS the trigger
+- Pure import-only sandbox **MISSES runtime async issues** (PR#1 crash escaped)
+- New pattern: build container locally, **then run actual entrypoint** dengan dummy creds; catch event loop / startup bugs sebelum merge
+- Lihat `bot.main()` runtime test pattern in this session — exec dengan signal alarm timeout
 
 **Suggested next-session opening (pilih one):**
 
-1. **Triage Dependabot batch** (~30-45 menit total): merge #3 #5 first (auto via gh CLI), verify CI green, then read changelog for #1 #2 #4 before merging.
-2. **Voice handler** (~2-3 jam, deferred since pre-liburan): Whisper transcribe Telegram voice → route to chat. Game-changer for daily UX, but requires Whisper setup + bot handler refactor.
-3. **Cleanup Personal Journal** (~5 menit): user tidak pernah reply prompt selama 4 hari. Either deactivate workflow `0wZd9GD1NMmgAN2Z` via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="0wZd9GD1NMmgAN2Z"`, or shift schedule from 21:30 to time that fits user's actual routine.
+1. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX.
+2. **Cleanup Personal Journal** (~5 menit): user tidak pernah reply prompt selama 4 hari liburan. Either deactivate workflow `0wZd9GD1NMmgAN2Z` via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="0wZd9GD1NMmgAN2Z"`, atau shift schedule dari 21:30 ke time yang fits user's actual routine. **Recommendation:** wait 1 minggu of regular usage (data sample 4 hari liburan tidak representatif).
+3. **Reopen py3.14 path (deferred):** Wait beberapa minggu. Re-test #1 (telegram-bot py3.14) AFTER #4 PTB 22.7 merged — PTB 22.x might fix the asyncio bug. Re-test #2 (langgraph-agent py3.14) when py-rust-stemmers ships py3.14 wheels (check via `pip install py-rust-stemmers --python-version 3.14`).
 
 ---
 
@@ -99,15 +103,46 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **TRIAGE NOW (user balik liburan):** 5 Dependabot PRs open. Recommended order: #3 #5 (low-risk minor-patch) → #1 #2 (python 3.14-slim) → #4 (python-telegram-bot 22 major bump). Lihat tabel di FOR NEXT SESSION block atas.
-- [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
-- [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage.
+- [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX. PTB 22.7 sekarang merged, native voice handler API tersedia.
+- [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
+- [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
 ### Blocked/Waiting
-- None. Semua dependencies green, semua chain verified live.
+- None. Semua dependencies green, semua chain verified live post-triage.
 
 ### Recently Completed
+
+- ✅ [2026-05-18 10:19 WIB] Dependabot batch triage — 3 merged, 1 reverted, 1 closed
+  - **Trigger:** User balik liburan, 5 Dependabot PRs queue dari weekly scan 15 Mei. Plan dari TASK.md handoff: Phase 1 low-risk minor-patch → Phase 2 py3.14 base image → Phase 3 PTB 22 major bump.
+  - **Methodology learned:** CI hanya trigger on push to main, BUKAN on PR. Merge IS the trigger. Sandbox build + import test cukup untuk minor-patch tapi **MISS runtime async issues** (PR#1 escape). New pattern: build container locally → run actual entrypoint dengan dummy creds + signal alarm timeout → catch event loop bugs sebelum merge.
+  - **Phase 1: Minor-patch (LOW RISK) — both green:**
+    - **PR #3** [`f426b68`](pending) telegram-bot: httpx 0.27→0.28.1 (deprecations checked: bot.py tidak pakai `proxies=`, `verify=<str>`, `app=`), boto3 1.34→1.43.9. Sandbox green (15 handlers loaded). Deploy 26010917169 1m8s, post-deploy probes OK.
+    - **PR #5** [`4ff5e70`](pending) langgraph-agent: uvicorn 0.34→0.47.0, pydantic 2.10.4→2.13.4, qdrant-client 1.12→1.18.0, fastembed pinned 0.8.0, langgraph 1.0.10→1.2.0, psycopg 3.2→3.3.4, boto3 1.35→1.43.9. Sandbox: build_graph CompiledStateGraph OK, TaskDeleteRequest pydantic 2.13 validation OK, qdrant-client 1.18 PointIdsList API intact, fastembed 384-dim warm. Deploy 26010978645 2m32s, **/api/chat acid test green** (`{"response":"Halo. ..."}` from kr/claude-opus-4.7), 10/10 system_status checks green.
+  - **Phase 2: Python 3.14 (BLOCKED) — both deferred:**
+    - **PR #1** telegram-bot Dockerfile py3.11→3.14. Sandbox import-test green. **Production crashed**: `RuntimeError: There is no current event loop in thread 'MainThread'` — python-telegram-bot 21.0's `run_polling()` calls `asyncio.get_event_loop()` which fails in main thread on Python 3.14 (CPython removed the auto-create deprecation). Bot crash-loop 6+ restarts dalam 30 detik. **Revert** [`f8a9077`](pending) "Revert PR#1" pushed, deploy 26011428766 48s green, container back on python 3.11.15. **Lesson:** import test ≠ runtime test untuk async frameworks.
+    - **PR #2** langgraph-agent Dockerfile py3.11→3.14. Sandbox build **FAILED**: `pip install -r requirements.txt` errors with `Failed building wheel for py-rust-stemmers` (transitive via fastembed). py-rust-stemmers tidak punya pre-built wheel untuk Python 3.14, fallback ke rust source compile, fail dengan `error: linker cc not found` (no gcc in `python:3.14-slim`). Options: (a) wait wheels available (~weeks), (b) bloat Dockerfile dengan gcc+rust toolchain (220MB → 800MB+, build 78s → 5-10min), (c) bump ke py3.13 instead. **Closed PR #2** dengan comment explaining blocker, branch deleted.
+  - **Phase 3: PTB 22.7 (HIGH RISK / actually OK) — green:**
+    - **PR #4** [`14bf69f`](pending) telegram-bot: python-telegram-bot 21.0→22.7. Sandbox runtime test on py3.11 (NOT py3.14): `bot.main()` execution reached `telegram.error.InvalidToken` from network layer — confirms `run_polling()` started successfully, no event loop bug. API surface check: `Application.builder()`, `CommandHandler`, `MessageHandler`, `filters.TEXT/COMMAND/Document.ALL`, `Update.ALL_TYPES`, `ForceReply`, `post_init` — all 15 handlers in bot.py compatible. Deploy 26011597472 1m10s. **Production verified live**: `Application started` log, `getUpdates HTTP/1.1 200 OK` polling Telegram API real-time.
+  - **Verification trail:**
+    - 4 deploys CI green: 26010917169 (PR#3, 1m8s), 26010978645 (PR#5, 2m32s), 26011342554 (PR#1 merge, 1m8s — but bot crash-loop after), 26011428766 (PR#1 revert, 48s), 26011597472 (PR#4, 1m10s). Total 5 deploys (incl. revert), 4 healthy.
+    - All 5 containers `Up healthy` post-final-deploy
+    - `/api/system_status` 10/10 green pre-PR#5 (langgraph-agent), confirms LLM tunnel + Qdrant 1.18 + R2 + SMTP + obsidian sync all functional with new deps
+    - `/api/chat` end-to-end LLM call returned coherent date-aware response, proving langgraph 1.2 StateGraph + qdrant-client 1.18 retrieval intact
+    - Bot logs show `Application started` + continuous `getUpdates 200 OK` every 10s, proving PTB 22.7 polling functional
+  - **PR #2 comment posted:** Blocker explanation + close reason. PR closed via `gh pr close 2 --delete-branch`. Future Dependabot will re-fire when py-rust-stemmers ships py3.14 wheels.
+  - **What this prevents long-term:**
+    - **CVE drift**: 6 deps berada di major-minor releases ago. Sekarang current — closes any latent CVEs released between 2026-Q1 and 2026-Q2.
+    - **PTB 22 unlocks features**: voice/audio handlers, business connection handler, message reaction handler — relevant untuk future voice-handler work item.
+    - **Documented py3.14 blockers**: PR #1 + #2 reasons recorded — next Dependabot py3.14 PR (akan fire lagi nanti) bisa langsung di-skim against these blockers.
+  - **Files MOD:** `langgraph-agent/requirements.txt` (post PR#5 = current), `telegram-bot/requirements.txt` (post PR#3 + PR#4 = current). Telegram-bot Dockerfile UNCHANGED (PR#1 reverted). langgraph-agent Dockerfile UNCHANGED (PR#2 closed).
+  - **Commits hari ini (chronological):**
+    - `f426b68` PR#3 telegram-bot minor-patch
+    - `4ff5e70` PR#5 langgraph-agent minor-patch
+    - `d35e992` PR#1 telegram-bot py3.14 (merged)
+    - `f8a9077` Revert PR#1 (production fix — bot crash-loop)
+    - `14bf69f` PR#4 PTB 22.7
+    - `<pending>` docs: TASK.md handoff post-triage
 
 - ✅ [2026-05-18 09:15 WIB] Natural-language delete task — LangGraph conditional routing
   - **Trigger:** User kirim pesan dari liburan jam 08:32 WIB: `delete "[high] review proposal Client A" dan "[urgent] TEST urgent: review proposal Client A"`. Bot respond seolah-olah sukses tapi user check, **task tidak terhapus**. Real usage feedback exposed capability gap.

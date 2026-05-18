@@ -1,45 +1,66 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-16 05:35 WIB  
+**Last Updated:** 2026-05-18 09:15 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 Production — All Health Checks Green | Personal Journal cron silent-fail FIXED, install script now restarts n8n on activation
+**Status:** 🟢 Production — All Health Checks Green | Natural-language delete shipped, 2 dummy tasks dogfood-cleaned
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Personal Journal acid test 21:30 WIB **GAGAL silent** semalam. Root cause: n8n 1.x `update:workflow --active=true` writes DB tapi tidak hot-reload schedule trigger di running process. Workflow di-activate ~15:33 WIB tadi siang via dispatch tapi n8n container last restarted 14 Mei 23:57 UTC → trigger tidak ter-load, cron 21:30 tidak fire. Fixed dengan restart n8n + permanent guard di `install_n8n_workflows.sh`. Acid test journal sekarang re-armed untuk 21:30 WIB malam ini.
+**Where we left off:** User pakai bot dari liburan dengan natural language: `delete "[high] review proposal Client A" dan "[urgent] TEST urgent: review proposal Client A"`. Bot respond seolah-olah hapus tapi **Qdrant tidak tersentuh** — LLM hallucinate success. Real usage feedback exposed capability gap. User pilih opsi B: build real `delete_task` capability. Shipped + dogfood verified — 2 dummy task asli sudah benar-benar terhapus dari production Qdrant.
 
-**Current state pasca-fix:**
-- n8n restarted 2026-05-15 22:34 UTC (= 16 Mei 05:34 WIB). Startup log konfirmasi: `Activated workflow "Personal Journal" (ID: 0wZd9GD1NMmgAN2Z)` — schedule trigger sekarang loaded di running process.
-- Endpoint `/api/journal_prompt` verified manual fire: 200 + Telegram delivered + force_reply markup correct.
-- 1 Telegram prompt journal terkirim ke user pas 05:13 WIB sebagai bagian dari diagnosis (test fire, real message). User boleh ignore atau jadikan first journal entry.
+**Architectural decision:** Bypass LLM tool-calling. Pakai **deterministic keyword detection di LangGraph workflow** untuk delete intent. Reasoning: (a) LLM custom via SSH tunnel, support tool-calling spec unknown, (b) destructive op pas user liburan butuh deterministic, bukan probabilistic. Conditional edge dari `understand` node: kalau message punya verb hapus + quoted target → route ke `delete_task_node` (skip LLM entirely). Else → existing `retrieve_context → generate_response` chain unchanged.
 
-**The acid tests pending in next 24h:**
-- ⏰ **07:00 WIB hari ini (T+1.5h):** Daily Briefing fire ke-2 setelah n8n restart. Verifikasi: trigger registry rebuild benar-benar persist setelah restart, semua 4 schedule workflow lain juga ke-load ulang correct.
-- ⏰ **21:30 WIB malam ini (T+16h):** Personal Journal **re-armed acid test**. Sekarang dengan trigger ter-load di running process. Expect Telegram prompt + force_reply markup. User reply → bot detect → POST `/api/journal` → vault `journal/2026-05.md` → sync_vault.
-- ⏰ **02:30 WIB Sunday (T+21h):** Backup `trap ERR` tetap acid test (unchanged from prior).
-- ⏰ **03:00 WIB Sunday (T+22h):** Weekly `verify_backup.sh` first natural fire.
+**Implementation summary:**
+- [`app/qdrant_helper.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/qdrant_helper.py) — new `delete_points(collection, ids)` primitive (Qdrant `PointIdsList` selector).
+- [`app/tools.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/tools.py) — `delete_tasks(ids)` + `find_pending_tasks_by_title(query)` (case-insensitive substring across pending tasks, max 100).
+- [`app/workflow.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/workflow.py) — `_extract_quoted_targets()` regex strips `[priority]` prefix, `understand()` rewrite untuk detect intent + targets, `_route_after_understand()` conditional edge function, `delete_task_node()` deterministic matcher dengan tie-breaking. Verbs detected: `hapus`, `delete`, `remove`, `buang`. Quote chars supported: `"..."`, smart quotes `"..."`, single smart `'...'`.
+- [`app/main.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/main.py) — endpoint `POST /api/task/delete` (direct-id escape hatch, Pydantic enforce 1-50 IDs).
 
-**The fix this session shipped:**
-- [`scripts/install_n8n_workflows.sh`](file:///home/ubuntu/bench/pro-secretary/scripts/install_n8n_workflows.sh) — script sekarang restart n8n setelah activation (jika ada workflow yang ter-activate). 10-attempt healthcheck loop tunggu container ready. Dengan ini, future `gh workflow run install-n8n-workflows.yml` aman: trigger ter-load tanpa intervensi manual.
+**Match algorithm (deterministic, no LLM in delete path):**
+1. Regex extract quoted targets dari message
+2. Strip `[priority]` prefix per target
+3. Per target: scroll pending tasks, substring match (case-insensitive)
+4. Multiple matches → exact-match tie-breaker. Still ambiguous → report, **don't delete**
+5. 0 matches → report `not_found`, **don't delete**
+6. Bulk delete via Qdrant API
+7. Reply: deleted / not_found / ambiguous as separate sections
 
-**Active n8n workflows (verified live, 5 total, post-restart):** Cal.com Booking Indexer, Daily Briefing, EOD Summary, Task Reminder, Personal Journal.
+**Safety properties:**
+- Only `pending` status (done/cancelled tasks tidak terjamah)
+- Ambiguous → conservative skip + report (no destructive guess)
+- Audit trail: action persisted to `agent_memory` collection dengan `meta.action='delete_task'`
+- Idempotent (Qdrant ignores missing IDs)
+- Bypass LLM = no hallucination
+
+**Verification trail:**
+- Unit tests local: 5/5 pass (quoted extraction, intent routing, edge cases)
+- Endpoint tests TestClient: 4/4 pass (auth, success, validation min/max length)
+- Integration test stub: 3/3 scenarios (real user message, not_found, no-quotes-fallback)
+- **Live production dogfood:** Pre-call: 2 tasks. POST `/api/chat` dengan exact user message. Response: `"✅ 2 task dihapus: ..."`. Post-call: **0 tasks**. Qdrant clean.
+- CI deploy 26009912132 green 1m9s.
+
+**5 Dependabot PRs still open** (pre-existing, deferred):
+- #1, #2: python `3.11-slim → 3.14-slim` Dockerfile bumps
+- #3, #5: minor-patch groups (telegram-bot + langgraph-agent)
+- #4: `python-telegram-bot 21 → 22` major bump
+- User decision: defer until balik kerja. Saat liburan, no merge.
+
+**The acid tests still pending in next 24h (unchanged from prior handoff):**
+- ⏰ **21:00 WIB hari ini:** EOD Summary fire ke-N. Sekarang dengan task pending = 0, bot tidak akan flag duplicate lagi.
+- ⏰ **21:30 WIB:** Personal Journal cron — masih nyala, masih natural fire. User boleh ignore (lagi liburan, no friction observed).
 
 **What NOT to do without checking:**
-- Don't run `n8n update:workflow --active=true` di VPS langsung tanpa restart n8n setelah. Itu cara yang barusan menyebabkan silent fail. Pakai dispatch `gh workflow run install-n8n-workflows.yml` yang sekarang sudah handle.
-- Don't wire `install_n8n_workflows.sh` ke `deploy.yml`. Auto-import-on-every-deploy + auto-restart akan kacau-kan workflow yang user sengaja deactivate.
-- Don't change vault mount back to `:ro` — journal write requires `:rw`.
-
-**Open EOD/journal data anomaly (separate investigation, in progress):**
-- EOD bot 21:00 WIB tadi malam flag duplicate task: 2× "Review proposal Client A" (high + urgent). Background explore agent (`bg_f10fbd27`) running untuk diagnosis: bug di `/api/task` dedup logic vs leftover test data. Result not yet collected. Continue this thread next session via background_output.
+- Don't add MORE intents (complete/update via NL) tanpa real usage signal. Capability gap baru di-fix; tunggu feedback user.
+- Don't broaden delete scope ke `done` atau cross-status. Saat ini `pending`-only by design.
+- Don't switch from substring → fuzzy matching tanpa real usage feedback.
+- Don't merge Dependabot PRs saat user liburan.
 
 **Next-step recommendations (sorted, you choose):**
-1. **WAIT** — let acid tests fire (07:00 briefing, 21:30 journal re-armed). Most aligned with "stop building tanpa real usage feedback".
-2. **Resolve dup task investigation** (~30 menit if it's a bug) — collect explore agent result, decide cleanup vs fix.
-3. **Voice handler** (~2-3 jam) — Whisper transcribe Telegram voice → route to chat. Game-changer for daily UX.
-4. **Caddy alpine TZ** (5-10 menit) — `apk add tzdata` so reverse proxy logs WIB instead of UTC. Cosmetic.
-5. **n8n CLI deprecation** (10 menit) — `n8n update:workflow` is deprecated, use `n8n workflow update`. Forward-compat only.
+1. **WAIT** — let user balik liburan. Dependabot review batch + voice handler bisa nunggu.
+2. **EOD verify malam ini** — confirm bot tidak flag duplicate task lagi (pending=0).
+3. **Voice handler** (~2-3 jam) — Whisper transcribe Telegram voice, masih open dari sebelum liburan.
 
 ---
 
@@ -81,16 +102,62 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ### Active Tasks
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX.
 - [ ] **OPTIONAL:** EOD Summary verification besok pagi — natural fire 21:00 WIB hari ini sudah verified, tapi quality content evaluasi setelah dipakai 1-2 minggu.
-- [ ] **WAITING (re-armed after silent-fail fix):** Personal Journal acid test — natural cron fire 21:30 WIB malam ini. Sebelumnya 15 Mei 21:30 GAGAL silent karena trigger tidak ter-load di running n8n process. Fixed via restart 16 Mei 05:34 WIB. Endpoint chain manual-fire OK.
-- [ ] **WAITING:** Daily Briefing 07:00 WIB hari ini — first fire post n8n restart. Verifikasi semua schedule trigger persist setelah restart.
-- [ ] **OPEN INVESTIGATION:** EOD bot 21:00 WIB 15 Mei flag duplicate task "Review proposal Client A" (high + urgent). Background explore agent `bg_f10fbd27` running untuk diagnosis dedup vs leftover data. Collect via `background_output(task_id="bg_f10fbd27")` next session.
-- [ ] **USER-ACTION (1 menit):** Enable Dependabot alerts di GitHub UI: repo Settings → Code security → "Dependabot alerts" + "Dependabot security updates" → toggle on. Repo punya `.github/dependabot.yml` (version updates aktif weekly), tapi alerts (proactive CVE feed) butuh one-time toggle terpisah. Strongly recommended untuk close loop pada 0-CVE state.
+- [ ] **WAITING (re-armed after silent-fail fix):** Personal Journal acid test — natural cron fire 21:30 WIB malam ini. User lagi liburan, kemungkinan tetap tidak reply. Behavior expected, bukan bug.
+- [ ] **WAITING:** EOD 21:00 WIB hari ini — verify bot tidak flag duplicate task lagi setelah cleanup (pending tasks=0 sekarang).
+- [ ] **DEPENDABOT (defer until user balik kerja):** 5 PRs open — #1, #2 python 3.14-slim, #3, #5 minor-patch groups, #4 python-telegram-bot 22 major bump.
+- [ ] **USER-ACTION (1 menit):** Enable Dependabot alerts di GitHub UI: repo Settings → Code security → "Dependabot alerts" + "Dependabot security updates" → toggle on. ✅ User sudah toggle (5 PRs muncul, confirmed).
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
 
 ### Blocked/Waiting
 - None. Semua dependencies green, semua chain verified live.
 
 ### Recently Completed
+
+- ✅ [2026-05-18 09:15 WIB] Natural-language delete task — LangGraph conditional routing
+  - **Trigger:** User kirim pesan dari liburan jam 08:32 WIB: `delete "[high] review proposal Client A" dan "[urgent] TEST urgent: review proposal Client A"`. Bot respond seolah-olah sukses tapi user check, **task tidak terhapus**. Real usage feedback exposed capability gap.
+  - **Diagnosis (ground truth dari logs):**
+    - Bot terima message ✅, forward ke `/api/chat` ✅, agent log show LLM `chat/completions` 200 ✅
+    - **Zero DELETE call ke Qdrant** — agent log cuma `scroll` (read) + `agent_memory upsert` (save conversation memory)
+    - LLM hallucinated success dalam prose — classic "I-helpfully-confirmed-but-did-nothing" failure mode
+    - Codebase audit confirm: `tools.py` has create_task/complete_task tapi **no delete_task**, `qdrant_helper.py` has search/upsert/scroll/set_payload tapi **no delete_points**, `workflow.py` is linear (`understand → retrieve_context → generate_response`) — `understand()` detected intent tapi state.intent **dead code**, never used for routing
+  - **Architectural decision (Oracle-skipped, scope simple enough):**
+    - **Bypass LLM tool calling** — pakai deterministic keyword detection. Reasoning:
+      - LLM custom via SSH tunnel, function-calling spec unknown / unverified
+      - Destructive op pas user liburan — butuh deterministic, bukan probabilistic
+      - Existing `understand()` keyword detection sudah ada (cuma tidak dipakai), repurpose itu
+    - **Conditional routing** via `add_conditional_edges` — kalau intent=delete_task → `delete_task_node` → END. Else → existing chain unchanged. Backward-compat 100%, no regression risk untuk normal chat path.
+    - **Match algorithm:** scroll all pending tasks, case-insensitive substring per target. Multiple match → exact-title tie-breaker. Still ambiguous → conservative skip + report. 0 match → not_found + report. **Never delete on ambiguous**.
+  - **Implementation (4 files, +153 lines, -14 lines):**
+    - [`app/qdrant_helper.py:130-138`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/qdrant_helper.py#L130-L138) — `delete_points(collection, ids)` via `qmodels.PointIdsList`
+    - [`app/tools.py:55-72`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/tools.py#L55-L72) — `delete_tasks(ids)` + `find_pending_tasks_by_title(query)` (max 100 scan, case-insensitive substring)
+    - [`app/workflow.py`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/workflow.py) — full rewrite: regex `_extract_quoted_targets()` (handles `"..."`, smart `"..."`, `'...'`, strips `[priority]` prefix), `understand()` rewrite untuk return intent+targets, `_route_after_understand()` conditional fn, `delete_task_node()` deterministic matcher, `build_graph()` updated dengan conditional edges
+    - [`app/main.py:74-75,168-172`](file:///home/ubuntu/bench/pro-secretary/langgraph-agent/app/main.py) — `TaskDeleteRequest` Pydantic (1-50 IDs) + `POST /api/task/delete` direct-id escape hatch
+  - **Verification trail:**
+    - Unit tests local: 5/5 (quoted extraction with priority strip, intent routing for delete/chat/bare-delete-no-quotes, Indo "hapus" verb)
+    - Endpoint TestClient: 4/4 (auth required, success path, empty list 422, oversize 422)
+    - Integration test stub: 3/3 scenarios:
+      1. User's exact real message → 2 IDs deleted, unrelated task untouched, response `"✅ 2 task dihapus"`
+      2. Target not found → 0 deletes, response `"⚠️ Tidak ditemukan"`
+      3. "delete something" no quotes → fallback to chat (no destructive action)
+    - **Live production dogfood (full end-to-end via /api/chat):**
+      - Pre-call Qdrant: 2 tasks (`1e4b5d44... [high]`, `5fde1b9c... [urgent]`)
+      - POST `/api/chat` dengan exact user message
+      - Response: `"✅ 2 task dihapus: review proposal Client A, TEST urgent: review proposal Client A"`
+      - Post-call Qdrant: **0 tasks** ✓
+    - CI deploy 26009912132 green 1m9s
+  - **Safety properties shipped:**
+    - Only `pending` status (done/cancelled untouched)
+    - Ambiguous → conservative skip + report (no destructive guess)
+    - Audit trail: `agent_memory` collection logs every delete with `meta.action='delete_task'`
+    - Idempotent (Qdrant ignores missing IDs)
+    - LLM-bypass = no hallucination
+  - **What this enables:**
+    - User bisa hapus task pakai natural language: `delete "task title"`, `hapus "X" dan "Y"`, smart-quote variations
+    - Direct-id escape hatch via `POST /api/task/delete` untuk script/automation
+    - Foundation untuk future natural-language mutations (complete, update) — pattern established, scope locked
+  - **Files MOD:** `app/qdrant_helper.py` (+11), `app/tools.py` (+18), `app/workflow.py` (+128/-14), `app/main.py` (+10)
+  - **Commit:** [`<hash>`](pending) `feat(agent): natural-language delete task via LangGraph conditional routing`. Push commit `de130f4..<hash>`.
+  - **Real usage signal closed:** User bilang "task tidak terhapus" → diagnose → fix capability gap → ship → dogfood verify → user akan see clean Telegram result kalau coba lagi. Loop closed.
 
 - ✅ [2026-05-16 05:34 WIB] Personal Journal silent-fail fix — n8n restart on activation
   - **Trigger:** User report EOD Summary 21:00 WIB 15 Mei delivered correctly (acid test ✅) tapi tidak ada laporan dari Personal Journal 21:30 WIB. Investigation reveals acid test journal **gagal silent**.

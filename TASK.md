@@ -1,21 +1,22 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-18 10:19 WIB  
+**Last Updated:** 2026-05-18 11:36 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 Production — All Health Checks Green | Dependabot triage SELESAI (3 merged, 1 reverted, 1 closed)
+**Status:** 🟢 Production — All Health Checks Green | Dependabot triage DONE, roadmap updated (self-improving + parallel tools)
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Dependabot batch triage complete dalam 1 jam (09:30 → 10:19 WIB). 4 deploy CI green, 1 incident ditemukan + fixed via revert (PTB 21 + py3.14 incompat asyncio.get_event_loop), 1 PR ditutup (py-rust-stemmers tidak punya py3.14 wheels). Production state stable, semua deps sekarang current minor versions + python-telegram-bot 22.7.
+**Where we left off:** Dependabot batch triage complete + roadmap updated. Session ini (09:30 → 11:36 WIB): 5 Dependabot PRs triaged (3 merged, 1 reverted, 1 closed), production stable, lalu user riset Hermes Agent (NousResearch) dan decide tambah 2 fitur ke roadmap: self-improving skills + parallel tool execution. User akan lanjut di session opencode lain.
 
-**Production state right now (verified 10:19 WIB):**
-- 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent ~3m (post PR#5 deploy), telegram-bot ~2m (post PR#4 deploy 26011597472)
+**Production state right now (verified 10:19 WIB, unchanged since):**
+- 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot ~1h (post PR#4+#5 deploy)
 - All deploys verified: agent /health 200, n8n /healthz 200, telegram-bot getUpdates polling 200
 - Versions deployed: fastapi 0.136.1, uvicorn 0.47.0, httpx 0.28.1, pydantic 2.13.4, qdrant-client 1.18.0, fastembed 0.8.0, langgraph 1.2.0, psycopg 3.3.4, boto3 1.43.9, python-telegram-bot 22.7
-- Python: 3.11.15 (both containers — py3.14 deferred, see "Closed/Reverted PRs" below)
-- Last commit: `14bf69f` (PR#4 PTB 22.7 merge), revert: `f8a9077` (PR#1 revert), feat: `4ff5e70` (PR#5 minor-patch)
+- Python: 3.11.15 (both containers — py3.14 deferred)
+- Last commit: `2f0bf0d` (TASK.md handoff), code: `14bf69f` (PR#4 PTB 22.7)
+- 0 open Dependabot PRs (all resolved)
 
 **Triage outcomes (5 Dependabot PRs):**
 
@@ -35,9 +36,10 @@
 
 **Suggested next-session opening (pilih one):**
 
-1. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX.
-2. **Cleanup Personal Journal** (~5 menit): user tidak pernah reply prompt selama 4 hari liburan. Either deactivate workflow `0wZd9GD1NMmgAN2Z` via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="0wZd9GD1NMmgAN2Z"`, atau shift schedule dari 21:30 ke time yang fits user's actual routine. **Recommendation:** wait 1 minggu of regular usage (data sample 4 hari liburan tidak representatif).
-3. **Reopen py3.14 path (deferred):** Wait beberapa minggu. Re-test #1 (telegram-bot py3.14) AFTER #4 PTB 22.7 merged — PTB 22.x might fix the asyncio bug. Re-test #2 (langgraph-agent py3.14) when py-rust-stemmers ships py3.14 wheels (check via `pip install py-rust-stemmers --python-version 3.14`).
+1. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX. **Recommended first.**
+2. **Self-improving skills Phase 1** (~2-3 jam): Passive skill logging ke Qdrant `skills` collection. Record successful multi-step interactions, user trigger via `/skill <name>`. Low risk, read-only addition. Lihat NEXT STEPS #5 untuk detail.
+3. **Cleanup Personal Journal** (~5 menit): user tidak pernah reply prompt selama 4 hari liburan. Either deactivate workflow `0wZd9GD1NMmgAN2Z` via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="0wZd9GD1NMmgAN2Z"`, atau shift schedule dari 21:30 ke time yang fits user's actual routine. **Recommendation:** wait 1 minggu of regular usage (data sample 4 hari liburan tidak representatif).
+4. **Reopen py3.14 path (deferred):** Wait beberapa minggu. Re-test #1 (telegram-bot py3.14) — PTB 22.7 sekarang merged, might fix asyncio bug. Re-test #2 (langgraph-agent py3.14) when py-rust-stemmers ships py3.14 wheels.
 
 ---
 
@@ -1286,6 +1288,46 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
    - Voice interface integration
    - Mobile app companion
    - Advanced RAG pipeline
+
+5. **Future — Self-Improving Agent (inspired by Hermes Agent)**
+   - **Apa:** Procedural memory — agent simpan *cara* menyelesaikan task (bukan cuma *fakta*), lalu reuse di task serupa berikutnya.
+   - **Phase 1 — Passive skill logging (~2-3 jam):**
+     - Qdrant collection baru: `skills` (384-dim, same embedding model)
+     - Setelah multi-step task selesai (e.g., briefing custom, complex search + summarize), simpan sebagai skill: `{name, trigger_description, steps[], tools_used[], success_count, last_improved}`
+     - Skill di-record tapi **TIDAK auto-execute** — user trigger explicit via `/skill <name>` atau agent suggest "Saya punya skill untuk ini, mau pakai?"
+     - Deterministic routing tetap untouched — skill system hanya untuk non-destructive tasks
+   - **Phase 2 — Skill retrieval in understand() (~1-2 jam):**
+     - Di `understand()` node, sebelum LLM reasoning: semantic search `skills` collection (threshold 0.8+)
+     - Match? Inject skill steps ke LLM context sebagai "suggested approach" (bukan forced execution)
+     - LLM bisa follow atau deviate — tetap ada human-in-the-loop via response
+   - **Phase 3 — Skill self-improvement (~2-3 jam):**
+     - Setelah skill-assisted task selesai: user feedback positif → `success_count++`
+     - User feedback negatif atau explicit correction → LLM generate improved skill version, simpan sebagai update
+     - Threshold: skill dengan `success_count < 3` masih "draft", tidak di-suggest otomatis
+   - **Constraints (NON-NEGOTIABLE):**
+     - Skills NEVER auto-execute destructive ops (delete, modify, send). Hanya suggest.
+     - Existing deterministic routing (`delete_task_node`, keyword detection) tetap priority 1 — skill system adalah fallback untuk novel/complex tasks
+     - Skill creation hanya dari user-initiated tasks (bukan dari cron/automated workflows)
+   - **Effort total:** ~6-8 jam across 3 phases. Bisa incremental — Phase 1 standalone sudah useful.
+   - **Reference:** Hermes Agent skills system (https://github.com/nousresearch/hermes-agent), agentskills.io open standard
+
+6. **Future — Parallel Tool Execution (lightweight, bukan full subagent)**
+   - **Apa:** Untuk task yang butuh 3+ independent data sources, jalankan tool calls bersamaan (bukan sequential). Bukan full subagent isolation — cukup `asyncio.gather` di Python.
+   - **Kapan justified (trigger condition):**
+     - Voice handler: transcribe audio + fetch schedule + check pending tasks → 3 parallel calls sebelum LLM generate response
+     - Research mode: search vault + search agent_memory + search web → aggregate sebelum summarize
+     - `/status` sudah pakai pattern ini (10 health checks via `asyncio.gather`) — extend ke chat flow
+   - **Implementation plan (~3-4 jam):**
+     - Tambah `parallel_retrieve` node di LangGraph setelah `understand()`: kalau intent butuh multiple data sources, fire semua retrieval bersamaan via `asyncio.gather`
+     - Results di-merge ke state, lalu `generate_response` node terima semua context sekaligus
+     - LangGraph 1.2 `Send()` API bisa dipakai untuk parallel branch execution (sudah available post PR#5 merge)
+     - Fallback: kalau 1 retrieval timeout/fail, yang lain tetap proceed (partial result > no result)
+   - **Bukan full subagent karena:**
+     - 1-user system, tidak perlu context isolation (semua dalam 1 request scope)
+     - Overhead spawn separate process > benefit untuk 2-5 detik latency saving
+     - Complexity budget lebih baik dipakai untuk skill system (higher ROI)
+   - **Prerequisite:** Voice handler selesai dulu (itu use case pertama yang justify parallelism)
+   - **Reference:** Hermes Agent subagent spawning, LangGraph 1.2 Send() API
 
 ---
 

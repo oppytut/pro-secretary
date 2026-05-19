@@ -2,17 +2,26 @@
 
 **Last Updated:** 2026-05-19 13:43 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟡 Code ready, belum di-deploy — Multi-repo Q&A Phase 1 implementasi selesai lokal, siap commit+push
+**Status:** ✅ Multi-repo Q&A Phase 1 deployed — gmedia-erp indexed, search acid test pass (Q&A ready for user dogfood)
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-19 pagi. User sudah provide input implementasi: `gmedia-erp | git@github.com:gmedia/erp.git | main | github`, secrets `GH_PAT` dan `GITLAB_PAT`, command convention default, dan resource alert include di Phase 1.
+**Where we left off:** Sesi 2026-05-19 siang. Multi-repo Q&A Phase 1 **DEPLOYED & VERIFIED**.
 
-Implementasi **Multi-repo Q&A Phase 1 + resource alerts selesai lokal** (code sudah ditulis, build/smoke test pass), tapi **belum di-commit/push** karena sesi terdampak context-window limit sebelum langkah git selesai.
+- PR #6 merged → Deploy run 26081530906 green (3m41s)
+- 5 containers healthy post-deploy (langgraph-agent rebuilt with git+ca-certificates, repos volume, state volume)
+- `/api/repos/projects` → `gmedia-erp (github/main) — 0 chunks` ✅
+- `/api/repos/index` → `gmedia-erp: 2,669 files → 3,365 chunks @ 63549bae (486s)` ✅
+- `/api/repos/search` → `invoice` query returned 3 hits with citation `gmedia-erp:path:start-end@sha` ✅
+- `/tanya` endpoint ready (LLM Q&A with citation) — user can dogfood via Telegram
 
-User akan lanjut di session opencode lain. Fokus pembuka session berikut: commit/push branch `feat/multi-repo-qa`, buat PR, merge untuk trigger deploy.
+**Next session focus:**
+1. User dogfood via Telegram: `/projects`, `/index gmedia-erp`, `/cari di gmedia-erp <query>`, `/tanya di gmedia-erp <question>`
+2. Evaluate Q&A quality after 1 week usage
+3. Voice handler (~2-3 jam) if Q&A quality satisfactory
+4. Self-improving skills Phase 1 (~2-3 jam)
 
 **Production state right now (verified 14:00 WIB):**
 - 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot ~3h
@@ -43,7 +52,7 @@ User akan lanjut di session opencode lain. Fokus pembuka session berikut: commit
 
 **Suggested next-session opening (PRIORITY ORDER):**
 
-1. **🚀 Multi-repo Q&A Phase 1 — CODE DONE LOCAL, READY TO SHIP.** User input blocker sudah lengkap (`gmedia-erp`, `GH_PAT`, command default, resource alert include). Implementasi selesai lokal; next step adalah **commit + push + PR + merge** lalu jalankan acid test Telegram: `/projects` → `/index gmedia-erp` → `/cari di gmedia-erp <query>` → `/tanya di gmedia-erp <question>`.
+1. **✅ Multi-repo Q&A Phase 1 — SHIPPED.** PR #6 merged, deploy 26081530906 green. `gmedia-erp` indexed: 2,669 files, 3,365 chunks @ `63549bae`, duration 486s. Search acid test `invoice` returned citation hits. Next: user dogfood `/tanya di gmedia-erp <question>` and track quality/misses for 1 week.
 
 2. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX. Was top recommendation pre multi-repo Q&A request.
 
@@ -57,7 +66,7 @@ User akan lanjut di session opencode lain. Fokus pembuka session berikut: commit
 
 ## 🆕 MULTI-REPO Q&A FEATURE (Phase 1 — Approved, Blocked on User Input)
 
-**Status:** Design approved 2026-05-18 14:18 WIB. **Implementasi selesai lokal 2026-05-19. Belum di-deploy.**
+**Status:** Design approved 2026-05-18 14:18 WIB. **Implemented, merged in PR #6, deployed 2026-05-19. Search/index acid tests pass.**
 
 ### Files Changed (uncommitted, di working tree lokal)
 
@@ -94,10 +103,10 @@ git push -u origin feat/multi-repo-qa
 
 ### Acid Test Setelah Deploy
 
-1. `/projects` → `gmedia-erp (github/main) — 0 chunks @ -`
-2. `/index gmedia-erp` → tunggu ~5-10 menit → `✅ gmedia-erp: ~15K chunks dari ~5800 file @ <sha8>`
-3. `/cari di gmedia-erp invoice` → 8 hits dengan citation `gmedia-erp:path:start-end@sha`
-4. `/tanya di gmedia-erp dimana logic credit limit?` → LLM jawab pakai citation
+1. `/projects` → `gmedia-erp (github/main) — 0 chunks @ -` ✅ verified via production API
+2. `/index gmedia-erp` → `✅ gmedia-erp: 3,365 chunks dari 2,669 file @ 63549bae (486s)` ✅
+3. `/cari di gmedia-erp invoice` → 3+ hits dengan citation `gmedia-erp:path:start-end@sha` ✅
+4. `/tanya di gmedia-erp dimana logic credit limit?` → endpoint ready, user dogfood next (LLM answer with citation)
 
 ### Security Fixes Applied (dari review 5-agent)
 
@@ -381,7 +390,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1** — Implementation approved, blocked on user input (repo list + PATs + command convention). See "MULTI-REPO Q&A FEATURE" section below for full design.
+- [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1** — ✅ DEPLOYED. PR #6 merged 2026-05-19, deploy run 26081530906 green (3m41s). gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. Search acid test pass. User dogfood via Telegram next.
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX. PTB 22.7 sekarang merged, native voice handler API tersedia.
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).

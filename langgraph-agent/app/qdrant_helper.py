@@ -6,6 +6,7 @@ from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
+from qdrant_client.models import Distance, VectorParams
 
 from . import config
 from .embedding import embed
@@ -34,11 +35,28 @@ _INDEXES: dict[str, tuple[str, ...]] = {
     config.COLL_TASKS: ("status", "priority", "user_id"),
     config.COLL_KNOWLEDGE: ("source", "type"),
     config.COLL_MEMORY: ("type", "user_id"),
+    config.COLL_CODE: ("repo_id", "commit", "path", "language"),
 }
+
+
+def ensure_collection(collection: str, vector_size: int = config.EMBEDDING_DIM) -> None:
+    client = get_client()
+    existing = {c.name for c in client.get_collections().collections}
+    if collection in existing:
+        return
+    client.create_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+    )
 
 
 def ensure_payload_indexes() -> None:
     client = get_client()
+    for collection in _INDEXES:
+        try:
+            ensure_collection(collection)
+        except Exception:
+            pass
     for collection, fields in _INDEXES.items():
         for field in fields:
             try:
@@ -67,13 +85,13 @@ def search(
         ]
         qfilter = qmodels.Filter(must=must)
 
-    hits = get_client().search(
+    hits = get_client().query_points(
         collection_name=collection,
-        query_vector=vector,
+        query=vector,
         limit=limit,
         query_filter=qfilter,
         with_payload=True,
-    )
+    ).points
     return [
         {"id": str(h.id), "score": float(h.score), "payload": h.payload or {}}
         for h in hits
@@ -137,3 +155,27 @@ def delete_points(collection: str, point_ids: list[str]) -> int:
         wait=True,
     )
     return len(point_ids)
+
+
+def delete_by_filter(collection: str, filters: dict[str, Any]) -> None:
+    must = [
+        qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
+        for k, v in filters.items()
+    ]
+    get_client().delete(
+        collection_name=collection,
+        points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=must)),
+        wait=True,
+    )
+
+
+def count(collection: str, filters: dict[str, Any] | None = None) -> int:
+    qfilter = None
+    if filters:
+        must = [
+            qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
+            for k, v in filters.items()
+        ]
+        qfilter = qmodels.Filter(must=must)
+    result = get_client().count(collection_name=collection, count_filter=qfilter, exact=True)
+    return int(result.count)

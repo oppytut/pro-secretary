@@ -526,8 +526,10 @@ async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sha = (p.get("indexed_commit") or "-")[:8]
         chunks = p.get("chunks", 0)
         flag = "✅" if p.get("enabled") else "⏸️"
+        aliases = p.get("aliases") or []
+        alias_text = f" alias: {', '.join(aliases)}" if aliases else ""
         lines.append(
-            f"{flag} {p['id']} ({p.get('provider')}/{p.get('branch')}) — {chunks} chunks @ {sha}"
+            f"{flag} {p['id']} ({p.get('provider')}/{p.get('branch')}) — {chunks} chunks @ {sha}{alias_text}"
         )
     await update.message.reply_text("\n".join(lines))
 

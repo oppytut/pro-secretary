@@ -75,6 +75,7 @@ class RepoConfig:
     provider: str
     url: str
     branch: str
+    aliases: tuple[str, ...] = ()
     enabled: bool = True
 
 
@@ -87,12 +88,16 @@ def load_repos() -> list[RepoConfig]:
     out: list[RepoConfig] = []
     for item in repos:
         try:
+            raw_aliases = item.get("aliases") or []
+            if isinstance(raw_aliases, str):
+                raw_aliases = [raw_aliases]
             repo = RepoConfig(
                 id=str(item["id"]),
                 name=str(item.get("name") or item["id"]),
                 provider=str(item["provider"]).lower(),
                 url=str(item["url"]),
                 branch=str(item.get("branch") or "main"),
+                aliases=tuple(str(a) for a in raw_aliases),
                 enabled=bool(item.get("enabled", True)),
             )
         except (KeyError, TypeError, ValueError):
@@ -101,9 +106,19 @@ def load_repos() -> list[RepoConfig]:
     return out
 
 
-def get_repo(repo_id: str) -> RepoConfig | None:
+def resolve_repo_id(repo_id: str) -> str | None:
     for repo in load_repos():
-        if repo.enabled and repo.id == repo_id:
+        if not repo.enabled:
+            continue
+        if repo.id == repo_id or repo_id in repo.aliases:
+            return repo.id
+    return None
+
+
+def get_repo(repo_id: str) -> RepoConfig | None:
+    resolved_id = resolve_repo_id(repo_id)
+    for repo in load_repos():
+        if repo.enabled and repo.id == resolved_id:
             return repo
     return None
 
@@ -124,6 +139,7 @@ def list_projects() -> list[dict[str, Any]]:
                 "name": repo.name,
                 "provider": repo.provider,
                 "branch": repo.branch,
+                "aliases": list(repo.aliases),
                 "enabled": repo.enabled,
                 "indexed_commit": latest.get("commit"),
                 "indexed_at": latest.get("indexed_at"),
@@ -166,12 +182,14 @@ def index_repo(repo_id: str) -> dict[str, Any]:
 
 
 def search_code(query: str, repo_id: str | None = None, limit: int = 8) -> list[dict[str, Any]]:
-    filters = {"repo_id": repo_id} if repo_id else None
+    resolved = resolve_repo_id(repo_id) if repo_id else None
+    filters = {"repo_id": resolved} if resolved else None
     return qdrant_helper.search(config.COLL_CODE, query, limit=limit, filters=filters)
 
 
 async def answer_code_question(question: str, repo_id: str | None = None) -> str:
-    hits = search_code(question, repo_id=repo_id, limit=10)
+    resolved = resolve_repo_id(repo_id) if repo_id else None
+    hits = search_code(question, repo_id=resolved, limit=10)
     useful = [h for h in hits if float(h.get("score", 0)) >= 0.2]
     if not useful:
         target = f" di {repo_id}" if repo_id else ""

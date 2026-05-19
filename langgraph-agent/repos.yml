@@ -4,4 +4,6 @@ repos:
     provider: github
     url: https://github.com/gmedia/erp.git
     branch: main
+    aliases:
+      - erp-gmedia
     enabled: true

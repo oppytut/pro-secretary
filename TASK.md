@@ -1,38 +1,60 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-19 13:43 WIB  
+**Last Updated:** 2026-05-19 15:50 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Multi-repo Q&A Phase 1 deployed — gmedia-erp indexed, search acid test pass (Q&A ready for user dogfood)
+**Status:** ✅ Multi-repo Q&A Phase 1 deployed + repo alias fixed — dogfood phase, stop building until usage feedback
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-19 siang. Multi-repo Q&A Phase 1 **DEPLOYED & VERIFIED**.
+**Where we left off:** Sesi 2026-05-19 sore. Multi-repo Q&A Phase 1 **DEPLOYED, INDEXED, VERIFIED + 2 hotfixes shipped**.
 
-- PR #6 merged → Deploy run 26081530906 green (3m41s)
-- 5 containers healthy post-deploy (langgraph-agent rebuilt with git+ca-certificates, repos volume, state volume)
-- `/api/repos/projects` → `gmedia-erp (github/main) — 0 chunks` ✅
-- `/api/repos/index` → `gmedia-erp: 2,669 files → 3,365 chunks @ 63549bae (486s)` ✅
-- `/api/repos/search` → `invoice` query returned 3 hits with citation `gmedia-erp:path:start-end@sha` ✅
-- `/tanya` endpoint ready (LLM Q&A with citation) — user can dogfood via Telegram
+**Session deliverables (3 commits after PR #6 merge):**
+1. PR #6 merged → Multi-repo Q&A Phase 1 deployed (5 atomic commits)
+2. `fix(bot): remove Markdown parsing from model command` — /model crashed due to Telegram parse_mode="Markdown" + angle brackets
+3. `feat(agent): add repo alias support for flexible lookup` — user typed `erp-gmedia`, system only knew `gmedia-erp`. Now aliases resolve transparently.
 
-**Next session focus:**
-1. User dogfood via Telegram: `/projects`, `/index gmedia-erp`, `/cari di gmedia-erp <query>`, `/tanya di gmedia-erp <question>`
-2. Evaluate Q&A quality after 1 week usage
-3. Voice handler (~2-3 jam) if Q&A quality satisfactory
-4. Self-improving skills Phase 1 (~2-3 jam)
+**Production state (verified 15:43 WIB):**
+- 5 containers healthy: caddy 4d, calcom 4d, n8n 3d, langgraph-agent + telegram-bot ~1h (post-deploy)
+- `gmedia-erp` indexed: 2,669 files → 3,365 chunks @ `63549bae` (486s)
+- Alias `erp-gmedia` → `gmedia-erp` resolves for search/ask/index ✅
+- `/model` responds without crash ✅
+- Deploy runs: 26081530906 (PR#6, 3m41s), 26083770425 (/model fix, 59s), 26086224683 (alias, 1m21s) — all green
+- Last commit on main: `feat(agent): add repo alias support for flexible lookup`
 
-**Production state right now (verified 14:00 WIB):**
-- 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot ~3h
-- 4 backup archives present (15/16/17/18 Mei), R2 mirror confirmed
-- Weekly verify drill 17 Mei 03:00 WIB PASS (5/5 integrity checks, Telegram report delivered)
-- 5 workflows active: Cal.com Booking Indexer, Daily Briefing, EOD Summary, Task Reminder, Personal Journal
-- 1 transient health blip 13:00 WIB hari ini (langgraph-agent HTTP 000, container uptime 3h, recovered di 13:05). Single occurrence = noise, monitor untuk pattern.
-- Versions deployed: fastapi 0.136.1, uvicorn 0.47.0, httpx 0.28.1, pydantic 2.13.4, qdrant-client 1.18.0, fastembed 0.8.0, langgraph 1.2.0, psycopg 3.3.4, boto3 1.43.9, python-telegram-bot 22.7
-- Python: 3.11.15 (both containers — py3.14 deferred)
-- Last commit: `2f0bf0d` (TASK.md handoff pagi), code: `14bf69f` (PR#4 PTB 22.7)
-- 0 open Dependabot PRs (all resolved)
+**User dogfood observations (same session):**
+- `/tanya di erp-gmedia ada berapa modul?` → "Tidak ketemu konteks" — expected, overview questions span too many files for top-10 retrieval
+- `/tanya di gmedia-erp <specific question>` → answered with "konteks tidak cukup" for broad questions — correct behavior (honest "tidak tahu" > hallucinate)
+- Specific lookup queries (`/cari di gmedia-erp invoice`) → works well with citations
+
+**Cross-repo Q&A status:**
+- `/tanya <question>` (tanpa `di <repo>`) already searches ALL repos — no filter applied
+- Explicit multi-repo syntax (`/tanya di repo-a,repo-b ...`) NOT implemented yet — wait for user need signal
+
+**Next session focus (PRIORITY ORDER):**
+
+1. **DOGFOOD 3-7 hari** — stop building. User pakai Q&A daily, track:
+   - Pertanyaan spesifik (lokasi kode, fungsi) → harusnya bagus
+   - Pertanyaan flow bisnis (invoice lifecycle) → mungkin cukup
+   - Pertanyaan overview (berapa modul?) → expected lemah
+   - Track hit/miss ratio untuk keputusan improvement
+
+2. **Setelah data terkumpul, pilih 1:**
+   - Jika overview sering dibutuhkan → tambah "repo overview chunk" saat indexing (file tree, route list, module folders)
+   - Jika cross-repo sering dibutuhkan → implement multi-repo filter syntax
+   - Jika retrieval miss padahal keyword ada → naikkan top-K 10→20 atau hybrid search
+   - Jika semua cukup bagus → tambah 5-10 repo lain, lalu voice handler
+
+3. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. PTB 22.7 native support.
+
+4. **Self-improving skills Phase 1** (~2-3 jam): Passive skill logging.
+
+5. **Jangan lakukan sebelum ada data:**
+   - Ganti embedding model
+   - Multi-repo filter syntax
+   - Repo overview chunk
+   - Tambah repo lain
 
 **Triage outcomes (5 Dependabot PRs):**
 
@@ -52,29 +74,35 @@
 
 **Suggested next-session opening (PRIORITY ORDER):**
 
-1. **✅ Multi-repo Q&A Phase 1 — SHIPPED.** PR #6 merged, deploy 26081530906 green. `gmedia-erp` indexed: 2,669 files, 3,365 chunks @ `63549bae`, duration 486s. Search acid test `invoice` returned citation hits. Next: user dogfood `/tanya di gmedia-erp <question>` and track quality/misses for 1 week.
+1. **✅ Multi-repo Q&A Phase 1 — SHIPPED + HOTFIXED.** PR #6 merged, deploy green. `gmedia-erp` indexed: 2,669 files, 3,365 chunks @ `63549bae`. Alias `erp-gmedia` resolves. `/model` fix deployed. **Now in dogfood phase — do NOT build new features until 3-7 days usage data collected.**
 
-2. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX. Was top recommendation pre multi-repo Q&A request.
+2. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX. **Only start after Q&A dogfood confirms baseline is useful.**
 
-3. **Self-improving skills Phase 1** (~2-3 jam): Passive skill logging ke Qdrant `skills` collection. Record successful multi-step interactions, user trigger via `/skill <name>`. Low risk, read-only addition. Lihat NEXT STEPS #5 untuk detail.
+3. **Self-improving skills Phase 1** (~2-3 jam): Passive skill logging ke Qdrant `skills` collection. Record successful multi-step interactions, user trigger via `/skill <name>`. Low risk, read-only addition.
 
-4. **Cleanup Personal Journal** (~5 menit): user tidak pernah reply prompt selama 4 hari liburan. Either deactivate workflow `0wZd9GD1NMmgAN2Z` via `gh workflow run deactivate-n8n-workflow.yml -f workflow_ids="0wZd9GD1NMmgAN2Z"`, atau shift schedule dari 21:30 ke time yang fits user's actual routine. **Recommendation:** wait 1 minggu of regular usage (data sample 4 hari liburan tidak representatif).
+4. **Q&A improvements (data-driven, after dogfood):**
+   - Repo overview chunk (file tree, module list) — if overview questions frequently needed
+   - Multi-repo filter syntax (`/tanya di repo-a,repo-b ...`) — if cross-repo explicitly needed
+   - Top-K increase 10→20 — if retrieval misses on keywords that exist
+   - Hybrid search — if embedding-only retrieval insufficient
 
-5. **Reopen py3.14 path (deferred):** Wait beberapa minggu. Re-test #1 (telegram-bot py3.14) — PTB 22.7 sekarang merged, might fix asyncio bug. Re-test #2 (langgraph-agent py3.14) when py-rust-stemmers ships py3.14 wheels.
+5. **Cleanup Personal Journal** (~5 menit): wait 1 minggu regular usage first.
+
+6. **Reopen py3.14 path (deferred):** Wait beberapa minggu.
 
 ---
 
-## 🆕 MULTI-REPO Q&A FEATURE (Phase 1 — Approved, Blocked on User Input)
+## 🆕 MULTI-REPO Q&A FEATURE (Phase 1 — Deployed, Dogfood Phase)
 
 **Status:** Design approved 2026-05-18 14:18 WIB. **Implemented, merged in PR #6, deployed 2026-05-19. Search/index acid tests pass.**
 
-### Files Changed (uncommitted, di working tree lokal)
+### Files Changed (PR #6 + follow-up commits, all deployed)
 
 | File | Status | Keterangan |
 |---|---|---|
-| `langgraph-agent/app/code_repos.py` | 🆕 NEW | Clone/pull HTTPS via GIT_ASKPASS, chunking line-range, Qdrant upsert, search, Q&A dengan citation |
+| `langgraph-agent/app/code_repos.py` | 🆕 NEW | Clone/pull HTTPS via GIT_ASKPASS, chunking line-range, Qdrant upsert, search, Q&A dengan citation, **+ repo alias resolve** |
 | `langgraph-agent/app/resource_alerts.py` | 🆕 NEW | Threshold RAM/disk/Qdrant, transition-only Telegram alert, state file anti-spam |
-| `langgraph-agent/repos.yml` | 🆕 NEW | `gmedia-erp \| https://github.com/gmedia/erp.git \| main \| github` |
+| `langgraph-agent/repos.yml` | 🆕 NEW | `gmedia-erp` + alias `erp-gmedia` |
 | `langgraph-agent/app/config.py` | MOD | +COLL_CODE, GH_PAT, GITLAB_PAT, REPO_BASE_DIR, resource thresholds, AGENT_SECRET di assert_ready |
 | `langgraph-agent/app/main.py` | MOD | +5 endpoints baru, verify_secret fail-closed (503 jika AGENT_SECRET kosong) |
 | `langgraph-agent/app/qdrant_helper.py` | MOD | search → query_points (qdrant-client 1.18 fix), +ensure_collection, count |
@@ -85,21 +113,15 @@
 | `scripts/health_check.sh` | MOD | +resource alert call via docker exec -e (injection-safe) |
 | `scripts/init_qdrant.py` | MOD | +code_chunks collection |
 | `.env.example` | MOD | +GH_PAT, GITLAB_PAT, resource thresholds |
-| `telegram-bot/bot.py` | MOD | +/projects, /index, /tanya, /cari default ke code search |
+| `telegram-bot/bot.py` | MOD | +/projects, /index, /tanya, /cari default ke code search, alias display, /model parse_mode fix |
 
-### Commit + Deploy (langkah untuk next session)
+### Deploy History (this session)
 
-```bash
-git checkout -b feat/multi-repo-qa
-git add langgraph-agent/app/code_repos.py langgraph-agent/app/resource_alerts.py langgraph-agent/repos.yml
-git add langgraph-agent/app/config.py langgraph-agent/app/main.py langgraph-agent/app/qdrant_helper.py
-git add langgraph-agent/requirements.txt langgraph-agent/Dockerfile
-git add docker-compose.yml .github/workflows/deploy.yml
-git add scripts/health_check.sh scripts/init_qdrant.py .env.example telegram-bot/bot.py
-git commit -m "feat: multi-repo Q&A phase 1 + resource alerts"
-git push -u origin feat/multi-repo-qa
-# buka PR → review diff → merge → auto-deploy fire
-```
+| Run | Commit | Duration | Notes |
+|---|---|---|---|
+| 26081530906 | PR #6 merge (5 commits) | 3m41s | Multi-repo Q&A Phase 1 |
+| 26083770425 | `fix(bot): remove Markdown parsing from model command` | 59s | /model crash fix |
+| 26086224683 | `feat(agent): add repo alias support for flexible lookup` | 1m21s | erp-gmedia alias |
 
 ### Acid Test Setelah Deploy
 

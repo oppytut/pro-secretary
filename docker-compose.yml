@@ -82,10 +82,23 @@ services:
       - R2_BUCKET=${R2_BUCKET}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
+      - GH_PAT=${GH_PAT}
+      - GITLAB_PAT=${GITLAB_PAT}
+      - REPO_BASE_DIR=${REPO_BASE_DIR:-/repos}
+      - REPOS_CONFIG_PATH=${REPOS_CONFIG_PATH:-/app/repos.yml}
+      - RESOURCE_ALERT_STATE_FILE=/app/state/resource-alert-state.json
+      - RESOURCE_DISK_WARN_PCT=${RESOURCE_DISK_WARN_PCT:-80}
+      - RESOURCE_DISK_CRIT_PCT=${RESOURCE_DISK_CRIT_PCT:-90}
+      - RESOURCE_MEM_WARN_PCT=${RESOURCE_MEM_WARN_PCT:-85}
+      - RESOURCE_MEM_CRIT_PCT=${RESOURCE_MEM_CRIT_PCT:-92}
+      - RESOURCE_QDRANT_WARN_POINTS=${RESOURCE_QDRANT_WARN_POINTS:-800000}
+      - RESOURCE_QDRANT_CRIT_POINTS=${RESOURCE_QDRANT_CRIT_POINTS:-950000}
       - TIMEZONE=${TIMEZONE}
       - TZ=${TIMEZONE}
     volumes:
       - langgraph_cache:/app/.fastembed_cache
+      - repos_data:${REPO_BASE_DIR:-/repos}
+      - agent_state:/app/state
       - ./vault:/vault:rw
       - /proc:/host/proc:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -238,3 +251,5 @@ volumes:
   caddy_data:
   caddy_config:
   langgraph_cache:
+  repos_data:
+  agent_state:

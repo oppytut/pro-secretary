@@ -102,6 +102,15 @@ if [ -n "$CHECK_TUNNEL_SERVICE" ] && command -v systemctl >/dev/null 2>&1; then
     fi
 fi
 
+AGENT_SECRET="${AGENT_SECRET:-}"
+if [ -n "$AGENT_SECRET" ] && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^langgraph-agent$'; then
+    docker exec -e AGENT_SECRET langgraph-agent sh -c '
+        curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            -X POST http://localhost:8090/api/resource_alert_check \
+            -H "x-agent-secret: ${AGENT_SECRET}"
+    ' >/dev/null 2>&1 || true
+fi
+
 PREV_STATE=""
 [[ -f "$STATE_FILE" ]] && PREV_STATE=$(cat "$STATE_FILE" 2>/dev/null || true)
 

@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from . import config, journal, llm, system_status, telegram, tools, vps_status, workflow
+from . import code_repos, config, journal, llm, resource_alerts, system_status, telegram, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -37,7 +37,7 @@ async def _on_startup() -> None:
 
 async def verify_secret(request: Request) -> None:
     if not config.AGENT_SECRET:
-        return
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="agent secret not configured")
     header = request.headers.get("x-agent-secret") or request.headers.get("authorization", "")
     token = header.removeprefix("Bearer ").strip()
     if not hmac.compare_digest(token, config.AGENT_SECRET):
@@ -62,6 +62,21 @@ class SearchRequest(BaseModel):
 
 class SearchResult(BaseModel):
     results: list[dict[str, Any]]
+
+
+class RepoIndexRequest(BaseModel):
+    repo: str = Field(..., min_length=1)
+
+
+class RepoSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    repo: str | None = None
+    limit: int = Field(8, ge=1, le=20)
+
+
+class RepoAskRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    repo: str | None = None
 
 
 class TaskCreateRequest(BaseModel):
@@ -266,6 +281,49 @@ async def briefing(request: Request, req: BriefingRequest | None = None) -> Chat
 @limiter.limit("10/minute")
 async def eod_summary(request: Request, req: BriefingRequest | None = None) -> ChatResponse:
     return ChatResponse(response=await _build_summary(mode="eod"))
+
+
+@app.post("/api/repos/projects", dependencies=[Depends(verify_secret)])
+async def repo_projects() -> dict[str, Any]:
+    return {"projects": code_repos.list_projects()}
+
+
+@app.post("/api/repos/index", dependencies=[Depends(verify_secret)])
+@limiter.limit("4/minute")
+async def repo_index(request: Request, req: RepoIndexRequest) -> dict[str, Any]:
+    import asyncio
+
+    if req.repo == "all":
+        results: list[dict[str, Any]] = []
+        for project in code_repos.list_projects():
+            if not project.get("enabled"):
+                continue
+            results.append(await asyncio.to_thread(code_repos.index_repo, project["id"]))
+        return {"ok": all(r.get("ok") for r in results), "results": results}
+    result = await asyncio.to_thread(code_repos.index_repo, req.repo)
+    if not result.get("ok"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
+
+
+@app.post("/api/repos/search", dependencies=[Depends(verify_secret)])
+@limiter.limit("30/minute")
+async def repo_search(request: Request, req: RepoSearchRequest) -> dict[str, Any]:
+    hits = code_repos.search_code(req.query, repo_id=req.repo, limit=req.limit)
+    return {"query": req.query, "repo": req.repo, "results": hits}
+
+
+@app.post("/api/repos/ask", dependencies=[Depends(verify_secret)])
+@limiter.limit("10/minute")
+async def repo_ask(request: Request, req: RepoAskRequest) -> ChatResponse:
+    answer = await code_repos.answer_code_question(req.question, repo_id=req.repo)
+    return ChatResponse(response=answer)
+
+
+@app.post("/api/resource_alert_check", dependencies=[Depends(verify_secret)])
+@limiter.limit("12/minute")
+async def resource_alert_check(request: Request) -> dict[str, Any]:
+    return await resource_alerts.run_check()
 
 
 async def _build_summary(mode: str) -> str:

@@ -9,3 +9,4 @@ python-dotenv==1.2.2
 psycopg[binary]==3.3.4
 boto3==1.43.9
 slowapi==0.1.9
+PyYAML==6.0.2

@@ -74,7 +74,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/jadwal - Lihat jadwal hari ini\n"
         "/task <judul> - Buat task baru\n"
         "/tasks - Lihat pending tasks\n"
-        "/cari <query> - Cari di knowledge base\n"
+        "/cari <query> - Cari di indexed code repos\n"
+        "/cari di <repo> <query> - Cari di repo tertentu\n"
         "/catat <note> - Catat sesuatu\n"
         "/briefing - Daily briefing\n"
         "/eod - End-of-day summary\n"
@@ -82,7 +83,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status - Cek status semua komponen\n"
         "/vps - Cek resource VPS\n"
         "/model - Ganti/lihat model AI\n"
-        "/journal <isi> - Catat journal (atau reply pesan 21:30)\n\n"
+        "/journal <isi> - Catat journal (atau reply pesan 21:30)\n"
+        "/projects - Lihat repo yang ter-index\n"
+        "/index <repo|all> - Re-index repo\n"
+        "/tanya <pertanyaan> - Tanya tentang code di repo\n\n"
         "Atau kirim pesan biasa untuk chat."
     )
 
@@ -175,7 +179,12 @@ async def cmd_cari(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Gunakan: /cari <kata kunci>")
         return
 
-    query = " ".join(context.args)
+    raw = " ".join(context.args)
+    repo = None
+    query = raw
+    if len(context.args) >= 3 and context.args[0].lower() == "di":
+        repo = context.args[1]
+        query = " ".join(context.args[2:])
     if len(query) > MAX_COMMAND_TEXT_LEN:
         await update.message.reply_text(
             f"⚠️ Query terlalu panjang ({len(query)}). Maks {MAX_COMMAND_TEXT_LEN}."
@@ -184,9 +193,9 @@ async def cmd_cari(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_chat_action("typing")
     try:
         r = await _agent_post(
-            "/api/search",
-            {"query": query, "collection": "knowledge", "limit": 5},
-            timeout=30.0,
+            "/api/repos/search",
+            {"query": query, "repo": repo, "limit": 8},
+            timeout=45.0,
         )
     except httpx.RequestError as exc:
         await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
@@ -203,10 +212,17 @@ async def cmd_cari(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = f"🔍 Hasil pencarian: {query}\n\n"
     for i, item in enumerate(results, 1):
-        content = (item.get("content") or "")[:200]
-        source = item.get("source_file") or "unknown"
+        payload = item.get("payload", {})
+        content = (item.get("content") or payload.get("text") or "")[:220]
+        source = item.get("source_file") or payload.get("path") or "unknown"
+        if payload.get("repo_id"):
+            source = (
+                f"{payload.get('repo_id')}:{source}:"
+                f"{payload.get('start_line')}-{payload.get('end_line')}@"
+                f"{str(payload.get('commit') or '')[:8]}"
+            )
         text += f"{i}. {content}...\n   📎 {source}\n\n"
-    await update.message.reply_text(text)
+    await update.message.reply_text(text[:4000])
 
 
 @authorized
@@ -491,6 +507,105 @@ async def cmd_journal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _submit_journal(update, text)
 
 
+@authorized
+async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_chat_action("typing")
+    try:
+        r = await _agent_post("/api/repos/projects", {}, timeout=20.0)
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Gagal mengambil projects (HTTP {r.status_code}).")
+        return
+    projects = r.json().get("projects") or []
+    if not projects:
+        await update.message.reply_text("Belum ada repo terdaftar di repos.yml.")
+        return
+    lines = ["📦 Projects:", ""]
+    for p in projects:
+        sha = (p.get("indexed_commit") or "-")[:8]
+        chunks = p.get("chunks", 0)
+        flag = "✅" if p.get("enabled") else "⏸️"
+        lines.append(
+            f"{flag} {p['id']} ({p.get('provider')}/{p.get('branch')}) — {chunks} chunks @ {sha}"
+        )
+    await update.message.reply_text("\n".join(lines))
+
+
+@authorized
+async def cmd_index(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Gunakan: /index <repo|all>")
+        return
+    repo = context.args[0]
+    await update.message.reply_text(f"⏳ Indexing {repo}...")
+    try:
+        r = await _agent_post("/api/repos/index", {"repo": repo}, timeout=900.0)
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+    if r.status_code != 200:
+        await update.message.reply_text(
+            f"⚠️ Index gagal (HTTP {r.status_code}): {r.text[:300]}"
+        )
+        return
+    data = r.json()
+    if "results" in data:
+        lines = ["📦 Index all selesai:"]
+        for item in data["results"]:
+            if item.get("ok"):
+                lines.append(
+                    f"• {item['repo_id']}: {item['chunks']} chunks @ {item['short_commit']} ({item['duration_seconds']}s)"
+                )
+            else:
+                lines.append(f"• {item.get('repo_id', '?')}: ❌ {item.get('error', 'failed')}")
+        await update.message.reply_text("\n".join(lines))
+        return
+    if not data.get("ok"):
+        await update.message.reply_text(f"⚠️ Index gagal: {data.get('error', 'unknown')}")
+        return
+    await update.message.reply_text(
+        f"✅ {data['repo_id']}: {data['chunks']} chunks dari {data['files']} file "
+        f"@ {data['short_commit']} ({data['duration_seconds']}s)"
+    )
+
+
+@authorized
+async def cmd_tanya(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Gunakan: /tanya <pertanyaan>\nAtau: /tanya di <repo> <pertanyaan>"
+        )
+        return
+    repo = None
+    args = list(context.args)
+    if len(args) >= 3 and args[0].lower() == "di":
+        repo = args[1]
+        args = args[2:]
+    question = " ".join(args)
+    if len(question) > MAX_COMMAND_TEXT_LEN:
+        await update.message.reply_text(
+            f"⚠️ Pertanyaan terlalu panjang ({len(question)}). Maks {MAX_COMMAND_TEXT_LEN}."
+        )
+        return
+    await update.message.reply_chat_action("typing")
+    try:
+        r = await _agent_post(
+            "/api/repos/ask",
+            {"question": question, "repo": repo},
+            timeout=120.0,
+        )
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Tanya gagal (HTTP {r.status_code}).")
+        return
+    answer = r.json().get("response", "(jawaban kosong)")
+    await update.message.reply_text(answer[:4000])
+
+
 def _is_journal_reply(update: Update) -> bool:
     reply = update.message.reply_to_message if update.message else None
     if not reply or not reply.text:
@@ -594,6 +709,9 @@ async def post_init(application: Application):
         BotCommand("vps", "Cek resource VPS"),
         BotCommand("model", "Ganti/lihat model AI"),
         BotCommand("journal", "Catat journal harian"),
+        BotCommand("projects", "Lihat repo terdaftar"),
+        BotCommand("index", "Re-index repo (atau all)"),
+        BotCommand("tanya", "Tanya tentang code di repo"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered.")
@@ -620,6 +738,9 @@ def main():
     app.add_handler(CommandHandler("vps", cmd_vps))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("journal", cmd_journal))
+    app.add_handler(CommandHandler("projects", cmd_projects))
+    app.add_handler(CommandHandler("index", cmd_index))
+    app.add_handler(CommandHandler("tanya", cmd_tanya))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 

@@ -18,6 +18,7 @@ COLLECTIONS = {
     "tasks": 384,
     "people": 384,
     "decisions": 384,
+    "code_chunks": 384,
 }
 
 

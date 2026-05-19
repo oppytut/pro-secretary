@@ -1,18 +1,18 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-18 14:18 WIB  
+**Last Updated:** 2026-05-19 13:43 WIB  
 **Project:** AI Personal Secretary Stack  
-**Status:** 🟢 Production — All Health Checks Green | Multi-repo Q&A feature approved, ready for implementation
+**Status:** 🟡 Code ready, belum di-deploy — Multi-repo Q&A Phase 1 implementasi selesai lokal, siap commit+push
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Dependabot triage closed pagi ini, lalu sesi siang (~13:00-14:18 WIB) user kembali, awalnya minta saran langkah berikutnya. Saya push back ("stop building, biarkan acid tests fire dulu") — user setuju, jalankan opsi verifikasi read-only saja. Acid tests semua PASS (4 backups present, weekly verify drill PASS, 5 workflows aktif, 73 health checks OK hari ini, 1 transient blip langgraph-agent HTTP 000 di 13:00 WIB recovered di cycle berikutnya).
+**Where we left off:** Sesi 2026-05-19 pagi. User sudah provide input implementasi: `gmedia-erp | git@github.com:gmedia/erp.git | main | github`, secrets `GH_PAT` dan `GITLAB_PAT`, command convention default, dan resource alert include di Phase 1.
 
-Kemudian user introduce **fitur baru: multi-repo Q&A**. Setelah 4 putaran iterasi requirement (drop dari 4 fitur → 2 fitur, drop auto-doc/auto-PR/auto-issue), final scope clean: **agent index 5-10 repo (GitLab + GitHub, private + public), user tanya apapun via Telegram, agent jawab dengan citation dari source code**. Read-only, no destructive ops.
+Implementasi **Multi-repo Q&A Phase 1 + resource alerts selesai lokal** (code sudah ditulis, build/smoke test pass), tapi **belum di-commit/push** karena sesi terdampak context-window limit sebelum langkah git selesai.
 
-User setujui plan + scope. Akan lanjut di session opencode lain untuk implementasi.
+User akan lanjut di session opencode lain. Fokus pembuka session berikut: commit/push branch `feat/multi-repo-qa`, buat PR, merge untuk trigger deploy.
 
 **Production state right now (verified 14:00 WIB):**
 - 5 container `Up healthy`: caddy 3d, calcom 3d, n8n 2d, langgraph-agent + telegram-bot ~3h
@@ -43,7 +43,7 @@ User setujui plan + scope. Akan lanjut di session opencode lain untuk implementa
 
 **Suggested next-session opening (PRIORITY ORDER):**
 
-1. **🆕 Multi-repo Q&A Phase 1 (~6-9 jam) — APPROVED, AWAITING USER INPUT.** User setujui scope; sebelum mulai butuh 3 hal: (a) list 5-10 repo dalam format `nama | clone-url | branch | provider`, (b) `GITLAB_PAT` (scope `read_repository`) + `GITHUB_PAT` (scope `repo` untuk private, atau fine-grained `Contents: read`) untuk simpan ke VPS `.env` mode 600, (c) konfirmasi convention command (default: `/projects`, `/index <repo>`, `/index all`, `/cari <query>`, `/cari di <repo> <query>`, `/tanya <question>`). Lihat **NEW SECTION: MULTI-REPO Q&A FEATURE** di bawah untuk detail design + iterasi requirement yang user reject sebelum sampai final scope. **Recommendation:** start dengan 1 repo dulu (erp-l12 — repo terbesar, real test untuk chunking strategy) before scale ke 10.
+1. **🚀 Multi-repo Q&A Phase 1 — CODE DONE LOCAL, READY TO SHIP.** User input blocker sudah lengkap (`gmedia-erp`, `GH_PAT`, command default, resource alert include). Implementasi selesai lokal; next step adalah **commit + push + PR + merge** lalu jalankan acid test Telegram: `/projects` → `/index gmedia-erp` → `/cari di gmedia-erp <query>` → `/tanya di gmedia-erp <question>`.
 
 2. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. Sekarang lebih realistis since deps current, PTB 22.7 supports voice handlers natively. Game-changer for daily UX. Was top recommendation pre multi-repo Q&A request.
 
@@ -57,7 +57,63 @@ User setujui plan + scope. Akan lanjut di session opencode lain untuk implementa
 
 ## 🆕 MULTI-REPO Q&A FEATURE (Phase 1 — Approved, Blocked on User Input)
 
-**Status:** Design approved 2026-05-18 14:18 WIB. Awaiting user input (repo list + PATs) before implementation.
+**Status:** Design approved 2026-05-18 14:18 WIB. **Implementasi selesai lokal 2026-05-19. Belum di-deploy.**
+
+### Files Changed (uncommitted, di working tree lokal)
+
+| File | Status | Keterangan |
+|---|---|---|
+| `langgraph-agent/app/code_repos.py` | 🆕 NEW | Clone/pull HTTPS via GIT_ASKPASS, chunking line-range, Qdrant upsert, search, Q&A dengan citation |
+| `langgraph-agent/app/resource_alerts.py` | 🆕 NEW | Threshold RAM/disk/Qdrant, transition-only Telegram alert, state file anti-spam |
+| `langgraph-agent/repos.yml` | 🆕 NEW | `gmedia-erp \| https://github.com/gmedia/erp.git \| main \| github` |
+| `langgraph-agent/app/config.py` | MOD | +COLL_CODE, GH_PAT, GITLAB_PAT, REPO_BASE_DIR, resource thresholds, AGENT_SECRET di assert_ready |
+| `langgraph-agent/app/main.py` | MOD | +5 endpoints baru, verify_secret fail-closed (503 jika AGENT_SECRET kosong) |
+| `langgraph-agent/app/qdrant_helper.py` | MOD | search → query_points (qdrant-client 1.18 fix), +ensure_collection, count |
+| `langgraph-agent/requirements.txt` | MOD | +PyYAML==6.0.2 |
+| `langgraph-agent/Dockerfile` | MOD | +git ca-certificates, COPY repos.yml, mkdir /app/state /repos |
+| `docker-compose.yml` | MOD | +GH_PAT, GITLAB_PAT, resource envs, volumes repos_data + agent_state |
+| `.github/workflows/deploy.yml` | MOD | +GH_PAT/GITLAB_PAT, AGENT_SECRET guard, umask 077, chmod 600 .env |
+| `scripts/health_check.sh` | MOD | +resource alert call via docker exec -e (injection-safe) |
+| `scripts/init_qdrant.py` | MOD | +code_chunks collection |
+| `.env.example` | MOD | +GH_PAT, GITLAB_PAT, resource thresholds |
+| `telegram-bot/bot.py` | MOD | +/projects, /index, /tanya, /cari default ke code search |
+
+### Commit + Deploy (langkah untuk next session)
+
+```bash
+git checkout -b feat/multi-repo-qa
+git add langgraph-agent/app/code_repos.py langgraph-agent/app/resource_alerts.py langgraph-agent/repos.yml
+git add langgraph-agent/app/config.py langgraph-agent/app/main.py langgraph-agent/app/qdrant_helper.py
+git add langgraph-agent/requirements.txt langgraph-agent/Dockerfile
+git add docker-compose.yml .github/workflows/deploy.yml
+git add scripts/health_check.sh scripts/init_qdrant.py .env.example telegram-bot/bot.py
+git commit -m "feat: multi-repo Q&A phase 1 + resource alerts"
+git push -u origin feat/multi-repo-qa
+# buka PR → review diff → merge → auto-deploy fire
+```
+
+### Acid Test Setelah Deploy
+
+1. `/projects` → `gmedia-erp (github/main) — 0 chunks @ -`
+2. `/index gmedia-erp` → tunggu ~5-10 menit → `✅ gmedia-erp: ~15K chunks dari ~5800 file @ <sha8>`
+3. `/cari di gmedia-erp invoice` → 8 hits dengan citation `gmedia-erp:path:start-end@sha`
+4. `/tanya di gmedia-erp dimana logic credit limit?` → LLM jawab pakai citation
+
+### Security Fixes Applied (dari review 5-agent)
+
+- PAT tidak di git argv — pakai `GIT_ASKPASS` script temp (chmod 700, dihapus setelah clone/fetch)
+- Force HTTPS only — `http://` ditolak di `_token_for()`
+- `verify_secret` fail-closed — 503 jika `AGENT_SECRET` kosong
+- `deploy.yml` exit 1 jika `AGENT_SECRET` kosong, `umask 077`, `chmod 600 .env`
+- `health_check.sh` injection-safe via `docker exec -e SECRET`
+- `_sanitize_git_error` mask `https://user:pass@` sebelum log
+
+### Known Non-Blocking Issues (untuk evaluasi setelah 1 minggu pakai)
+
+- Chunking line-based (140 baris), bukan natural boundary (function/class) — acceptable untuk Phase 1
+- Embedding 384-dim general-purpose, bukan code-aware — evaluate setelah baseline dipakai
+- PostgreSQL error-rate alert belum diimplementasi (TASK.md spec menyebut ini sebagai bonus)
+- RAM alert tidak ada "sustained 30 menit" window — transition-based (ok untuk Phase 1)
 
 ### Final Scope (after 4 rounds of requirement iteration)
 

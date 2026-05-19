@@ -1,0 +1,7 @@
+repos:
+  - id: gmedia-erp
+    name: gmedia-erp
+    provider: github
+    url: https://github.com/gmedia/erp.git
+    branch: main
+    enabled: true

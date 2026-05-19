@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 
 QDRANT_URL = os.getenv("QDRANT_URL", "").rstrip("/")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
@@ -37,6 +38,22 @@ COLL_MEMORY = "agent_memory"
 COLL_TASKS = "tasks"
 COLL_PEOPLE = "people"
 COLL_DECISIONS = "decisions"
+COLL_CODE = "code_chunks"
+
+GH_PAT = os.getenv("GH_PAT", "")
+GITLAB_PAT = os.getenv("GITLAB_PAT", "")
+REPO_BASE_DIR = Path(os.getenv("REPO_BASE_DIR", "/repos"))
+REPOS_CONFIG_PATH = Path(os.getenv("REPOS_CONFIG_PATH", "/app/repos.yml"))
+
+RESOURCE_ALERT_STATE_FILE = Path(
+    os.getenv("RESOURCE_ALERT_STATE_FILE", "/app/state/resource-alert-state.json")
+)
+RESOURCE_DISK_WARN_PCT = float(os.getenv("RESOURCE_DISK_WARN_PCT", "80"))
+RESOURCE_DISK_CRIT_PCT = float(os.getenv("RESOURCE_DISK_CRIT_PCT", "90"))
+RESOURCE_MEM_WARN_PCT = float(os.getenv("RESOURCE_MEM_WARN_PCT", "85"))
+RESOURCE_MEM_CRIT_PCT = float(os.getenv("RESOURCE_MEM_CRIT_PCT", "92"))
+RESOURCE_QDRANT_WARN_POINTS = int(os.getenv("RESOURCE_QDRANT_WARN_POINTS", "800000"))
+RESOURCE_QDRANT_CRIT_POINTS = int(os.getenv("RESOURCE_QDRANT_CRIT_POINTS", "950000"))
 
 
 def assert_ready() -> list[str]:
@@ -47,4 +64,6 @@ def assert_ready() -> list[str]:
         missing.append("QDRANT_API_KEY")
     if not LLM_API_KEY:
         missing.append("LLM_API_KEY")
+    if not AGENT_SECRET:
+        missing.append("AGENT_SECRET")
     return missing

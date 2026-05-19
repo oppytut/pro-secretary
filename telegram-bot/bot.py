@@ -450,20 +450,19 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global current_model
     if not context.args:
         await update.message.reply_text(
-            f"🤖 Model aktif: `{current_model}`\n\n"
+            f"🤖 Model aktif: {current_model}\n\n"
             f"Gunakan: /model <nama_model>\n\n"
             f"Contoh:\n"
             f"/model gpt-4o\n"
             f"/model gpt-3.5-turbo\n"
             f"/model claude-3.5-sonnet\n"
-            f"/model llama-3.1-70b-versatile",
-            parse_mode="Markdown",
+            f"/model llama-3.1-70b-versatile"
         )
         return
 
     new_model = " ".join(context.args)
     current_model = new_model
-    await update.message.reply_text(f"✅ Model diganti ke: `{current_model}`", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Model diganti ke: {current_model}")
     logger.info(f"Model switched to: {current_model}")
 
 

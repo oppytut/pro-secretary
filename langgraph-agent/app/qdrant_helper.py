@@ -250,7 +250,7 @@ def path_search(
     points, _ = get_client().scroll(
         collection_name=collection,
         scroll_filter=qfilter,
-        limit=3000,
+        limit=4000,
         with_payload=["path", "text", "repo_id", "commit", "start_line", "end_line", "repo_name", "language"],
     )
     lower_terms = [t.lower() for t in path_terms]

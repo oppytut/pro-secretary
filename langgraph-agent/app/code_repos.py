@@ -240,6 +240,9 @@ def _prioritize_paths(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
             return 99
         for i, prefix in enumerate(_PATH_PRIORITY):
             if prefix in path:
+                # Boost "create_" migrations over pivot/alter
+                if prefix == "migrations/" and "create_" in path:
+                    return i - 1
                 return i
         return 50
     return sorted(hits, key=_rank)[:15]

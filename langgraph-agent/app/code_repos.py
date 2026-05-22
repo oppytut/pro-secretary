@@ -245,10 +245,13 @@ def _prioritize_paths(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(hits, key=_rank)[:15]
 
 
-def _merge_hits(embedding_hits: list[dict[str, Any]], keyword_hits: list[dict[str, Any]], max_results: int = 20) -> list[dict[str, Any]]:
+def _merge_hits(embedding_hits: list[dict[str, Any]], keyword_hits: list[dict[str, Any]], max_results: int = 25) -> list[dict[str, Any]]:
     seen_ids: set[str] = set()
     merged: list[dict[str, Any]] = []
-    for h in embedding_hits:
+
+    # Reserve at least 5 slots for keyword/path hits
+    embed_cap = max_results - min(5, len(keyword_hits))
+    for h in embedding_hits[:embed_cap]:
         if h["id"] not in seen_ids:
             seen_ids.add(h["id"])
             merged.append(h)

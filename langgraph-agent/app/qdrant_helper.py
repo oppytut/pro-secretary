@@ -68,6 +68,22 @@ def ensure_payload_indexes() -> None:
                 )
             except Exception:
                 pass
+    # Text index for keyword substring search on code chunks
+    try:
+        client.create_payload_index(
+            collection_name=config.COLL_CODE,
+            field_name="text",
+            field_schema=qmodels.TextIndexParams(
+                type=qmodels.TextIndexType.TEXT,
+                tokenizer=qmodels.TokenizerType.WORD,
+                min_token_len=2,
+                max_token_len=30,
+                lowercase=True,
+            ),
+            wait=True,
+        )
+    except Exception:
+        pass
 
 
 def search(
@@ -167,6 +183,38 @@ def delete_by_filter(collection: str, filters: dict[str, Any]) -> None:
         points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=must)),
         wait=True,
     )
+
+
+def keyword_search(
+    collection: str,
+    keywords: list[str],
+    limit: int = 10,
+    filters: dict[str, Any] | None = None,
+    text_field: str = "text",
+) -> list[dict[str, Any]]:
+    """Search by keyword substring match on a text payload field.
+
+    Uses Qdrant MatchText (substring) on each keyword with AND logic,
+    combined with any additional filters (e.g. repo_id).
+    Returns results without score (scroll-based).
+    """
+    must: list[qmodels.FieldCondition] = [
+        qmodels.FieldCondition(key=text_field, match=qmodels.MatchText(text=kw))
+        for kw in keywords
+    ]
+    if filters:
+        must.extend(
+            qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
+            for k, v in filters.items()
+        )
+    qfilter = qmodels.Filter(must=must)
+    points, _ = get_client().scroll(
+        collection_name=collection,
+        scroll_filter=qfilter,
+        limit=limit,
+        with_payload=True,
+    )
+    return [{"id": str(p.id), "score": 0.0, "payload": p.payload or {}} for p in points]
 
 
 def count(collection: str, filters: dict[str, Any] | None = None) -> int:

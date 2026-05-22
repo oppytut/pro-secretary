@@ -187,17 +187,59 @@ def search_code(query: str, repo_id: str | None = None, limit: int = 8) -> list[
     return qdrant_helper.search(config.COLL_CODE, query, limit=limit, filters=filters)
 
 
+def _extract_keywords(question: str) -> list[str]:
+    """Extract meaningful keywords (3+ chars, not stopwords) for keyword pass."""
+    _STOPWORDS = {
+        "ada", "adalah", "apa", "apakah", "atau", "dan", "dari", "dengan",
+        "dia", "ini", "itu", "jika", "juga", "kalau", "kami", "kamu", "ke",
+        "lagi", "lalu", "mana", "mereka", "nya", "oleh", "pada", "saya",
+        "yang", "the", "is", "are", "was", "were", "for", "and", "not",
+        "this", "that", "with", "how", "what", "where", "which", "who",
+    }
+    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", question.lower())
+    return [w for w in words if len(w) >= 3 and w not in _STOPWORDS]
+
+
+def _merge_hits(embedding_hits: list[dict[str, Any]], keyword_hits: list[dict[str, Any]], max_results: int = 20) -> list[dict[str, Any]]:
+    seen_ids: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for h in embedding_hits:
+        if h["id"] not in seen_ids:
+            seen_ids.add(h["id"])
+            merged.append(h)
+    for h in keyword_hits:
+        if h["id"] not in seen_ids:
+            seen_ids.add(h["id"])
+            h["score"] = 0.15
+            merged.append(h)
+    return merged[:max_results]
+
+
 async def answer_code_question(question: str, repo_id: str | None = None) -> str:
     resolved = resolve_repo_id(repo_id) if repo_id else None
+
+    # Pass 1: embedding similarity
     hits = search_code(question, repo_id=resolved, limit=20)
     useful = [h for h in hits if float(h.get("score", 0)) >= 0.2]
-    if not useful:
+
+    # Pass 2: keyword substring match
+    keywords = _extract_keywords(question)
+    keyword_hits: list[dict[str, Any]] = []
+    if keywords:
+        kw_filters = {"repo_id": resolved} if resolved else None
+        keyword_hits = qdrant_helper.keyword_search(
+            config.COLL_CODE, keywords=keywords[:4], limit=10, filters=kw_filters
+        )
+
+    merged = _merge_hits(useful, keyword_hits, max_results=20)
+
+    if not merged:
         target = f" di {repo_id}" if repo_id else ""
         return f"Tidak ketemu konteks kode yang cukup kuat{target}. Coba /cari dengan keyword lebih spesifik."
 
     context_lines: list[str] = []
     citations: list[str] = []
-    for h in useful[:20]:
+    for h in merged:
         p = h["payload"]
         cite = _citation(p)
         citations.append(cite)

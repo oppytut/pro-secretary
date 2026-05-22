@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-19 15:50 WIB  
+**Last Updated:** 2026-05-20 03:14 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Multi-repo Q&A Phase 1 deployed + repo alias fixed — dogfood phase, stop building until usage feedback
+**Status:** ✅ Multi-repo Q&A Phase 1 deployed + resource alert gap closed locally — dogfood phase, stop Q&A feature building until usage feedback
 
 ---
 
@@ -22,6 +22,25 @@
 - `/model` responds without crash ✅
 - Deploy runs: 26081530906 (PR#6, 3m41s), 26083770425 (/model fix, 59s), 26086224683 (alias, 1m21s) — all green
 - Last commit on main: `feat(agent): add repo alias support for flexible lookup`
+
+**Resource Alert Patch v1.1 (local changes, not committed/deployed yet):**
+- Scope: reliability maintenance only, not Q&A feature expansion.
+- `langgraph-agent/app/resource_alerts.py` updated:
+  - PostgreSQL `DATABASE_URL` connectivity probe (`SELECT 1`) with transition-based critical/recovery alert.
+  - RAM alert now requires sustained breach window (`RESOURCE_MEM_SUSTAINED_MINUTES`, default 30) before warning/critical. Short indexing/embedding spikes no longer alert.
+  - Swap threshold alert added (`RESOURCE_SWAP_WARN_PCT=50`, `RESOURCE_SWAP_CRIT_PCT=70`) as stronger RAM-pressure/upgrade signal.
+  - Qdrant connectivity alert split from Qdrant capacity alert. Connectivity failure is critical; point-count threshold remains capacity signal.
+  - Disk alert now tracks each mounted path independently (`disk:/`, `disk:/var/backups`, `disk:/host/var/backups`) instead of only worst disk.
+- Config/docs updated:
+  - `langgraph-agent/app/config.py`: added RAM sustain minutes, swap thresholds, PostgreSQL timeout.
+  - `docker-compose.yml`: passes new resource envs into langgraph-agent.
+  - `.env.example`: documents new knobs and transition-only semantics.
+- Verification done locally:
+  - `python3 -m py_compile langgraph-agent/app/resource_alerts.py langgraph-agent/app/config.py` ✅
+  - `bash -n scripts/health_check.sh` ✅
+  - `docker compose config --quiet` ✅ (only expected missing local env warnings)
+  - 9-case smoke simulation passed: healthy baseline no spam, PostgreSQL down/recovery, RAM short spike ignored, RAM 35-min sustained alert, swap high alert, per-disk root critical only, Qdrant down alert, DATABASE_URL unset = unknown/no spam.
+- Still needed before production: commit + push/deploy if user wants. After deploy, verify `/api/resource_alert_check` from `health_check.sh` and watch first run seeds/updates `/app/state/resource-alert-state.json`.
 
 **User dogfood observations (same session):**
 - `/tanya di erp-gmedia ada berapa modul?` → "Tidak ketemu konteks" — expected, overview questions span too many files for top-10 retrieval
@@ -413,6 +432,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ### Active Tasks
 - [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1** — ✅ DEPLOYED. PR #6 merged 2026-05-19, deploy run 26081530906 green (3m41s). gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. Search acid test pass. User dogfood via Telegram next.
+- [ ] **READY TO DEPLOY:** Resource Alert Patch v1.1 — local implementation complete + verified. Awaiting user decision: commit/push/deploy now or leave pending. Files MOD: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`, `TASK.md`. See "Resource Alert Patch v1.1" block in handoff section + "Recently Completed" entry below.
 - [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX. PTB 22.7 sekarang merged, native voice handler API tersedia.
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
@@ -423,6 +443,29 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live post-triage.
 
 ### Recently Completed
+
+- ✅ [2026-05-20 03:14 UTC] Resource Alert Patch v1.1 — reliability gap closed locally (not committed/deployed yet)
+  - **Trigger:** User noticed original requirement "Bot mengirim pesan jika resources VPS, PostgreSQL, Qdrant, dan lainnya perlu diupgrade" was in TASK.md but earlier advice underplayed it. Decision: implement now as reliability patch while Q&A dogfood continues. This is maintenance, not Q&A feature expansion.
+  - **Implemented:**
+    - PostgreSQL connectivity alert: `DATABASE_URL` probe with `SELECT 1`, timeout `RESOURCE_POSTGRES_CONNECT_TIMEOUT_SEC` (default 5s), transition-based critical/recovery message. Secret-safe error detail = exception class only.
+    - RAM sustained alert: RAM must stay above threshold for `RESOURCE_MEM_SUSTAINED_MINUTES` (default 30) before warning/critical. Short embedding/indexing spikes remain level `ok` with `breach_started_at` stored.
+    - Swap alert: `RESOURCE_SWAP_WARN_PCT=50`, `RESOURCE_SWAP_CRIT_PCT=70`. High swap treated as strong RAM-pressure / upgrade signal.
+    - Qdrant split: `qdrant_connectivity` critical if unreachable; `qdrant_code_chunks` remains capacity threshold (`800k` warn, `950k` crit points).
+    - Disk split: per-path states `disk:/`, `disk:/var/backups`, `disk:/host/var/backups` instead of only worst disk, so backup path can alert independently.
+  - **Files MOD:**
+    - `langgraph-agent/app/resource_alerts.py` — new checks + state logic.
+    - `langgraph-agent/app/config.py` — new env-backed knobs.
+    - `docker-compose.yml` — passes new envs to agent.
+    - `.env.example` — documents thresholds + transition semantics.
+    - `TASK.md` — this handoff update.
+  - **Verification:**
+    - `python3 -m py_compile langgraph-agent/app/resource_alerts.py langgraph-agent/app/config.py` ✅
+    - `bash -n scripts/health_check.sh` ✅
+    - `docker compose config --quiet` ✅ (only local missing env warnings)
+    - `lsp_diagnostics` clean on changed Python files ✅
+    - Manual 9-case smoke simulation ✅: healthy baseline no spam, PostgreSQL down alert, PostgreSQL recovery alert, RAM short spike ignored, RAM 35-min sustained alert, swap critical alert, per-disk root-only critical, Qdrant down alert, missing DATABASE_URL = unknown/no spam.
+  - **Production status:** Local only. Need commit + push/deploy if user wants. After deploy, verify `scripts/health_check.sh` still calls `/api/resource_alert_check` and state file `/app/state/resource-alert-state.json` updates without spam.
+  - **Explicitly NOT added:** CPU alert, container restart-count alert, full PostgreSQL error-rate metrics, LLM tunnel alert. Avoided observability scope creep.
 
 - ✅ [2026-05-18 14:18 WIB] Multi-repo Q&A feature design approved + acid test verification
   - **Trigger:** User minta saran langkah selanjutnya. Saya push back ("stop building, biarkan acid tests fire dulu" — konsisten dengan TASK.md handoff sebelumnya). User setuju, jalankan opsi verifikasi read-only.

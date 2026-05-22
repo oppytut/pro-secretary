@@ -239,27 +239,29 @@ def path_search(
     limit: int = 10,
     filters: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Find chunks whose file path contains any of the given terms (OR logic)."""
-    path_should = [
-        qmodels.FieldCondition(key="path", match=qmodels.MatchText(text=term))
-        for term in path_terms
-    ]
-    must: list[qmodels.Condition] = [
-        qmodels.Filter(should=path_should),  # type: ignore[list-item]
-    ]
+    """Find chunks whose file path contains any of the given terms (OR logic, substring)."""
+    must: list[qmodels.FieldCondition] = []
     if filters:
         must.extend(
             qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
             for k, v in filters.items()
         )
-    qfilter = qmodels.Filter(must=must)
+    qfilter = qmodels.Filter(must=must) if must else None
     points, _ = get_client().scroll(
         collection_name=collection,
         scroll_filter=qfilter,
-        limit=limit,
-        with_payload=True,
+        limit=3000,
+        with_payload=["path", "text", "repo_id", "commit", "start_line", "end_line", "repo_name", "language"],
     )
-    return [{"id": str(p.id), "score": 0.0, "payload": p.payload or {}} for p in points]
+    lower_terms = [t.lower() for t in path_terms]
+    matched = []
+    for p in points:
+        path = (p.payload or {}).get("path", "").lower()
+        if any(term in path for term in lower_terms):
+            matched.append({"id": str(p.id), "score": 0.0, "payload": p.payload or {}})
+            if len(matched) >= limit:
+                break
+    return matched
 
 
 def count(collection: str, filters: dict[str, Any] | None = None) -> int:

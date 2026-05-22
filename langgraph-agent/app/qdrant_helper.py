@@ -84,6 +84,22 @@ def ensure_payload_indexes() -> None:
         )
     except Exception:
         pass
+    # Text index on path field for path-based search
+    try:
+        client.create_payload_index(
+            collection_name=config.COLL_CODE,
+            field_name="path",
+            field_schema=qmodels.TextIndexParams(
+                type=qmodels.TextIndexType.TEXT,
+                tokenizer=qmodels.TokenizerType.WORD,
+                min_token_len=2,
+                max_token_len=60,
+                lowercase=True,
+            ),
+            wait=True,
+        )
+    except Exception:
+        pass
 
 
 def search(
@@ -208,6 +224,33 @@ def keyword_search(
             for k, v in filters.items()
         )
     qfilter = qmodels.Filter(must=must)
+    points, _ = get_client().scroll(
+        collection_name=collection,
+        scroll_filter=qfilter,
+        limit=limit,
+        with_payload=True,
+    )
+    return [{"id": str(p.id), "score": 0.0, "payload": p.payload or {}} for p in points]
+
+
+def path_search(
+    collection: str,
+    path_terms: list[str],
+    limit: int = 10,
+    filters: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Find chunks whose file path contains any of the given terms (OR logic)."""
+    should = [
+        qmodels.FieldCondition(key="path", match=qmodels.MatchText(text=term))
+        for term in path_terms
+    ]
+    must: list[qmodels.FieldCondition] = []
+    if filters:
+        must.extend(
+            qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
+            for k, v in filters.items()
+        )
+    qfilter = qmodels.Filter(must=must or None, should=should)
     points, _ = get_client().scroll(
         collection_name=collection,
         scroll_filter=qfilter,

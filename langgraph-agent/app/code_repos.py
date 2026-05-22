@@ -200,6 +200,15 @@ def _extract_keywords(question: str) -> list[str]:
     return [w for w in words if len(w) >= 3 and w not in _STOPWORDS]
 
 
+def _extract_path_terms(keywords: list[str]) -> list[str]:
+    """Extract terms likely to appear in file paths (entity names, module names)."""
+    _PATH_IRRELEVANT = {
+        "unique", "nomor", "number", "field", "kolom", "column", "table",
+        "tabel", "ada", "punya", "have", "has", "code", "kode",
+    }
+    return [kw for kw in keywords if kw not in _PATH_IRRELEVANT and len(kw) >= 4]
+
+
 def _merge_hits(embedding_hits: list[dict[str, Any]], keyword_hits: list[dict[str, Any]], max_results: int = 20) -> list[dict[str, Any]]:
     seen_ids: set[str] = set()
     merged: list[dict[str, Any]] = []
@@ -231,7 +240,16 @@ async def answer_code_question(question: str, repo_id: str | None = None) -> str
             config.COLL_CODE, keywords=keywords[:4], limit=10, filters=kw_filters
         )
 
-    merged = _merge_hits(useful, keyword_hits, max_results=20)
+    # Pass 3: path-based search (entity names in file paths)
+    path_terms = _extract_path_terms(keywords)
+    path_hits: list[dict[str, Any]] = []
+    if path_terms:
+        path_filters = {"repo_id": resolved} if resolved else None
+        path_hits = qdrant_helper.path_search(
+            config.COLL_CODE, path_terms=path_terms[:3], limit=10, filters=path_filters
+        )
+
+    merged = _merge_hits(useful, keyword_hits + path_hits, max_results=20)
 
     if not merged:
         target = f" di {repo_id}" if repo_id else ""

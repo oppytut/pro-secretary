@@ -218,6 +218,33 @@ def _extract_path_terms(keywords: list[str]) -> list[str]:
     return terms
 
 
+_PATH_PRIORITY = [
+    "migrations/",
+    "Models/",
+    "models/",
+    "DTOs/",
+    "Actions/",
+    "Domain/",
+    "Controllers/",
+    "Requests/",
+    "Resources/",
+    "routes/",
+    "types/",
+]
+
+
+def _prioritize_paths(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _rank(h: dict[str, Any]) -> int:
+        path = h.get("payload", {}).get("path", "")
+        if "tests/" in path or "test/" in path:
+            return 99
+        for i, prefix in enumerate(_PATH_PRIORITY):
+            if prefix in path:
+                return i
+        return 50
+    return sorted(hits, key=_rank)[:15]
+
+
 def _merge_hits(embedding_hits: list[dict[str, Any]], keyword_hits: list[dict[str, Any]], max_results: int = 20) -> list[dict[str, Any]]:
     seen_ids: set[str] = set()
     merged: list[dict[str, Any]] = []
@@ -255,8 +282,9 @@ async def answer_code_question(question: str, repo_id: str | None = None) -> str
     if path_terms:
         path_filters = {"repo_id": resolved} if resolved else None
         path_hits = qdrant_helper.path_search(
-            config.COLL_CODE, path_terms=path_terms[:3], limit=10, filters=path_filters
+            config.COLL_CODE, path_terms=path_terms[:3], limit=30, filters=path_filters
         )
+        path_hits = _prioritize_paths(path_hits)
 
     merged = _merge_hits(useful, keyword_hits + path_hits, max_results=20)
 

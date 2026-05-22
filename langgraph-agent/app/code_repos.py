@@ -189,7 +189,7 @@ def search_code(query: str, repo_id: str | None = None, limit: int = 8) -> list[
 
 async def answer_code_question(question: str, repo_id: str | None = None) -> str:
     resolved = resolve_repo_id(repo_id) if repo_id else None
-    hits = search_code(question, repo_id=resolved, limit=10)
+    hits = search_code(question, repo_id=resolved, limit=20)
     useful = [h for h in hits if float(h.get("score", 0)) >= 0.2]
     if not useful:
         target = f" di {repo_id}" if repo_id else ""
@@ -197,7 +197,7 @@ async def answer_code_question(question: str, repo_id: str | None = None) -> str
 
     context_lines: list[str] = []
     citations: list[str] = []
-    for h in useful[:10]:
+    for h in useful[:20]:
         p = h["payload"]
         cite = _citation(p)
         citations.append(cite)

@@ -240,17 +240,19 @@ def path_search(
     filters: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Find chunks whose file path contains any of the given terms (OR logic)."""
-    should = [
+    path_should = [
         qmodels.FieldCondition(key="path", match=qmodels.MatchText(text=term))
         for term in path_terms
     ]
-    must: list[qmodels.FieldCondition] = []
+    must: list[qmodels.Condition] = [
+        qmodels.Filter(should=path_should),  # type: ignore[list-item]
+    ]
     if filters:
         must.extend(
             qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
             for k, v in filters.items()
         )
-    qfilter = qmodels.Filter(must=must or None, should=should)
+    qfilter = qmodels.Filter(must=must)
     points, _ = get_client().scroll(
         collection_name=collection,
         scroll_filter=qfilter,

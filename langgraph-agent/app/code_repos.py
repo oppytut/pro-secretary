@@ -206,7 +206,16 @@ def _extract_path_terms(keywords: list[str]) -> list[str]:
         "unique", "nomor", "number", "field", "kolom", "column", "table",
         "tabel", "ada", "punya", "have", "has", "code", "kode",
     }
-    return [kw for kw in keywords if kw not in _PATH_IRRELEVANT and len(kw) >= 4]
+    terms: list[str] = []
+    for kw in keywords:
+        if kw in _PATH_IRRELEVANT or len(kw) < 4:
+            continue
+        terms.append(kw)
+        if not kw.endswith("s"):
+            terms.append(kw + "s")
+        elif kw.endswith("s") and len(kw) > 4:
+            terms.append(kw[:-1])
+    return terms
 
 
 def _merge_hits(embedding_hits: list[dict[str, Any]], keyword_hits: list[dict[str, Any]], max_results: int = 20) -> list[dict[str, Any]]:

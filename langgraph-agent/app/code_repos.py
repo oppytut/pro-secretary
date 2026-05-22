@@ -233,16 +233,24 @@ _PATH_PRIORITY = [
 ]
 
 
-def _prioritize_paths(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _prioritize_paths(hits: list[dict[str, Any]], path_terms: list[str] | None = None) -> list[dict[str, Any]]:
+    entity_terms = set(path_terms or [])
+
     def _rank(h: dict[str, Any]) -> int:
-        path = h.get("payload", {}).get("path", "")
+        path = h.get("payload", {}).get("path", "").lower()
         if "tests/" in path or "test/" in path:
             return 99
         for i, prefix in enumerate(_PATH_PRIORITY):
-            if prefix in path:
-                # Boost "create_" migrations over pivot/alter
-                if prefix == "migrations/" and "create_" in path:
-                    return i - 1
+            if prefix.lower() in path:
+                if prefix == "migrations/":
+                    # create_<entity> table migration = highest priority
+                    if "create_" in path and any(t in path for t in entity_terms):
+                        return -2
+                    if "create_" in path:
+                        return i - 1
+                if prefix == "Models/" or prefix == "models/":
+                    if any(t in path for t in entity_terms):
+                        return -1
                 return i
         return 50
     return sorted(hits, key=_rank)[:15]
@@ -288,9 +296,9 @@ async def answer_code_question(question: str, repo_id: str | None = None) -> str
     if path_terms:
         path_filters = {"repo_id": resolved} if resolved else None
         path_hits = qdrant_helper.path_search(
-            config.COLL_CODE, path_terms=path_terms[:3], limit=30, filters=path_filters
+            config.COLL_CODE, path_terms=path_terms[:3], limit=60, filters=path_filters
         )
-        path_hits = _prioritize_paths(path_hits)
+        path_hits = _prioritize_paths(path_hits, path_terms)
 
     merged = _merge_hits(useful, keyword_hits + path_hits, max_results=20)
 

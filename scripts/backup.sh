@@ -39,7 +39,7 @@ docker run --rm -v ai-secretary_n8n_data:/data -v "$BACKUP_DIR/$DATE":/backup al
 
 echo "  [2/5] Qdrant Cloud snapshots..."
 if [ -n "$QDRANT_URL" ] && [ -n "$QDRANT_API_KEY" ]; then
-    for collection in knowledge agent_memory tasks people decisions; do
+    for collection in knowledge agent_memory tasks people decisions code_chunks; do
         curl -s -X POST "${QDRANT_URL}/collections/$collection/snapshots" \
             -H "api-key: $QDRANT_API_KEY" > /dev/null 2>&1 || true
     done

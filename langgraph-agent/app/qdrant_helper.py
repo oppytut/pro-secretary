@@ -36,6 +36,7 @@ _INDEXES: dict[str, tuple[str, ...]] = {
     config.COLL_KNOWLEDGE: ("source", "type"),
     config.COLL_MEMORY: ("type", "user_id"),
     config.COLL_CODE: ("repo_id", "commit", "path", "language"),
+    config.COLL_SKILLS: ("name", "user_id", "tags"),
 }
 
 

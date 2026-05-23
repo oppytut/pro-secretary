@@ -39,6 +39,7 @@ COLL_TASKS = "tasks"
 COLL_PEOPLE = "people"
 COLL_DECISIONS = "decisions"
 COLL_CODE = "code_chunks"
+COLL_SKILLS = "skills"
 
 GH_PAT = os.getenv("GH_PAT", "")
 GITLAB_PAT = os.getenv("GITLAB_PAT", "")

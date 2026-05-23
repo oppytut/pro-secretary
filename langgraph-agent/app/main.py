@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from . import code_repos, config, journal, llm, resource_alerts, system_status, telegram, tools, vps_status, workflow
+from . import code_repos, config, journal, llm, resource_alerts, skills, system_status, telegram, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -324,6 +324,51 @@ async def repo_ask(request: Request, req: RepoAskRequest) -> ChatResponse:
 @limiter.limit("12/minute")
 async def resource_alert_check(request: Request) -> dict[str, Any]:
     return await resource_alerts.run_check()
+
+
+class SkillLogRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1, max_length=2000)
+    steps: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    trigger: str = ""
+    user_id: str | int | None = None
+
+
+class SkillSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    limit: int = Field(5, ge=1, le=20)
+
+
+@app.post("/api/skills/log", dependencies=[Depends(verify_secret)])
+async def skill_log(req: SkillLogRequest) -> dict[str, Any]:
+    point_id = skills.log_skill(
+        name=req.name,
+        description=req.description,
+        steps=req.steps,
+        tags=req.tags,
+        trigger=req.trigger,
+        user_id=req.user_id,
+    )
+    return {"id": point_id, "name": req.name, "status": "logged"}
+
+
+@app.post("/api/skills/search", dependencies=[Depends(verify_secret)])
+async def skill_search(req: SkillSearchRequest) -> dict[str, Any]:
+    hits = skills.search_skills(req.query, limit=req.limit)
+    results = []
+    for h in hits:
+        p = h["payload"]
+        results.append({
+            "id": h["id"],
+            "score": h["score"],
+            "name": p.get("name", ""),
+            "description": p.get("description", ""),
+            "steps": p.get("steps", []),
+            "tags": p.get("tags", []),
+            "trigger": p.get("trigger", ""),
+        })
+    return {"query": req.query, "count": len(results), "results": results}
 
 
 async def _build_summary(mode: str) -> str:

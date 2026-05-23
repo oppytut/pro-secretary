@@ -1,33 +1,75 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-23 13:33 UTC  
+**Last Updated:** 2026-05-23 15:00 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Q&A pipeline dogfood complete — 2 repos live (gmedia-erp + dokfin-backend), 4 retrieval fixes shipped, 6/6 hit rate gmedia-erp, pipeline proven for daily use
+**Status:** ✅ Voice handler shipped — Whisper transcribe + smart routing (repo detection → code Q&A). Q&A pipeline + voice proven for daily use.
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-23 (kedua). Dogfood Q&A pipeline 6 pertanyaan gmedia-erp + 5 pertanyaan dokfin-backend. Found & fixed 3 retrieval bugs. Added dokfin-backend as second repo (GitLab). Total 4 commits shipped this sub-session.
+**Where we left off:** Sesi 2026-05-23 (ketiga). Voice handler implemented, tested, deployed. 2 commits shipped. Whisper transcription via Groq + smart routing (detect repo mention → `/api/repos/ask`, else → `/api/chat`).
 
-### Session deliverables (4 commits, all deployed green)
+### Session deliverables (2 commits, all deployed green)
 
 | # | Commit | Run | Duration |
 |---|---|---|---|
-| 1 | `fix(agent): path_search prioritize before limit — fixes entity with many related files` | 26330438493 | ~1m30s |
-| 2 | `fix(agent): merge path hits before keyword hits — prioritized migrations get reserved slots` | 26330686730 | ~1m30s |
-| 3 | `feat(agent): add dokfin-backend repo (GitLab)` | 26332842729 | ~1m30s |
-| 4 | `fix(agent): expand path_irrelevant filter + increase path_terms slice to 6 — fixes inventory retrieval` | 26333388149 | ~1m30s |
+| 1 | `feat(bot): voice handler — Whisper transcribe Telegram voice → route to /api/chat` | 26335429977 | ~1m30s |
+| 2 | `fix(bot): voice smart routing — Whisper prompt hint + auto-detect repo → code Q&A` | 26335658062 | ~1m30s |
 
-### Production state (verified 2026-05-23 13:30 UTC)
+### Production state (verified 2026-05-23 15:00 UTC)
 
 - All 5 containers healthy
+- Voice handler live — tested 3 voice notes successfully
 - `gmedia-erp` indexed: 3,365 chunks @ `63549bae`
-- `dokfin-backend` indexed: 3,591 chunks from 2,913 files @ `7fa15fe0` (NEW)
-- Q&A retrieval pipeline: 3-pass hybrid + improved path prioritization + expanded irrelevant filter
-- Last commit on main: `fix(agent): expand path_irrelevant filter + increase path_terms slice to 6`
+- `dokfin-backend` indexed: 3,591 chunks @ `7fa15fe0`
+- Whisper provider: Groq (`whisper-large-v3-turbo`), free tier
+- Last commit on main: `fix(bot): voice smart routing — Whisper prompt hint + auto-detect repo → code Q&A`
 
-### Q&A Retrieval Pipeline — current architecture
+### Voice Handler — current architecture
+
+**File:** `telegram-bot/bot.py` (`handle_voice`, `_transcribe_voice`, `_detect_repo_intent`, `_load_repo_names`)
+
+```
+1. Telegram voice note received (.ogg Opus)
+2. Duration guard (max 300s)
+3. Download to temp file
+4. Whisper API transcription (Groq whisper-large-v3-turbo)
+   - prompt hint: "Project names: gmedia-erp, dokfin-backend"
+   - improves proper noun accuracy
+5. Smart routing:
+   - Transcript mentions repo name/alias → /api/repos/ask (code Q&A)
+   - Otherwise → /api/chat (general)
+6. Reply: 🎙️ "transcript" [→ 📦 repo] + agent response
+7. Temp file cleanup in finally block
+```
+
+**Config (env vars, all optional — defaults to LLM_BASE_URL/LLM_API_KEY):**
+- `WHISPER_API_BASE` — Whisper endpoint (default: LLM_BASE_URL)
+- `WHISPER_API_KEY` — Whisper API key (default: LLM_API_KEY)
+- `WHISPER_MODEL` — model name (default: whisper-1, production: whisper-large-v3-turbo)
+- `MAX_VOICE_DURATION_SEC` — max voice length (default: 300)
+
+**Repo name loading:** On bot startup (`post_init`), fetches `/api/repos/projects` → caches repo IDs + aliases for routing + Whisper prompt.
+
+### Voice test results (this session)
+
+| # | Voice input | Transcription | Routing | Result |
+|---|---|---|---|---|
+| 1 | "jelaskan logic inventory di dokfin backend" | ✅ "...di dokfin-backend" | ✅ → 📦 dokfin-backend | ⚠️ Retrieval miss (known limitation) |
+| 2 | "apa jadwal saya hari ini" | ✅ correct | ✅ → general chat | ✅ Correct response |
+| 3 | "di gmedia-erp ada unique apa di employee" | ✅ correct | ✅ → 📦 gmedia-erp | ✅ Found email + employee_id unique |
+
+### Next session focus (PRIORITY ORDER)
+
+1. **Self-improving skills Phase 1** (~2-3 jam, low risk): Passive skill logging ke Qdrant `skills` collection. User trigger via `/skill <name>`.
+
+2. **Jangan lakukan sebelum 1-2 minggu data pakai:**
+   - Ganti embedding model ke code-aware (akan fix retrieval partial misses)
+   - Hybrid search dengan BM25 engine eksternal
+   - Multi-repo filter syntax
+   - Repo overview chunk
+   - Voice handler polish (audio file vs voice_note edge case)
 
 **File:** `langgraph-agent/app/code_repos.py` (`answer_code_question`) + `langgraph-agent/app/qdrant_helper.py` (`keyword_search`, `path_search`)
 
@@ -559,7 +601,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ### Active Tasks
 - [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.
 - [x] **DONE:** Resource Alert Patch v1.1 — deployed live run 26266957115. Files shipped: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`. Monitor transition-only alerts + state file `/app/state/resource-alert-state.json`.
-- [ ] **OPTIONAL NEXT:** Voice handler — ✅ CODE COMPLETE (2026-05-23 13:54 UTC). Terima voice di Telegram, transcribe via Whisper API (OpenAI-compatible), route ke `/api/chat`. Files: `telegram-bot/bot.py` (handle_voice + _transcribe_voice), `docker-compose.yml` (+WHISPER env vars), `.env.example` (+Whisper config section). Needs: deploy + production test with real voice note. Fallback: WHISPER_API_BASE defaults to LLM_BASE_URL if not set separately.
+- [ ] **OPTIONAL NEXT:** Voice handler — ✅ DEPLOYED (2026-05-23 15:00 UTC). 2 commits shipped. Whisper transcribe via Groq + smart routing (repo detection → code Q&A). Tested 3 voice notes: transcription accurate, routing correct. Known limitation: dokfin-backend inventory retrieval miss (pipeline issue, not voice).
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
 - [ ] **MONITOR:** 1× transient health blip 13:00 WIB 18 Mei (langgraph-agent HTTP 000 dari `docker exec curl`, recovered di 13:05). Container uptime 3h saat itu (bukan grace-period case). Single occurrence = noise. Worth diagnose kalau reproduce dalam pola atau Telegram alert masuk.

@@ -1,39 +1,31 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-23 06:09 UTC  
+**Last Updated:** 2026-05-23 13:33 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Resource Alert v1.1 deployed + Q&A retrieval pipeline rebuilt (3-pass hybrid: embedding + keyword + path-based) — migration/model files now retrievable, dogfood continues
+**Status:** ✅ Q&A pipeline dogfood complete — 2 repos live (gmedia-erp + dokfin-backend), 4 retrieval fixes shipped, 6/6 hit rate gmedia-erp, pipeline proven for daily use
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-23. Resource Alert v1.1 deployed, Q&A retrieval pipeline overhauled untuk solve schema/migration lookup miss. 8 commits shipped today.
+**Where we left off:** Sesi 2026-05-23 (kedua). Dogfood Q&A pipeline 6 pertanyaan gmedia-erp + 5 pertanyaan dokfin-backend. Found & fixed 3 retrieval bugs. Added dokfin-backend as second repo (GitLab). Total 4 commits shipped this sub-session.
 
-### Session deliverables (8 commits, all deployed green)
+### Session deliverables (4 commits, all deployed green)
 
 | # | Commit | Run | Duration |
 |---|---|---|---|
-| 1 | `feat(agent): resource alert v1.1 — PostgreSQL probe, sustained RAM, swap, per-disk, Qdrant split` | 26266957115 | 1m22s |
-| 2 | `docs: TASK.md handoff — resource alert v1.1 deployed, dogfood day 3` | (no deploy, paths-ignore) | — |
-| 3 | `feat(agent): increase Q&A retrieval top-K from 10 to 20` | 26274186899 | 1m14s |
-| 4 | `feat(agent): two-pass retrieval — embedding + keyword search for Q&A` | 26275801133 | 1m41s |
-| 5 | `feat(agent): add path-based retrieval pass for Q&A` | 26277507525 | 1m10s |
-| 6 | `fix(agent): path search plural/singular variants for entity matching` | 26277923878 | 1m18s |
-| 7 | `fix(agent): path_search nested filter — should inside must for correct AND/OR` | 26278323588 | 1m19s |
-| 8 | `feat(agent): prioritize migration/model paths over tests in path search` | 26278989566 | 1m20s |
-| 9 | `fix(agent): reserve slots for keyword/path hits in merge` | 26280488159 | 1m15s |
-| 10 | `fix(agent): path_search use client-side substring match instead of MatchText` | 26281011366 | 1m17s |
-| 11 | `fix(agent): path search scroll all chunks + boost create_ migrations` | 26286432628 | 1m14s |
-| 12 | `fix(agent): smarter path priority — boost create_<entity> over create_<pivot>` | 26287206473 | 1m20s |
+| 1 | `fix(agent): path_search prioritize before limit — fixes entity with many related files` | 26330438493 | ~1m30s |
+| 2 | `fix(agent): merge path hits before keyword hits — prioritized migrations get reserved slots` | 26330686730 | ~1m30s |
+| 3 | `feat(agent): add dokfin-backend repo (GitLab)` | 26332842729 | ~1m30s |
+| 4 | `fix(agent): expand path_irrelevant filter + increase path_terms slice to 6 — fixes inventory retrieval` | 26333388149 | ~1m30s |
 
-### Production state (verified 2026-05-23)
+### Production state (verified 2026-05-23 13:30 UTC)
 
 - All 5 containers healthy
-- `gmedia-erp` indexed: 3,365 chunks @ `63549bae` (no re-index this session)
-- Resource Alert v1.1 active: PostgreSQL probe, sustained RAM (30min default), swap (50/70%), per-disk, Qdrant connectivity vs capacity split
-- Q&A retrieval pipeline: 3-pass hybrid (embedding + keyword + path-based)
-- Last commit on main: `fix(agent): smarter path priority — boost create_<entity> over create_<pivot>`
+- `gmedia-erp` indexed: 3,365 chunks @ `63549bae`
+- `dokfin-backend` indexed: 3,591 chunks from 2,913 files @ `7fa15fe0` (NEW)
+- Q&A retrieval pipeline: 3-pass hybrid + improved path prioritization + expanded irrelevant filter
+- Last commit on main: `fix(agent): expand path_irrelevant filter + increase path_terms slice to 6`
 
 ### Q&A Retrieval Pipeline — current architecture
 
@@ -42,12 +34,94 @@
 ```
 Pass 1: Embedding similarity
    - search_code(query, repo_id, limit=20), score >= 0.2
-   - Default top-K = 20 (was 10)
+   - Default top-K = 20
 
 Pass 2: Keyword substring match (Qdrant MatchText on text field)
    - extract_keywords from question, AND logic, top-4 keywords
    - Requires text payload index (created in ensure_payload_indexes)
    - Synthetic score 0.15 for keyword-only hits
+
+Pass 3: Path-based substring search (CLIENT-SIDE substring, NOT Qdrant MatchText)
+   - extract_path_terms (entity names, with plural/singular variants)
+   - Expanded _PATH_IRRELEVANT filter (verbs, generic terms, framework terms)
+   - path_terms[:6] (was [:3]) — allows more entity terms through
+   - Scroll up to 4000 chunks for repo, filter path client-side
+   - limit=0 (collect ALL matches), then _prioritize_paths, THEN slice [:60]
+   - Path priority ranking:
+     - migrations/ + create_ + entity term match → rank -2 (highest)
+     - Models/ + entity term match → rank -1
+     - migrations/ + create_ → rank "i - 1"
+     - tests/ → rank 99 (last)
+
+Merge:
+   - Path hits processed FIRST (before keyword hits) in reserved slots
+   - Reserve min 5 slots for path/keyword hits
+   - max_results = 20
+   - Deduplicate by chunk ID, embedding hits first, then path + keyword
+```
+
+### Dogfood results (this session)
+
+**gmedia-erp (6/6 = 100%):**
+
+| # | Pertanyaan | Kategori | Verdict |
+|---|---|---|---|
+| 1 | "di supplier ada unique apa?" | Schema/table | ✅ (after fix #1+#2) |
+| 2 | "di employee validasi email di mana?" | Validation | ✅ |
+| 3 | "alur import employee bagaimana?" | Flow | ✅ |
+| 4 | "employee punya relasi ke department?" | Model relation | ✅ |
+| 5 | "form employee field apa saja?" | Frontend | ✅ |
+| 6 | "endpoint employee index pakai filter apa?" | Controller/action | ✅ |
+
+**dokfin-backend (2/5 full hit, 3/5 partial):**
+
+| # | Pertanyaan | Kategori | Verdict | Notes |
+|---|---|---|---|---|
+| D0 | "jelaskan logic inventory" | Flow | ✅ (after fix #4) | 5 controller/trait files |
+| D1 | "tabel material kolom apa saja?" | Schema | ⚠️ PARTIAL | Related tables found, main migration miss |
+| D2 | "material punya relasi ke apa?" | Relation | ✅ | 5 FK migrations |
+| D3 | "alur transaksi receipt stok" | Flow | ⚠️ PARTIAL | Ambiguitas "receipt" → POS payment |
+| D4 | "scope business_id di inventory" | Auth/scope | ⚠️ PARTIAL | Interface found, implementation miss |
+
+**Analysis of partial misses:**
+- D1: `create_materials_table` migration mungkin tidak ada (repo lama, nama berbeda) atau terdepak oleh 172+ related files
+- D3: Ambiguitas bahasa — "receipt" di codebase = POS payment receipt, bukan stock receipt. Limitation embedding general-purpose.
+- D4: Facade implementation terlalu generic (tidak ada entity name di path). Perlu code-aware embedding untuk improve.
+
+**Conclusion:** Pipeline proven untuk daily use. Partial misses bukan showstopper — bot honest bilang "tidak tahu" dan memberikan clue berguna. Improvement selanjutnya (code-aware embedding) bisa data-driven setelah 1-2 minggu pakai.
+
+### Bugs found & fixed this session
+
+1. **path_search early-break before prioritize:** Entity "supplier" punya 172 file matches. `path_search` break di limit=60, migration di posisi 93 → never reached. Fix: collect ALL matches, prioritize, THEN slice.
+
+2. **merge order keyword-first:** Reserved slots filled by keyword hits first, path hits (with prioritized migrations) get no slots. Fix: process path hits before keyword hits in merge.
+
+3. **path_terms polluted by verbs/generic terms:** "jelaskan logic inventory" → path_terms = ['jelaskan', 'jelaskans', 'logic', ...], "inventory" at position 5 but `[:3]` slice only takes first 3. Fix: expanded `_PATH_IRRELEVANT` with verbs/generic terms + increased slice to `[:6]`.
+
+### Regression test (after fix #4)
+
+- Q5 "form employee field apa saja?" → ✅ PASS (kata "form" di irrelevant tapi "employee" tetap jadi path term utama)
+- Q6 "endpoint employee index pakai filter apa?" → ✅ PASS (kata "filter" di irrelevant tapi "employee" tetap match)
+
+### Next session focus (PRIORITY ORDER)
+
+1. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke `/api/chat`. PTB 22.7 native voice handler API tersedia. Game-changer untuk daily UX. Start sekarang — Q&A baseline proven.
+
+2. **Self-improving skills Phase 1** (~2-3 jam, low risk): Passive skill logging ke Qdrant `skills` collection. User trigger via `/skill <name>`.
+
+3. **Jangan lakukan sebelum 1-2 minggu data pakai:**
+   - Ganti embedding model ke code-aware (akan fix D3/D4 partial misses)
+   - Hybrid search dengan BM25 engine eksternal
+   - Multi-repo filter syntax
+   - Repo overview chunk
+
+### Known limitations
+
+- `_PATH_PRIORITY` hardcoded untuk Laravel layout. dokfin-backend pakai Facade pattern (non-standard Laravel) — Facade implementations tidak ter-prioritize.
+- Path scroll fetch 4000 chunks. Repos > 4000 chunks perlu pagination (dokfin-backend = 3591, masih aman).
+- Embedding 384-dim general-purpose: "receipt" ambiguity (D3) dan generic queries (D4) tidak optimal. Code-aware embedding (jina-code, codebert) akan improve ini.
+- `_extract_path_terms` plural handling sederhana (append "s" / strip "s"). "inventory" → "inventorys" (salah), tapi substring match "inventory" tetap works.
+- `_PATH_IRRELEVANT` perlu maintenance — tambah term baru kalau ada query miss karena verb/generic term pollute path_terms.
 
 Pass 3: Path-based substring search (CLIENT-SIDE substring, NOT Qdrant MatchText)
    - extract_path_terms (entity names, with plural/singular variants)

@@ -2,6 +2,8 @@
 
 import logging
 import os
+import tempfile
+from pathlib import Path
 
 import httpx
 from telegram import BotCommand, Update
@@ -22,6 +24,12 @@ LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 MAX_COMMAND_TEXT_LEN = int(os.getenv("MAX_COMMAND_TEXT_LEN", "2000"))
 MAX_JOURNAL_LEN = int(os.getenv("MAX_JOURNAL_LEN", "5000"))
+
+# Voice transcription config
+WHISPER_API_BASE = os.getenv("WHISPER_API_BASE", os.getenv("LLM_BASE_URL", "")).rstrip("/")
+WHISPER_API_KEY = os.getenv("WHISPER_API_KEY", os.getenv("LLM_API_KEY", ""))
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
+MAX_VOICE_DURATION_SEC = int(os.getenv("MAX_VOICE_DURATION_SEC", "300"))  # 5 min
 JOURNAL_PROMPT_MARKER = "📓 Personal Journal"
 ALLOWED_UPLOAD_EXTS = {
     "pdf", "txt", "md", "rtf",
@@ -87,7 +95,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/projects - Lihat repo yang ter-index\n"
         "/index <repo|all> - Re-index repo\n"
         "/tanya <pertanyaan> - Tanya tentang code di repo\n\n"
-        "Atau kirim pesan biasa untuk chat."
+        "Atau kirim pesan biasa atau voice note untuk chat."
     )
 
 
@@ -615,6 +623,76 @@ def _is_journal_reply(update: Update) -> bool:
 
 
 @authorized
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    voice = update.message.voice
+
+    if voice.duration and voice.duration > MAX_VOICE_DURATION_SEC:
+        await update.message.reply_text(
+            f"⚠️ Voice terlalu panjang ({voice.duration}s). Maks {MAX_VOICE_DURATION_SEC}s."
+        )
+        return
+
+    if not WHISPER_API_BASE or not WHISPER_API_KEY:
+        await update.message.reply_text("⚠️ Transcription belum dikonfigurasi (WHISPER_API_BASE/KEY).")
+        return
+
+    await update.message.reply_chat_action("typing")
+
+    tmp_path: Path | None = None
+    try:
+        tg_file = await voice.get_file()
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        await tg_file.download_to_drive(custom_path=tmp_path)
+
+        transcript = await _transcribe_voice(tmp_path)
+        if not transcript:
+            await update.message.reply_text("⚠️ Tidak dapat mentranskrip voice (kosong).")
+            return
+
+        r = await _agent_post(
+            "/api/chat",
+            {
+                "message": transcript,
+                "user_id": str(update.effective_user.id),
+                "model": current_model,
+            },
+            timeout=90.0,
+        )
+
+        if r.status_code == 200:
+            reply = r.json().get("response") or "(respons kosong)"
+        else:
+            reply = f"⚠️ Error dari agent (HTTP {r.status_code})."
+
+        prefix = f"🎙️ \"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\"\n\n"
+        await update.message.reply_text(prefix + reply)
+
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+    except Exception as exc:
+        logger.exception("Voice handler error")
+        await update.message.reply_text(f"⚠️ Gagal memproses voice: {type(exc).__name__}")
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
+async def _transcribe_voice(path: Path) -> str:
+    url = f"{WHISPER_API_BASE}/v1/audio/transcriptions"
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        with open(path, "rb") as f:
+            resp = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {WHISPER_API_KEY}"},
+                data={"model": WHISPER_MODEL, "response_format": "json"},
+                files={"file": (path.name, f, "audio/ogg")},
+            )
+    resp.raise_for_status()
+    return (resp.json().get("text") or "").strip()
+
+
+@authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _is_journal_reply(update):
         await _submit_journal(update, update.message.text or "")
@@ -742,6 +820,7 @@ def main():
     app.add_handler(CommandHandler("projects", cmd_projects))
     app.add_handler(CommandHandler("index", cmd_index))
     app.add_handler(CommandHandler("tanya", cmd_tanya))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 

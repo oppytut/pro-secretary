@@ -105,7 +105,7 @@ Merge:
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke `/api/chat`. PTB 22.7 native voice handler API tersedia. Game-changer untuk daily UX. Start sekarang — Q&A baseline proven.
+1. **Voice handler** (~2-3 jam): ✅ IMPLEMENTED (2026-05-23). Whisper transcribe Telegram voice → route ke `/api/chat`. PTB 22.7 native voice handler. Needs deploy + production test.
 
 2. **Self-improving skills Phase 1** (~2-3 jam, low risk): Passive skill logging ke Qdrant `skills` collection. User trigger via `/skill <name>`.
 
@@ -559,7 +559,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ### Active Tasks
 - [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.
 - [x] **DONE:** Resource Alert Patch v1.1 — deployed live run 26266957115. Files shipped: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`. Monitor transition-only alerts + state file `/app/state/resource-alert-state.json`.
-- [ ] **OPTIONAL NEXT:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX. PTB 22.7 sekarang merged, native voice handler API tersedia. Start only after Q&A dogfood baseline is useful.
+- [ ] **OPTIONAL NEXT:** Voice handler — ✅ CODE COMPLETE (2026-05-23 13:54 UTC). Terima voice di Telegram, transcribe via Whisper API (OpenAI-compatible), route ke `/api/chat`. Files: `telegram-bot/bot.py` (handle_voice + _transcribe_voice), `docker-compose.yml` (+WHISPER env vars), `.env.example` (+Whisper config section). Needs: deploy + production test with real voice note. Fallback: WHISPER_API_BASE defaults to LLM_BASE_URL if not set separately.
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
 - [ ] **MONITOR:** 1× transient health blip 13:00 WIB 18 Mei (langgraph-agent HTTP 000 dari `docker exec curl`, recovered di 13:05). Container uptime 3h saat itu (bukan grace-period case). Single occurrence = noise. Worth diagnose kalau reproduce dalam pola atau Telegram alert masuk.

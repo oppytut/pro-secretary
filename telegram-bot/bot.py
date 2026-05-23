@@ -30,6 +30,9 @@ WHISPER_API_BASE = os.getenv("WHISPER_API_BASE", os.getenv("LLM_BASE_URL", "")).
 WHISPER_API_KEY = os.getenv("WHISPER_API_KEY", os.getenv("LLM_API_KEY", ""))
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
 MAX_VOICE_DURATION_SEC = int(os.getenv("MAX_VOICE_DURATION_SEC", "300"))  # 5 min
+
+REPO_NAMES: list[str] = []
+REPO_ALIASES: dict[str, str] = {}
 JOURNAL_PROMPT_MARKER = "📓 Personal Journal"
 ALLOWED_UPLOAD_EXTS = {
     "pdf", "txt", "md", "rtf",
@@ -72,6 +75,47 @@ async def _agent_post(path: str, payload: dict, timeout: float = 60.0) -> httpx.
             headers=_agent_headers(),
             json=payload,
         )
+
+
+async def _load_repo_names():
+    global REPO_NAMES, REPO_ALIASES
+    try:
+        r = await _agent_post("/api/repos/projects", {}, timeout=10.0)
+        if r.status_code == 200:
+            projects = r.json().get("projects") or []
+            for p in projects:
+                repo_id = p.get("id", "")
+                if repo_id:
+                    REPO_NAMES.append(repo_id)
+                    REPO_ALIASES[repo_id.lower()] = repo_id
+                for alias in p.get("aliases") or []:
+                    REPO_ALIASES[alias.lower()] = repo_id
+            logger.info(f"Loaded repo names for voice hint: {REPO_NAMES}")
+    except Exception as exc:
+        logger.warning(f"Failed to load repo names: {exc}")
+
+
+def _whisper_prompt() -> str:
+    if not REPO_NAMES:
+        return ""
+    return "Project names: " + ", ".join(REPO_NAMES) + ". "
+
+
+def _detect_repo_intent(text: str) -> tuple[str | None, str]:
+    lower = text.lower().strip()
+    if lower.startswith("di "):
+        parts = lower.split(None, 2)
+        if len(parts) >= 2:
+            candidate = parts[1].rstrip(",.")
+            if candidate in REPO_ALIASES:
+                question = parts[2] if len(parts) > 2 else ""
+                return REPO_ALIASES[candidate], question
+    for token in lower.split():
+        clean = token.rstrip(",.")
+        if clean in REPO_ALIASES:
+            question = text
+            return REPO_ALIASES[clean], question
+    return None, text
 
 
 @authorized
@@ -650,22 +694,32 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Tidak dapat mentranskrip voice (kosong).")
             return
 
-        r = await _agent_post(
-            "/api/chat",
-            {
-                "message": transcript,
-                "user_id": str(update.effective_user.id),
-                "model": current_model,
-            },
-            timeout=90.0,
-        )
+        repo, question = _detect_repo_intent(transcript)
+
+        if repo and question:
+            r = await _agent_post(
+                "/api/repos/ask",
+                {"question": question, "repo": repo},
+                timeout=120.0,
+            )
+        else:
+            r = await _agent_post(
+                "/api/chat",
+                {
+                    "message": transcript,
+                    "user_id": str(update.effective_user.id),
+                    "model": current_model,
+                },
+                timeout=90.0,
+            )
 
         if r.status_code == 200:
             reply = r.json().get("response") or "(respons kosong)"
         else:
             reply = f"⚠️ Error dari agent (HTTP {r.status_code})."
 
-        prefix = f"🎙️ \"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\"\n\n"
+        route_info = f" → 📦 {repo}" if repo else ""
+        prefix = f"🎙️ \"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\"{route_info}\n\n"
         await update.message.reply_text(prefix + reply)
 
     except httpx.RequestError as exc:
@@ -680,12 +734,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _transcribe_voice(path: Path) -> str:
     url = f"{WHISPER_API_BASE}/v1/audio/transcriptions"
+    prompt = _whisper_prompt()
     async with httpx.AsyncClient(timeout=60.0) as client:
         with open(path, "rb") as f:
+            data = {"model": WHISPER_MODEL, "response_format": "json"}
+            if prompt:
+                data["prompt"] = prompt
             resp = await client.post(
                 url,
                 headers={"Authorization": f"Bearer {WHISPER_API_KEY}"},
-                data={"model": WHISPER_MODEL, "response_format": "json"},
+                data=data,
                 files={"file": (path.name, f, "audio/ogg")},
             )
     resp.raise_for_status()
@@ -774,6 +832,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def post_init(application: Application):
+    await _load_repo_names()
     commands = [
         BotCommand("start", "Mulai bot"),
         BotCommand("jadwal", "Lihat jadwal hari ini"),

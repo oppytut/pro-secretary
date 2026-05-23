@@ -7,3 +7,12 @@ repos:
     aliases:
       - erp-gmedia
     enabled: true
+
+  - id: dokfin-backend
+    name: dokfin-backend
+    provider: gitlab
+    url: https://gitlab.com/varx.id/dokfin/backend.git
+    branch: main
+    aliases:
+      - dokfin
+    enabled: true

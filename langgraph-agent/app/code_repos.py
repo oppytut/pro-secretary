@@ -296,9 +296,9 @@ async def answer_code_question(question: str, repo_id: str | None = None) -> str
     if path_terms:
         path_filters = {"repo_id": resolved} if resolved else None
         path_hits = qdrant_helper.path_search(
-            config.COLL_CODE, path_terms=path_terms[:3], limit=60, filters=path_filters
+            config.COLL_CODE, path_terms=path_terms[:3], limit=0, filters=path_filters
         )
-        path_hits = _prioritize_paths(path_hits, path_terms)
+        path_hits = _prioritize_paths(path_hits, path_terms)[:60]
 
     merged = _merge_hits(useful, keyword_hits + path_hits, max_results=20)
 

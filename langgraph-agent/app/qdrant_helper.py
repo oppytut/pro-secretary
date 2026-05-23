@@ -259,9 +259,7 @@ def path_search(
         path = (p.payload or {}).get("path", "").lower()
         if any(term in path for term in lower_terms):
             matched.append({"id": str(p.id), "score": 0.0, "payload": p.payload or {}})
-            if len(matched) >= limit:
-                break
-    return matched
+    return matched[:limit] if limit else matched
 
 
 def count(collection: str, filters: dict[str, Any] | None = None) -> int:

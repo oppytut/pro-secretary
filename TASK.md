@@ -1,79 +1,131 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-20 03:14 UTC  
+**Last Updated:** 2026-05-23 06:09 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Multi-repo Q&A Phase 1 deployed + resource alert gap closed locally — dogfood phase, stop Q&A feature building until usage feedback
+**Status:** ✅ Resource Alert v1.1 deployed + Q&A retrieval pipeline rebuilt (3-pass hybrid: embedding + keyword + path-based) — migration/model files now retrievable, dogfood continues
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-19 sore. Multi-repo Q&A Phase 1 **DEPLOYED, INDEXED, VERIFIED + 2 hotfixes shipped**.
+**Where we left off:** Sesi 2026-05-23. Resource Alert v1.1 deployed, Q&A retrieval pipeline overhauled untuk solve schema/migration lookup miss. 8 commits shipped today.
 
-**Session deliverables (3 commits after PR #6 merge):**
-1. PR #6 merged → Multi-repo Q&A Phase 1 deployed (5 atomic commits)
-2. `fix(bot): remove Markdown parsing from model command` — /model crashed due to Telegram parse_mode="Markdown" + angle brackets
-3. `feat(agent): add repo alias support for flexible lookup` — user typed `erp-gmedia`, system only knew `gmedia-erp`. Now aliases resolve transparently.
+### Session deliverables (8 commits, all deployed green)
 
-**Production state (verified 15:43 WIB):**
-- 5 containers healthy: caddy 4d, calcom 4d, n8n 3d, langgraph-agent + telegram-bot ~1h (post-deploy)
-- `gmedia-erp` indexed: 2,669 files → 3,365 chunks @ `63549bae` (486s)
-- Alias `erp-gmedia` → `gmedia-erp` resolves for search/ask/index ✅
-- `/model` responds without crash ✅
-- Deploy runs: 26081530906 (PR#6, 3m41s), 26083770425 (/model fix, 59s), 26086224683 (alias, 1m21s) — all green
-- Last commit on main: `feat(agent): add repo alias support for flexible lookup`
+| # | Commit | Run | Duration |
+|---|---|---|---|
+| 1 | `feat(agent): resource alert v1.1 — PostgreSQL probe, sustained RAM, swap, per-disk, Qdrant split` | 26266957115 | 1m22s |
+| 2 | `docs: TASK.md handoff — resource alert v1.1 deployed, dogfood day 3` | (no deploy, paths-ignore) | — |
+| 3 | `feat(agent): increase Q&A retrieval top-K from 10 to 20` | 26274186899 | 1m14s |
+| 4 | `feat(agent): two-pass retrieval — embedding + keyword search for Q&A` | 26275801133 | 1m41s |
+| 5 | `feat(agent): add path-based retrieval pass for Q&A` | 26277507525 | 1m10s |
+| 6 | `fix(agent): path search plural/singular variants for entity matching` | 26277923878 | 1m18s |
+| 7 | `fix(agent): path_search nested filter — should inside must for correct AND/OR` | 26278323588 | 1m19s |
+| 8 | `feat(agent): prioritize migration/model paths over tests in path search` | 26278989566 | 1m20s |
+| 9 | `fix(agent): reserve slots for keyword/path hits in merge` | 26280488159 | 1m15s |
+| 10 | `fix(agent): path_search use client-side substring match instead of MatchText` | 26281011366 | 1m17s |
+| 11 | `fix(agent): path search scroll all chunks + boost create_ migrations` | 26286432628 | 1m14s |
+| 12 | `fix(agent): smarter path priority — boost create_<entity> over create_<pivot>` | 26287206473 | 1m20s |
 
-**Resource Alert Patch v1.1 (local changes, not committed/deployed yet):**
-- Scope: reliability maintenance only, not Q&A feature expansion.
-- `langgraph-agent/app/resource_alerts.py` updated:
-  - PostgreSQL `DATABASE_URL` connectivity probe (`SELECT 1`) with transition-based critical/recovery alert.
-  - RAM alert now requires sustained breach window (`RESOURCE_MEM_SUSTAINED_MINUTES`, default 30) before warning/critical. Short indexing/embedding spikes no longer alert.
-  - Swap threshold alert added (`RESOURCE_SWAP_WARN_PCT=50`, `RESOURCE_SWAP_CRIT_PCT=70`) as stronger RAM-pressure/upgrade signal.
-  - Qdrant connectivity alert split from Qdrant capacity alert. Connectivity failure is critical; point-count threshold remains capacity signal.
-  - Disk alert now tracks each mounted path independently (`disk:/`, `disk:/var/backups`, `disk:/host/var/backups`) instead of only worst disk.
-- Config/docs updated:
-  - `langgraph-agent/app/config.py`: added RAM sustain minutes, swap thresholds, PostgreSQL timeout.
-  - `docker-compose.yml`: passes new resource envs into langgraph-agent.
-  - `.env.example`: documents new knobs and transition-only semantics.
-- Verification done locally:
-  - `python3 -m py_compile langgraph-agent/app/resource_alerts.py langgraph-agent/app/config.py` ✅
-  - `bash -n scripts/health_check.sh` ✅
-  - `docker compose config --quiet` ✅ (only expected missing local env warnings)
-  - 9-case smoke simulation passed: healthy baseline no spam, PostgreSQL down/recovery, RAM short spike ignored, RAM 35-min sustained alert, swap high alert, per-disk root critical only, Qdrant down alert, DATABASE_URL unset = unknown/no spam.
-- Still needed before production: commit + push/deploy if user wants. After deploy, verify `/api/resource_alert_check` from `health_check.sh` and watch first run seeds/updates `/app/state/resource-alert-state.json`.
+### Production state (verified 2026-05-23)
 
-**User dogfood observations (same session):**
-- `/tanya di erp-gmedia ada berapa modul?` → "Tidak ketemu konteks" — expected, overview questions span too many files for top-10 retrieval
-- `/tanya di gmedia-erp <specific question>` → answered with "konteks tidak cukup" for broad questions — correct behavior (honest "tidak tahu" > hallucinate)
-- Specific lookup queries (`/cari di gmedia-erp invoice`) → works well with citations
+- All 5 containers healthy
+- `gmedia-erp` indexed: 3,365 chunks @ `63549bae` (no re-index this session)
+- Resource Alert v1.1 active: PostgreSQL probe, sustained RAM (30min default), swap (50/70%), per-disk, Qdrant connectivity vs capacity split
+- Q&A retrieval pipeline: 3-pass hybrid (embedding + keyword + path-based)
+- Last commit on main: `fix(agent): smarter path priority — boost create_<entity> over create_<pivot>`
 
-**Cross-repo Q&A status:**
-- `/tanya <question>` (tanpa `di <repo>`) already searches ALL repos — no filter applied
-- Explicit multi-repo syntax (`/tanya di repo-a,repo-b ...`) NOT implemented yet — wait for user need signal
+### Q&A Retrieval Pipeline — current architecture
 
-**Next session focus (PRIORITY ORDER):**
+**File:** `langgraph-agent/app/code_repos.py` (`answer_code_question`) + `langgraph-agent/app/qdrant_helper.py` (`keyword_search`, `path_search`)
 
-1. **DOGFOOD 3-7 hari** — stop building. User pakai Q&A daily, track:
-   - Pertanyaan spesifik (lokasi kode, fungsi) → harusnya bagus
-   - Pertanyaan flow bisnis (invoice lifecycle) → mungkin cukup
-   - Pertanyaan overview (berapa modul?) → expected lemah
-   - Track hit/miss ratio untuk keputusan improvement
+```
+Pass 1: Embedding similarity
+   - search_code(query, repo_id, limit=20), score >= 0.2
+   - Default top-K = 20 (was 10)
 
-2. **Setelah data terkumpul, pilih 1:**
-   - Jika overview sering dibutuhkan → tambah "repo overview chunk" saat indexing (file tree, route list, module folders)
-   - Jika cross-repo sering dibutuhkan → implement multi-repo filter syntax
-   - Jika retrieval miss padahal keyword ada → naikkan top-K 10→20 atau hybrid search
-   - Jika semua cukup bagus → tambah 5-10 repo lain, lalu voice handler
+Pass 2: Keyword substring match (Qdrant MatchText on text field)
+   - extract_keywords from question, AND logic, top-4 keywords
+   - Requires text payload index (created in ensure_payload_indexes)
+   - Synthetic score 0.15 for keyword-only hits
 
-3. **Voice handler** (~2-3 jam): Whisper transcribe Telegram voice → route ke chat. PTB 22.7 native support.
+Pass 3: Path-based substring search (CLIENT-SIDE substring, NOT Qdrant MatchText)
+   - extract_path_terms (entity names, with plural/singular variants)
+   - Scroll up to 4000 chunks for repo, filter path client-side
+   - Why client-side: Qdrant WORD tokenizer does exact token match,
+     so "employee" doesn't match "employees" token
+   - Result: substring match guarantees migration files found
+   - Path priority ranking:
+     - migrations/ + create_ + entity term match → rank -2 (highest)
+     - Models/ + entity term match → rank -1
+     - migrations/ + create_ → rank "i - 1" (between Models and DTOs)
+     - tests/ → rank 99 (last)
 
-4. **Self-improving skills Phase 1** (~2-3 jam): Passive skill logging.
+Merge:
+   - Reserve min 5 slots for keyword/path hits (was: embedding could fill all 20)
+   - max_results = 25 (was 20)
+   - Deduplicate by chunk ID, embedding hits first, then keyword + path
+```
 
-5. **Jangan lakukan sebelum ada data:**
-   - Ganti embedding model
+### Validation case that drove this rebuild
+
+**User question:** `/tanya di erp-gmedia apakah di employee ada nomor unique?`
+
+**Before:** Bot answered "konteks tidak cukup" — only retrieved skill docs and changelog. Migration file not in top-10 retrieval despite being indexed.
+
+**After full pipeline:**
+- Migration `database/migrations/2025_09_22_092704_create_employees_table.php` retrieved with `$table->string('email')->unique();`
+- Model `app/Models/Employee.php` also retrieved
+- Bot answers: "Ya. Migrasi awal employees punya `email` unique. Changelog sebut tambah Employee ID (NIK) di form, tapi konteks tak tunjukkan constraint unique untuk NIK"
+- Honest "tidak tahu" untuk NIK constraint (correct — NIK constraint memang tidak ada di migration awal)
+
+### Resource Alert v1.1 — deployed live
+
+- `langgraph-agent/app/resource_alerts.py` — PostgreSQL probe, sustained RAM, swap, per-disk, Qdrant split
+- `langgraph-agent/app/config.py` — new env knobs
+- `docker-compose.yml` — passes new envs to agent
+- `.env.example` — documents thresholds + transition semantics
+- All previously-local-only changes from session 2026-05-20 now live
+
+### Next session focus (PRIORITY ORDER)
+
+1. **DOGFOOD retrieval improvements** — pertanyaan variasi untuk validasi pipeline tidak hanya bagus untuk kasus Employee:
+   - Schema/table: "di supplier ada unique apa?"
+   - Validation: "di employee validasi email di mana?"
+   - Flow: "alur import employee bagaimana?"
+   - Model relation: "employee punya relasi ke department?"
+   - Frontend: "form employee field apa saja?"
+   - Controller/action: "endpoint employee index pakai filter apa?"
+   - Track hit/miss ratio. Minimum 5-10 pertanyaan sebelum keputusan next.
+
+2. **Tambah 1 repo kedua** (kalau dogfood positif):
+   - Validasi pipeline general untuk repo lain (bahasa berbeda?)
+   - Jangan langsung 5-10 repo, satu-satu dulu.
+
+3. **Voice handler** (~2-3 jam, setelah Q&A baseline stabil):
+   - Whisper transcribe Telegram voice → route ke `/api/chat`
+   - PTB 22.7 native support
+   - Game-changer untuk daily UX
+
+4. **Self-improving skills Phase 1** (~2-3 jam, low risk):
+   - Passive skill logging ke Qdrant `skills` collection
+   - User trigger via `/skill <name>`
+
+5. **Jangan lakukan sebelum data dogfood:**
+   - Ganti embedding model ke code-aware
+   - Hybrid search dengan BM25 engine eksternal
    - Multi-repo filter syntax
    - Repo overview chunk
-   - Tambah repo lain
+
+### Known limitations setelah session ini
+
+- Path priority `_PATH_PRIORITY` hardcoded untuk Laravel layout (migrations/, Models/, DTOs/, Actions/, Domain/, Controllers/, Requests/, Resources/, routes/, types/). Untuk repo non-Laravel mungkin perlu adjustment.
+- Path scroll fetch 4000 chunks (cover repo gmedia-erp 3365). Kalau repo lebih besar, perlu pagination.
+- `_extract_keywords` pakai stopword list bilingual (ID + EN), bukan exhaustive. Bisa miss kata stopword yang tidak terdaftar.
+- `_extract_path_terms` punya `_PATH_IRRELEVANT` set hardcoded (unique, nomor, field, dll). Tambah term baru kalau ada query miss karena term irrelevant ini.
+- Plural/singular handling sederhana (append "s" / strip "s"). Tidak handle Indonesian plural ("employee" → "para employee" tetap match karena substring).
+
+
 
 **Triage outcomes (5 Dependabot PRs):**
 
@@ -431,9 +483,9 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1** — ✅ DEPLOYED. PR #6 merged 2026-05-19, deploy run 26081530906 green (3m41s). gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. Search acid test pass. User dogfood via Telegram next.
-- [ ] **READY TO DEPLOY:** Resource Alert Patch v1.1 — local implementation complete + verified. Awaiting user decision: commit/push/deploy now or leave pending. Files MOD: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`, `TASK.md`. See "Resource Alert Patch v1.1" block in handoff section + "Recently Completed" entry below.
-- [ ] **OPTIONAL:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX. PTB 22.7 sekarang merged, native voice handler API tersedia.
+- [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.
+- [x] **DONE:** Resource Alert Patch v1.1 — deployed live run 26266957115. Files shipped: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`. Monitor transition-only alerts + state file `/app/state/resource-alert-state.json`.
+- [ ] **OPTIONAL NEXT:** Voice handler — terima voice di Telegram, transcribe via Whisper, route ke chat (~2-3 jam). Game changer untuk daily UX. PTB 22.7 sekarang merged, native voice handler API tersedia. Start only after Q&A dogfood baseline is useful.
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
 - [ ] **MONITOR:** 1× transient health blip 13:00 WIB 18 Mei (langgraph-agent HTTP 000 dari `docker exec curl`, recovered di 13:05). Container uptime 3h saat itu (bukan grace-period case). Single occurrence = noise. Worth diagnose kalau reproduce dalam pola atau Telegram alert masuk.
@@ -443,6 +495,53 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live post-triage.
 
 ### Recently Completed
+
+- ✅ [2026-05-23 06:09 UTC] Resource Alert v1.1 deployed + Q&A retrieval pipeline rebuilt (3-pass hybrid)
+  - **Trigger:** User minta saran langkah selanjutnya. Dua track ter-deliver:
+    1. Deploy Resource Alert v1.1 yang sebelumnya local-only.
+    2. Investigasi dogfood Q&A — pertanyaan "apakah di employee ada nomor unique?" miss migration file padahal terindex. Iteratif rebuild retrieval pipeline sampai migration file ter-retrieve dengan citation.
+  - **Track 1 — Resource Alert v1.1 deploy:**
+    - Commit `feat(agent): resource alert v1.1 — PostgreSQL probe, sustained RAM, swap, per-disk, Qdrant split` deployed run 26266957115 (1m22s).
+    - Files: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`.
+    - Production state: PostgreSQL probe aktif, RAM sustained window 30min, swap thresholds 50/70%, per-disk tracking, Qdrant connectivity vs capacity split.
+  - **Track 2 — Q&A retrieval pipeline rebuild (8 commits):**
+    - **Step 1:** Top-K 10→20 (commit `feat(agent): increase Q&A retrieval top-K from 10 to 20`, run 26274186899). Improvement marginal: 1 source → 2 sources di response, tapi migration tetap tidak ter-retrieve.
+    - **Step 2:** Two-pass retrieval (commit `feat(agent): two-pass retrieval — embedding + keyword search for Q&A`, run 26275801133). Tambah `keyword_search` di `qdrant_helper.py` pakai Qdrant `MatchText` di field `text`. Tambah text payload index. Tambah `_extract_keywords` (3+ chars, stopword filter ID+EN). Tambah `_merge_hits`. Improvement minor — masih miss migration karena keyword "employee" + "unique" jarang muncul bersamaan dalam 1 chunk.
+    - **Step 3:** Path-based retrieval Pass 3 (commit `feat(agent): add path-based retrieval pass for Q&A`, run 26277507525). Tambah `path_search` di `qdrant_helper.py` pakai `MatchText` di field `path`. Tambah text index untuk path. Tambah `_extract_path_terms` (filter `_PATH_IRRELEVANT` + length 4+). Migration mulai muncul di sources tapi yang pivot, bukan main table.
+    - **Step 4:** Plural/singular variants (commit `fix(agent): path search plural/singular variants for entity matching`, run 26277923878). "employee" auto-search "employees" juga. Belum ada perubahan karena masalah lain.
+    - **Step 5:** Nested filter fix (commit `fix(agent): path_search nested filter — should inside must for correct AND/OR`, run 26278323588). Qdrant `should` di top-level dengan `must` jadi optional boost, bukan required filter. Fix: nest `Filter(should=path_terms)` di dalam `must` list. Tetap miss.
+    - **Step 6:** Path priority ranking (commit `feat(agent): prioritize migration/model paths over tests in path search`, run 26278989566). `_PATH_PRIORITY` list (migrations > Models > DTOs > Actions > Domain > Controllers > Requests > Resources > routes > types). Test files rank 99. `_prioritize_paths` sort hits. Tetap miss main migration karena pivot dan main migration sama-sama match `migrations/`.
+    - **Step 7:** Slot reservation di merge (commit `fix(agent): reserve slots for keyword/path hits in merge`, run 26280488159). Embedding pass bisa fill semua 20 slot, leaving no room for path hits. Reserve min 5 slots untuk keyword/path. Total context naik ke 25 chunks. Migration mulai masuk tapi pivot version.
+    - **Step 8:** Client-side substring match (commit `fix(agent): path_search use client-side substring match instead of MatchText`, run 26281011366). Diskoperi via diagnostic VPS: Qdrant WORD tokenizer exact token match — "employee" tidak match "employees" sebagai token. Switch ke scroll all repo chunks (limit 3000) + filter path client-side dengan substring. Guarantee migration ter-found.
+    - **Step 9:** Scroll limit + create_ boost (commit `fix(agent): path search scroll all chunks + boost create_ migrations`, run 26286432628). Limit naik 3000→4000 cover full repo (gmedia-erp 3365 chunks). `create_<entity>` migration boost di priority. Migration `create_employee_permission_table` (pivot) muncul tapi `create_employees_table` (main) tidak — keduanya match `create_` boost.
+    - **Step 10 (FINAL):** Entity-aware priority (commit `fix(agent): smarter path priority — boost create_<entity> over create_<pivot>`, run 26287206473). `_prioritize_paths` accept `path_terms` parameter. Boost migration jika path mengandung `create_` AND entity term match (rank -2, tertinggi). Pivot migration `create_employee_permission_table` tidak match "employees" entity → rank lebih rendah. Boost Models/ + entity match (rank -1).
+  - **Validation:**
+    - Diagnostic VPS via `gh workflow run run-command.yml` → confirmed 50+ employee files ter-index termasuk `database/migrations/2025_09_22_092704_create_employees_table.php`.
+    - Path search direct test → return 5 hits dengan path priorities.
+    - Final user test: `/tanya di erp-gmedia apakah di employee ada nomor unique?` → bot retrieve migration + model + changelog + skill doc, jawab honest "Migrasi awal `employees` punya `email` unique" dengan citation `database/migrations/2025_09_22_092704_create_employees_table.php:1-30@63549bae`. Honest "tidak tahu" untuk NIK constraint (memang tidak ada di migration awal — correct behavior).
+  - **Files MOD:**
+    - `langgraph-agent/app/code_repos.py` — `_extract_keywords`, `_extract_path_terms`, `_merge_hits`, `_prioritize_paths`, `answer_code_question` rewrite.
+    - `langgraph-agent/app/qdrant_helper.py` — `keyword_search`, `path_search`, text indexes (text + path).
+    - `TASK.md` — handoff update.
+  - **Architecture decisions:**
+    - **Why client-side substring vs Qdrant MatchText for path:** Qdrant WORD tokenizer does exact token match. "employee" doesn't match "employees" token. Plural fallback only partially solves it. Client-side substring guarantees match regardless of tokenization. Trade-off: scroll 4000 chunks per query (~2-3s overhead). Acceptable for personal-use Q&A.
+    - **Why slot reservation in merge:** Embedding pass with score >= 0.2 can return 20 hits, filling entire context budget. Path/keyword hits get dropped. Reserve min 5 slots = guaranteed visibility for keyword/path-only matches.
+    - **Why entity-aware priority:** `create_employee_permission_table` (pivot) and `create_employees_table` (main) both match `create_`. Entity term match ("employees" in path) distinguishes main from pivot.
+  - **Pipeline summary (current state):**
+    - Pass 1: Embedding similarity (top-20, score >= 0.2)
+    - Pass 2: Keyword AND match di text field (Qdrant MatchText)
+    - Pass 3: Path-based substring (client-side, OR logic, entity-aware ranking)
+    - Merge: Reserve 5 slots, max 25 results
+  - **Known limitations:**
+    - `_PATH_PRIORITY` hardcoded for Laravel layout. Adjust untuk repo non-Laravel.
+    - Scroll 4000 cover gmedia-erp. Repo lebih besar perlu pagination.
+    - Stopword list ID+EN basic, bisa miss kata.
+    - `_PATH_IRRELEVANT` hardcoded; tambah term baru kalau query miss karena term irrelevant.
+  - **Production status:** All deployed live. Last commit on main: `fix(agent): smarter path priority — boost create_<entity> over create_<pivot>`.
+  - **Next session direction (per user request "akan melanjutkan di session opencode lain"):**
+    1. **DOGFOOD pipeline dengan 5-10 pertanyaan variasi** — schema, validation, flow, model relation, frontend, controller. Validasi pipeline general untuk berbagai jenis query, tidak hanya kasus Employee unique.
+    2. Kalau dogfood positif → tambah 1 repo kedua (validate cross-stack: PHP vs TypeScript vs React).
+    3. Voice handler setelah Q&A baseline stabil.
 
 - ✅ [2026-05-20 03:14 UTC] Resource Alert Patch v1.1 — reliability gap closed locally (not committed/deployed yet)
   - **Trigger:** User noticed original requirement "Bot mengirim pesan jika resources VPS, PostgreSQL, Qdrant, dan lainnya perlu diupgrade" was in TASK.md but earlier advice underplayed it. Decision: implement now as reliability patch while Q&A dogfood continues. This is maintenance, not Q&A feature expansion.

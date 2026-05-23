@@ -205,6 +205,14 @@ def _extract_path_terms(keywords: list[str]) -> list[str]:
     _PATH_IRRELEVANT = {
         "unique", "nomor", "number", "field", "kolom", "column", "table",
         "tabel", "ada", "punya", "have", "has", "code", "kode",
+        "jelaskan", "explain", "logic", "logika", "bagaimana", "how",
+        "dimana", "where", "kapan", "when", "kenapa", "why",
+        "tampilkan", "show", "lihat", "view", "buat", "create",
+        "pakai", "gunakan", "using", "dengan", "function", "method",
+        "class", "file", "folder", "endpoint", "route", "controller",
+        "service", "action", "model", "migration", "seeder", "factory",
+        "test", "spec", "alur", "flow", "proses", "process",
+        "validasi", "validation", "filter", "form", "request",
     }
     terms: list[str] = []
     for kw in keywords:
@@ -296,7 +304,7 @@ async def answer_code_question(question: str, repo_id: str | None = None) -> str
     if path_terms:
         path_filters = {"repo_id": resolved} if resolved else None
         path_hits = qdrant_helper.path_search(
-            config.COLL_CODE, path_terms=path_terms[:3], limit=0, filters=path_filters
+            config.COLL_CODE, path_terms=path_terms[:6], limit=0, filters=path_filters
         )
         path_hits = _prioritize_paths(path_hits, path_terms)[:60]
 

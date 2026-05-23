@@ -659,6 +659,90 @@ async def cmd_tanya(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(answer[:4000])
 
 
+@authorized
+async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Gunakan:\n"
+            "/skill <query> — cari skill\n"
+            "/skill log <nama> | <deskripsi> — simpan skill baru"
+        )
+        return
+
+    args = list(context.args)
+
+    if args[0].lower() == "log":
+        raw = " ".join(args[1:])
+        if "|" not in raw:
+            await update.message.reply_text(
+                "Format: /skill log <nama> | <deskripsi>\n"
+                "Contoh: /skill log deploy-bot | Build image, push, restart container"
+            )
+            return
+        parts = raw.split("|", 1)
+        name = parts[0].strip()
+        description = parts[1].strip()
+        if not name or not description:
+            await update.message.reply_text("Nama dan deskripsi tidak boleh kosong.")
+            return
+
+        await update.message.reply_chat_action("typing")
+        try:
+            r = await _agent_post(
+                "/api/skills/log",
+                {
+                    "name": name,
+                    "description": description,
+                    "user_id": update.effective_user.id,
+                },
+                timeout=30.0,
+            )
+        except httpx.RequestError as exc:
+            await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+            return
+        if r.status_code == 200:
+            await update.message.reply_text(f"🧠 Skill disimpan: {name}")
+        else:
+            await update.message.reply_text(f"⚠️ Gagal menyimpan skill (HTTP {r.status_code}).")
+        return
+
+    query = " ".join(args)
+    if len(query) > 500:
+        await update.message.reply_text("⚠️ Query terlalu panjang.")
+        return
+    await update.message.reply_chat_action("typing")
+    try:
+        r = await _agent_post(
+            "/api/skills/search",
+            {"query": query, "limit": 5},
+            timeout=30.0,
+        )
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Gagal mencari skill (HTTP {r.status_code}).")
+        return
+
+    data = r.json()
+    results = data.get("results") or []
+    if not results:
+        await update.message.reply_text(f"Tidak ditemukan skill untuk: {query}")
+        return
+
+    lines = [f"🧠 Skills matching \"{query}\":", ""]
+    for i, s in enumerate(results, 1):
+        score = f"{s['score']:.2f}" if s.get("score") else "-"
+        lines.append(f"{i}. {s['name']} (score: {score})")
+        if s.get("description"):
+            lines.append(f"   {s['description'][:150]}")
+        if s.get("steps"):
+            for step in s["steps"][:5]:
+                lines.append(f"   • {step}")
+        lines.append("")
+    await update.message.reply_text("\n".join(lines)[:4000])
+
+
 def _is_journal_reply(update: Update) -> bool:
     reply = update.message.reply_to_message if update.message else None
     if not reply or not reply.text:
@@ -850,6 +934,7 @@ async def post_init(application: Application):
         BotCommand("projects", "Lihat repo terdaftar"),
         BotCommand("index", "Re-index repo (atau all)"),
         BotCommand("tanya", "Tanya tentang code di repo"),
+        BotCommand("skill", "Simpan/cari skill"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered.")
@@ -879,6 +964,7 @@ def main():
     app.add_handler(CommandHandler("projects", cmd_projects))
     app.add_handler(CommandHandler("index", cmd_index))
     app.add_handler(CommandHandler("tanya", cmd_tanya))
+    app.add_handler(CommandHandler("skill", cmd_skill))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

@@ -300,7 +300,7 @@ async def answer_code_question(question: str, repo_id: str | None = None) -> str
         )
         path_hits = _prioritize_paths(path_hits, path_terms)[:60]
 
-    merged = _merge_hits(useful, keyword_hits + path_hits, max_results=20)
+    merged = _merge_hits(useful, path_hits + keyword_hits, max_results=20)
 
     if not merged:
         target = f" di {repo_id}" if repo_id else ""

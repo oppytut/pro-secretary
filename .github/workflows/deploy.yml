@@ -137,7 +137,3 @@ jobs:
             sleep 35
             echo "=== prometheus targets after 35s wait ==="
             docker exec prometheus wget -qO- --timeout 5 'http://localhost:9090/api/v1/targets?state=active' 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(t["labels"].get("instance_name","?"), "health="+t["health"], "err="+t.get("lastError","")[:120], "lastScrape="+t.get("lastScrape","?")) for t in d["data"]["activeTargets"] if t["labels"].get("job")=="node"]' || echo "targets dump failed"
-            echo "=== probe erpstg from prometheus container ==="
-            docker exec prometheus wget -qO- --timeout 8 -S 'http://119.2.52.24:9100/metrics' 2>&1 | head -10 || echo "probe failed"
-            echo "=== sanity: prometheus container outbound check ==="
-            docker exec prometheus sh -c 'wget -qO- --timeout 5 -S http://119.2.52.24:3270 2>&1 | head -3; echo "---icmp---"; ping -c 2 -W 3 119.2.52.24 2>&1 | tail -3 || echo "ping no permission"; echo "---internet---"; wget -qO- --timeout 5 -S https://api.ipify.org 2>&1 | tail -3' || true

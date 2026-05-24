@@ -23,7 +23,7 @@ scrape_configs:
         labels:
           instance_name: "pro-secretary"
           provider: "digitalocean"
-      - targets: ["119.2.52.24:9100"]
+      - targets: ["119.2.52.24:19100"]
         labels:
           instance_name: "erpstg"
           provider: "biznet"

@@ -16,18 +16,16 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # Pro-secretary VPS (this host)
+  # VPS targets
   - job_name: "node"
     static_configs:
       - targets: ["host.docker.internal:9100"]
         labels:
           instance_name: "pro-secretary"
           provider: "digitalocean"
+      - targets: ["119.2.52.24:9100"]
+        labels:
+          instance_name: "erpstg"
+          provider: "biznet"
 
-  # Add more VPS targets below:
-  # - job_name: "node"
-  #   static_configs:
-  #     - targets: ["<IP>:9100"]
-  #       labels:
-  #         instance_name: "<name>"
-  #         provider: "<provider>"
+  # Add more VPS targets below by appending another `- targets: [...]` block above

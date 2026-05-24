@@ -21,6 +21,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 AGENT_URL = os.getenv("AGENT_URL", "http://langgraph-agent:8090").rstrip("/")
 AGENT_SECRET = os.getenv("AGENT_SECRET", "")
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
@@ -139,7 +140,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/eod - End-of-day summary\n"
         "/sync - Sync Obsidian vault\n"
         "/status - Cek status semua komponen\n"
-        "/vps - Cek resource VPS\n"
+        "/vps - Cek resource VPS lokal\n"
+        "/monitor - Monitor semua VPS (Prometheus)\n"
         "/model - Ganti/lihat model AI\n"
         "/journal <isi> - Catat journal (atau reply pesan 21:30)\n"
         "/projects - Lihat repo yang ter-index\n"
@@ -501,6 +503,145 @@ async def cmd_vps(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"• {c['name']}: CPU {cpu_str}, RAM {mem_str}")
 
     await update.message.reply_text("\n".join(lines))
+
+
+async def _prom_query(query: str) -> list | None:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{PROMETHEUS_URL}/api/v1/query",
+                params={"query": query},
+            )
+        if r.status_code == 200:
+            return r.json().get("data", {}).get("result", [])
+    except httpx.RequestError:
+        pass
+    return None
+
+
+@authorized
+async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_chat_action("typing")
+
+    args = context.args
+    if args:
+        await _monitor_detail(update, args[0])
+        return
+
+    up_results = await _prom_query('up{job="node"}')
+    if up_results is None:
+        await update.message.reply_text("⚠️ Prometheus tidak tersedia.")
+        return
+
+    if not up_results:
+        await update.message.reply_text("Belum ada VPS target terdaftar di Prometheus.")
+        return
+
+    cpu_results = await _prom_query(
+        '100 - (avg by(instance_name) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)'
+    )
+    mem_results = await _prom_query(
+        '(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100'
+    )
+    disk_results = await _prom_query(
+        '(1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs",mountpoint="/"} / node_filesystem_size_bytes{fstype=~"ext4|xfs",mountpoint="/"}) * 100'
+    )
+
+    cpu_map = {r["metric"].get("instance_name", ""): float(r["value"][1]) for r in (cpu_results or [])}
+    mem_map = {r["metric"].get("instance_name", ""): float(r["value"][1]) for r in (mem_results or [])}
+    disk_map = {r["metric"].get("instance_name", ""): float(r["value"][1]) for r in (disk_results or [])}
+
+    lines = ["📊 Monitor VPS (Prometheus)", ""]
+    for target in up_results:
+        name = target["metric"].get("instance_name", target["metric"].get("instance", "?"))
+        is_up = target["value"][1] == "1"
+        icon = "✅" if is_up else "❌"
+
+        if is_up:
+            cpu = cpu_map.get(name)
+            mem = mem_map.get(name)
+            disk = disk_map.get(name)
+            cpu_str = f"CPU {cpu:.0f}%" if cpu is not None else ""
+            mem_str = f"RAM {mem:.0f}%" if mem is not None else ""
+            disk_str = f"Disk {disk:.0f}%" if disk is not None else ""
+            metrics = " | ".join(filter(None, [cpu_str, mem_str, disk_str]))
+            lines.append(f"{icon} {name}: {metrics}")
+        else:
+            lines.append(f"{icon} {name}: DOWN")
+
+    alerts = await _prom_query("ALERTS{alertstate=\"firing\"}")
+    if alerts:
+        lines.append("")
+        lines.append("🚨 Active Alerts:")
+        for a in alerts[:10]:
+            m = a["metric"]
+            lines.append(f"• [{m.get('severity', '?')}] {m.get('alertname', '?')} — {m.get('instance_name', m.get('instance', '?'))}")
+
+    lines.append("")
+    lines.append("Detail: /monitor <nama>")
+    await update.message.reply_text("\n".join(lines)[:4000])
+
+
+async def _monitor_detail(update: Update, name: str):
+    up = await _prom_query(f'up{{job="node",instance_name="{name}"}}')
+    if not up:
+        await update.message.reply_text(f"VPS '{name}' tidak ditemukan di Prometheus.")
+        return
+
+    is_up = up[0]["value"][1] == "1"
+    if not is_up:
+        await update.message.reply_text(f"❌ {name}: DOWN — tidak merespons.")
+        return
+
+    cpu = await _prom_query(
+        f'100 - (avg by(instance_name) (rate(node_cpu_seconds_total{{mode="idle",instance_name="{name}"}}[5m])) * 100)'
+    )
+    mem = await _prom_query(
+        f'(1 - node_memory_MemAvailable_bytes{{instance_name="{name}"}} / node_memory_MemTotal_bytes{{instance_name="{name}"}}) * 100'
+    )
+    mem_total = await _prom_query(f'node_memory_MemTotal_bytes{{instance_name="{name}"}}')
+    disk = await _prom_query(
+        f'(1 - node_filesystem_avail_bytes{{instance_name="{name}",fstype=~"ext4|xfs",mountpoint="/"}} / node_filesystem_size_bytes{{instance_name="{name}",fstype=~"ext4|xfs",mountpoint="/"}}) * 100'
+    )
+    disk_total = await _prom_query(
+        f'node_filesystem_size_bytes{{instance_name="{name}",fstype=~"ext4|xfs",mountpoint="/"}}'
+    )
+    load5 = await _prom_query(f'node_load5{{instance_name="{name}"}}')
+    uptime = await _prom_query(f'node_time_seconds{{instance_name="{name}"}} - node_boot_time_seconds{{instance_name="{name}"}}')
+    swap_used = await _prom_query(
+        f'(node_memory_SwapTotal_bytes{{instance_name="{name}"}} - node_memory_SwapFree_bytes{{instance_name="{name}"}}) / node_memory_SwapTotal_bytes{{instance_name="{name}"}} * 100'
+    )
+
+    lines = [f"🖥️ {name} (detail)", ""]
+
+    if cpu:
+        lines.append(f"CPU: {float(cpu[0]['value'][1]):.1f}%")
+    if load5:
+        lines.append(f"Load 5m: {float(load5[0]['value'][1]):.2f}")
+    if mem and mem_total:
+        mem_pct = float(mem[0]["value"][1])
+        total_gb = float(mem_total[0]["value"][1]) / (1024**3)
+        lines.append(f"RAM: {mem_pct:.1f}% of {total_gb:.1f}GB")
+    if swap_used:
+        val = float(swap_used[0]["value"][1])
+        if val > 0:
+            lines.append(f"Swap: {val:.1f}%")
+    if disk and disk_total:
+        disk_pct = float(disk[0]["value"][1])
+        total_gb = float(disk_total[0]["value"][1]) / (1024**3)
+        lines.append(f"Disk /: {disk_pct:.1f}% of {total_gb:.0f}GB")
+    if uptime:
+        lines.append(f"Uptime: {_human_uptime(float(uptime[0]['value'][1]))}")
+
+    alerts = await _prom_query(f'ALERTS{{alertstate="firing",instance_name="{name}"}}')
+    if alerts:
+        lines.append("")
+        lines.append("🚨 Alerts:")
+        for a in alerts:
+            m = a["metric"]
+            lines.append(f"• [{m.get('severity')}] {m.get('alertname')}")
+
+    await update.message.reply_text("\n".join(lines)[:4000])
 
 
 @authorized
@@ -1039,7 +1180,8 @@ async def post_init(application: Application):
         BotCommand("eod", "End-of-day summary"),
         BotCommand("sync", "Sync Obsidian vault → knowledge"),
         BotCommand("status", "Cek status semua komponen"),
-        BotCommand("vps", "Cek resource VPS"),
+        BotCommand("vps", "Cek resource VPS lokal"),
+        BotCommand("monitor", "Monitor semua VPS (Prometheus)"),
         BotCommand("model", "Ganti/lihat model AI"),
         BotCommand("journal", "Catat journal harian"),
         BotCommand("projects", "Lihat repo terdaftar"),
@@ -1070,6 +1212,7 @@ def main():
     app.add_handler(CommandHandler("sync", cmd_sync))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("vps", cmd_vps))
+    app.add_handler(CommandHandler("monitor", cmd_monitor))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("journal", cmd_journal))
     app.add_handler(CommandHandler("projects", cmd_projects))

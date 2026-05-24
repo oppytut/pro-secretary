@@ -1,0 +1,112 @@
+groups:
+  - name: node_health
+    rules:
+      # Instance down for > 2 minutes
+      - alert: InstanceDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance_name }} DOWN"
+          description: "{{ $labels.instance_name }} ({{ $labels.instance }}) tidak merespons selama > 2 menit."
+
+      # High CPU usage (> 85% sustained 5 min)
+      - alert: HighCPU
+        expr: 100 - (avg by(instance, instance_name) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} CPU tinggi"
+          description: "CPU usage {{ $value | printf \"%.1f\" }}% selama > 5 menit."
+
+      # High memory usage (> 85% sustained 5 min)
+      - alert: HighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} RAM tinggi"
+          description: "RAM usage {{ $value | printf \"%.1f\" }}% selama > 5 menit."
+
+      # Critical memory (> 92%)
+      - alert: CriticalMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 92
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance_name }} RAM KRITIS"
+          description: "RAM usage {{ $value | printf \"%.1f\" }}% — risiko OOM."
+
+      # Disk usage > 80%
+      - alert: DiskWarning
+        expr: (1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"}) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} disk {{ $labels.mountpoint }} > 80%"
+          description: "Disk usage {{ $value | printf \"%.1f\" }}%."
+
+      # Disk usage > 90%
+      - alert: DiskCritical
+        expr: (1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"}) * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance_name }} disk {{ $labels.mountpoint }} KRITIS"
+          description: "Disk usage {{ $value | printf \"%.1f\" }}% — segera bersihkan."
+
+      # Disk predicted full within 24h
+      - alert: DiskFillPrediction
+        expr: predict_linear(node_filesystem_avail_bytes{fstype=~"ext4|xfs"}[6h], 24*3600) < 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} disk {{ $labels.mountpoint }} diprediksi penuh < 24 jam"
+          description: "Berdasarkan trend 6 jam terakhir, disk akan penuh dalam < 24 jam."
+
+      # High swap usage (> 50%)
+      - alert: HighSwap
+        expr: node_memory_SwapTotal_bytes > 0 and (node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes * 100 > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} swap tinggi"
+          description: "Swap usage {{ $value | printf \"%.1f\" }}% — indikasi RAM pressure."
+
+      # System load high (> 2x CPU cores for 10 min)
+      - alert: HighLoad
+        expr: node_load5 / count without(cpu) (node_cpu_seconds_total{mode="idle"}) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} load tinggi"
+          description: "Load average 5m = {{ $value | printf \"%.2f\" }} (> 2x jumlah CPU)."
+
+      # Network errors
+      - alert: NetworkErrors
+        expr: rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} network errors"
+          description: "Network error rate > 10/s selama 5 menit."
+
+      # SSL cert expiry < 7 days (if using node_exporter textfile collector)
+      # Uncomment if you add SSL cert monitoring
+      # - alert: SSLCertExpiringSoon
+      #   expr: ssl_cert_not_after - time() < 7 * 24 * 3600
+      #   for: 1h
+      #   labels:
+      #     severity: warning
+      #   annotations:
+      #     summary: "{{ $labels.instance_name }} SSL cert expires < 7 days"

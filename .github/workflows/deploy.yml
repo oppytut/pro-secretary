@@ -133,4 +133,9 @@ jobs:
             docker exec langgraph-agent curl -fsS --max-time 5 http://localhost:8090/health
             docker exec n8n wget -qO- --timeout 5 http://localhost:5678/healthz
             echo "=== prometheus active targets (job=node) ==="
-            docker exec prometheus wget -qO- --timeout 5 'http://localhost:9090/api/v1/targets?state=active' 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(t["labels"].get("instance_name","?"), t["scrapeUrl"], "health="+t["health"], "err="+t.get("lastError","")[:80]) for t in d["data"]["activeTargets"] if t["labels"].get("job")=="node"]' || echo "targets dump failed"
+            docker exec prometheus wget -qO- --timeout 5 'http://localhost:9090/api/v1/targets?state=active' 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(t["labels"].get("instance_name","?"), t["scrapeUrl"], "health="+t["health"], "err="+t.get("lastError","")[:120], "lastScrape="+t.get("lastScrape","?")) for t in d["data"]["activeTargets"] if t["labels"].get("job")=="node"]' || echo "targets dump failed"
+            sleep 35
+            echo "=== prometheus targets after 35s wait ==="
+            docker exec prometheus wget -qO- --timeout 5 'http://localhost:9090/api/v1/targets?state=active' 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(t["labels"].get("instance_name","?"), "health="+t["health"], "err="+t.get("lastError","")[:120], "lastScrape="+t.get("lastScrape","?")) for t in d["data"]["activeTargets"] if t["labels"].get("job")=="node"]' || echo "targets dump failed"
+            echo "=== probe erpstg from prometheus container ==="
+            docker exec prometheus wget -qO- --timeout 8 -S 'http://119.2.52.24:9100/metrics' 2>&1 | head -10 || echo "probe failed"

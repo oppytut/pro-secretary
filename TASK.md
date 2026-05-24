@@ -64,24 +64,41 @@ node_exporter (each VPS:9100)
 
 **Security:**
 - Prometheus + Alertmanager NOT exposed to host. Internal Docker network only. Access via `docker exec` or future Caddy basic auth route.
-- `node_exporter` listens on `*:9100`. iptables blocks external access; allows `127.0.0.0/8` and `172.16.0.0/12` (Docker bridge).
-- `iptables-persistent` installed so rules survive reboot.
-- For new VPS: install `prometheus-node-exporter`, then add iptables rules allowing pro-secretary IP only. **No internet exposure.**
+- `node_exporter` listens on `*:19100` (non-standard, see "Why port 19100" below). UFW or iptables blocks external; allows pro-secretary IP only.
+- For new VPS: install `prometheus-node-exporter`, override listen addr to `:19100`, allow port `19100/tcp` from pro-secretary IP only. **No internet exposure.**
 
 **Adding a new VPS target:**
-1. On target VPS: `apt install prometheus-node-exporter && systemctl enable --now prometheus-node-exporter`
-2. iptables: allow port 9100 only from pro-secretary IP (and `127.0.0.0/8`), DROP rest
-3. Edit `prometheus/prometheus.yml`:
-```yaml
-- job_name: "node"
-  static_configs:
-    - targets: ["<IP>:9100"]
-      labels:
-        instance_name: "<short-name>"
-        provider: "<digitalocean|hetzner|...>"
-```
-4. Push → CI deploys. Or hot-reload: `docker exec prometheus wget -qO- --post-data='' http://localhost:9090/-/reload`
-5. Verify: `/monitor` di Telegram, atau `docker exec prometheus wget -qO- 'http://localhost:9090/api/v1/targets'`
+1. On target VPS:
+   ```bash
+   sudo apt install -y prometheus-node-exporter
+   echo 'ARGS="--web.listen-address=:19100"' | sudo tee /etc/default/prometheus-node-exporter
+   sudo systemctl enable --now prometheus-node-exporter
+   sudo systemctl restart prometheus-node-exporter
+   ```
+2. Firewall: allow port 19100 only from pro-secretary IP (`159.223.40.74`), DROP rest.
+   - UFW: `sudo ufw allow proto tcp from 159.223.40.74 to any port 19100 comment 'prometheus pro-secretary'`
+   - iptables: `INPUT -p tcp --dport 19100 -s 159.223.40.74 -j ACCEPT` + persist via `iptables-persistent`
+3. Edit `prometheus/prometheus.yml` — append target to existing `node` job:
+   ```yaml
+   - targets: ["<IP>:19100"]
+     labels:
+       instance_name: "<short-name>"
+       provider: "<digitalocean|hetzner|biznet|...>"
+   ```
+4. Push → CI auto-deploys with `--force-recreate prometheus alertmanager` (config bind-mount inode-pinning fix). No manual reload needed.
+5. Verify: `/monitor` di Telegram, atau cek `docker exec prometheus wget -qO- 'http://localhost:9090/api/v1/targets'`. CI log juga dump active targets post-deploy.
+
+**Why port 19100 (NOT 9100):**
+- Onboarding erpstg (Biznet → DO Singapore) discovered: SYN to `:9100` silently dropped in transit. Same source IP, same dest IP, but `:22`/`:443`/`:3270` reachable. Likely ISP-level filter on well-known Prometheus port.
+- Switching to `:19100` solved scrape immediately.
+- Standard now for ALL future onboarding to avoid the same trap.
+- Bonus: avoids opportunistic port scans for `:9100`.
+
+**Why force-recreate prometheus on deploy:**
+- Bind-mount Docker pins to inode at container start.
+- `git pull` rewrites `prometheus.yml` with new inode → running container keeps serving stale config.
+- `/-/reload` against stale file = no-op.
+- Fix: `docker compose up -d --force-recreate prometheus alertmanager` after `up -d --remove-orphans`. ~2s overhead, applied only to config-driven services.
 
 **Why Prometheus over bot-only monitoring:**
 - node_exporter sudah di beberapa VPS user → sayang tidak diScrape
@@ -135,10 +152,11 @@ node_exporter (each VPS:9100)
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **Add remaining 9-14 VPS to Prometheus** (high priority, monitoring scope completion):
-   - User punya 10-15 VPS total. Saat ini cuma `pro-secretary` ter-scrape.
-   - Beberapa sudah ada `node_exporter`. Sisanya install `prometheus-node-exporter`.
-   - Per-VPS firewall: allow port 9100 hanya dari IP pro-secretary (159.223.40.74), DROP sisanya.
+1. **Add remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):
+   - User punya 10-15 VPS total. Saat ini ter-scrape: `pro-secretary` + `erpstg` (onboarded 2026-05-24, port 19100, provider biznet).
+   - Beberapa sudah ada `node_exporter` (mungkin di port 9100 default). Sisanya install `prometheus-node-exporter`.
+   - **STANDARD: port 19100, bukan 9100.** Lihat "Why port 19100" di atas — beberapa ISP block 9100 in transit.
+   - Per-VPS firewall: allow port 19100 hanya dari IP pro-secretary (`159.223.40.74`), DROP sisanya.
    - Format target lihat seksi "Adding a new VPS target" di atas.
    - Goal: 100% VPS visibility dalam 1-2 hari.
 

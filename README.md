@@ -1089,7 +1089,7 @@ Selain health check internal di atas, stack juga punya **Prometheus + Alertmanag
 
 | Service | Role |
 |---|---|
-| `node_exporter` | Per-VPS metrics agent (CPU, RAM, disk, network) — listen di port 9100 |
+| `node_exporter` | Per-VPS metrics agent (CPU, RAM, disk, network) — listen di port 19100 |
 | `prometheus` | Scrape semua node_exporter setiap 30 detik, retain 30 hari |
 | `alertmanager` | Group + dedup + route alert → Telegram |
 | Telegram Bot | `/monitor` command untuk query Prometheus dari chat |
@@ -1097,7 +1097,7 @@ Selain health check internal di atas, stack juga punya **Prometheus + Alertmanag
 ### Pipeline
 
 ```
-node_exporter (each VPS:9100)
+node_exporter (each VPS:19100)
    → Prometheus (scrape, evaluate alert rules)
    → Alertmanager (group, dedup, route)
    → Telegram (using same bot_token + chat_id)
@@ -1128,35 +1128,42 @@ node_exporter (each VPS:9100)
 
 ### Adding a New VPS Target
 
-1. **Install node_exporter** di target VPS:
+1. **Install node_exporter** di target VPS, listen on port `19100` (non-standard, lihat "Why port 19100" di bawah):
    ```bash
-   sudo apt install prometheus-node-exporter
+   sudo apt install -y prometheus-node-exporter
+   echo 'ARGS="--web.listen-address=:19100"' | sudo tee /etc/default/prometheus-node-exporter
    sudo systemctl enable --now prometheus-node-exporter
+   sudo systemctl restart prometheus-node-exporter
    ```
 
-2. **Restrict port 9100** ke pro-secretary IP only (jangan expose ke public):
+2. **Restrict port 19100** ke pro-secretary IP only (jangan expose ke public):
    ```bash
-   sudo iptables -I INPUT -p tcp --dport 9100 -s <PRO_SECRETARY_IP> -j ACCEPT
-   sudo iptables -I INPUT -p tcp --dport 9100 -s 127.0.0.0/8 -j ACCEPT
-   sudo iptables -A INPUT -p tcp --dport 9100 -j DROP
+   # If VPS uses UFW (Ubuntu default):
+   sudo ufw allow proto tcp from <PRO_SECRETARY_IP> to any port 19100 comment 'prometheus pro-secretary'
+   sudo ufw reload
+
+   # If VPS uses raw iptables:
+   sudo iptables -I INPUT -p tcp --dport 19100 -s <PRO_SECRETARY_IP> -j ACCEPT
+   sudo iptables -A INPUT -p tcp --dport 19100 -j DROP
    sudo apt install iptables-persistent
    sudo netfilter-persistent save
    ```
 
-3. **Tambah target** di [`prometheus/prometheus.yml`](prometheus/prometheus.yml):
+3. **Tambah target** di [`prometheus/prometheus.yml`](prometheus/prometheus.yml) — append ke existing `node` job, jangan buat job baru:
    ```yaml
-   - job_name: "node"
-     static_configs:
-       - targets: ["<IP>:9100"]
-         labels:
-           instance_name: "<short-name>"
-           provider: "<digitalocean|hetzner|...>"
+   - targets: ["<IP>:19100"]
+     labels:
+       instance_name: "<short-name>"
+       provider: "<digitalocean|hetzner|biznet|...>"
    ```
 
-4. **Push** ke main → CI auto-deploy. Atau hot-reload tanpa restart:
-   ```bash
-   docker exec prometheus wget -qO- --post-data='' http://localhost:9090/-/reload
-   ```
+4. **Push** ke main → CI auto-deploy. Deploy step `docker compose up -d --force-recreate prometheus alertmanager` memastikan config bind-mount picked up (no manual reload needed).
+
+### Why port 19100 (NOT 9100)
+
+Onboarding VPS pertama dari Biznet Indonesia (erpstg) → DO Singapore (pro-secretary) menemukan: SYN ke `:9100` silently dropped in transit. Source IP sama, dest IP sama, tapi `:22`/`:443`/`:3270` reachable. Kemungkinan ISP-level filter pada well-known Prometheus port. Switch ke `:19100` immediate fix. Standard ini diadopsi untuk semua VPS supaya tidak ulang debug.
+
+Bonus: avoids opportunistic port scans for `:9100`.
 
 5. **Verify**:
    ```bash

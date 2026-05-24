@@ -125,19 +125,12 @@ jobs:
             docker compose pull
             docker compose build --pull telegram-bot langgraph-agent
             docker compose up -d --remove-orphans
+            docker compose up -d --force-recreate prometheus alertmanager
             docker image prune -f
             sleep 20
             docker compose ps --format "table {{.Name}}\t{{.Status}}"
             echo "=== post-deploy health probes ==="
             docker exec langgraph-agent curl -fsS --max-time 5 http://localhost:8090/health
             docker exec n8n wget -qO- --timeout 5 http://localhost:5678/healthz
-            echo "=== prometheus hot-reload ==="
-            docker exec prometheus wget -qO- --post-data='' --timeout 5 http://localhost:9090/-/reload && echo "prometheus reloaded" || echo "prometheus reload skipped"
-            sleep 3
             echo "=== prometheus active targets (job=node) ==="
             docker exec prometheus wget -qO- --timeout 5 'http://localhost:9090/api/v1/targets?state=active' 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(t["labels"].get("instance_name","?"), t["scrapeUrl"], "health="+t["health"], "err="+t.get("lastError","")[:80]) for t in d["data"]["activeTargets"] if t["labels"].get("job")=="node"]' || echo "targets dump failed"
-            echo "=== prometheus.yml inside container ==="
-            docker exec prometheus cat /etc/prometheus/prometheus.yml | tail -20
-            echo "=== file md5 inside container vs on host ==="
-            docker exec prometheus md5sum /etc/prometheus/prometheus.yml || true
-            md5sum prometheus/prometheus.yml || true

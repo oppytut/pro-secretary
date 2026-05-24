@@ -81,7 +81,7 @@ graph TB
 
 ### System Overview
 
-AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelola pekerjaan, jadwal, tasks, dan knowledge base Anda. Sistem ini menggunakan arsitektur microservices dengan 5 containers lokal dan 3 external services yang saling terintegrasi.
+AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelola pekerjaan, jadwal, tasks, knowledge base, dan kesehatan VPS Anda. Sistem ini menggunakan arsitektur microservices dengan 7 containers lokal dan 3 external services yang saling terintegrasi.
 
 ### Component Roles
 
@@ -91,6 +91,9 @@ AI Personal Secretary adalah sistem yang bekerja **24/7** untuk membantu mengelo
 | **n8n** | Workflow orchestrator & router | n8n (low-code automation) | 5678 |
 | **LangGraph Agent** | AI reasoning & tool execution | FastAPI + LangGraph + fastembed | 8090 |
 | **Cal.com** | Calendar & appointment management | Cal.com (self-hosted) | 3000 |
+| **Prometheus** | Metrics collection (multi-VPS) | Prometheus v3 + node_exporter | 9090 (internal) |
+| **Alertmanager** | Alert routing → Telegram | Prometheus Alertmanager v0.28 | 9093 (internal) |
+| **Caddy** | Reverse proxy + SSL termination | Caddy 2 (alpine) | 80, 443 |
 | **Qdrant Cloud** | Vector database & semantic search | Qdrant (managed cloud) | External |
 | **Obsidian** | Knowledge base (notes & docs) | Obsidian Markdown | - |
 | **Cloudflare R2** | Object storage (files, backups) | S3-compatible storage | External |
@@ -1078,6 +1081,110 @@ fi
 
 ---
 
+## 📡 Multi-VPS Monitoring (Prometheus + Alertmanager)
+
+Selain health check internal di atas, stack juga punya **Prometheus + Alertmanager** untuk monitor banyak VPS sekaligus dengan alert ke Telegram.
+
+### Components
+
+| Service | Role |
+|---|---|
+| `node_exporter` | Per-VPS metrics agent (CPU, RAM, disk, network) — listen di port 9100 |
+| `prometheus` | Scrape semua node_exporter setiap 30 detik, retain 30 hari |
+| `alertmanager` | Group + dedup + route alert → Telegram |
+| Telegram Bot | `/monitor` command untuk query Prometheus dari chat |
+
+### Pipeline
+
+```
+node_exporter (each VPS:9100)
+   → Prometheus (scrape, evaluate alert rules)
+   → Alertmanager (group, dedup, route)
+   → Telegram (using same bot_token + chat_id)
+```
+
+### Telegram Commands
+
+- `/monitor` — list semua VPS dengan status up/down + CPU/RAM/disk %, plus active alerts
+- `/monitor <name>` — detail untuk satu VPS (CPU, load, RAM, swap, disk, uptime, alerts)
+- `/vps` — local pro-secretary detail (existing, via agent `/api/vps_status`)
+
+### Alert Rules
+
+10 rule di [`prometheus/alert_rules.yml`](prometheus/alert_rules.yml):
+
+| Rule | Trigger | Severity |
+|---|---|---|
+| `InstanceDown` | `up == 0` for 2m | critical |
+| `HighCPU` | > 85% for 5m | warning |
+| `HighMemory` | > 85% for 5m | warning |
+| `CriticalMemory` | > 92% for 2m | critical |
+| `DiskWarning` | > 80% for 5m | warning |
+| `DiskCritical` | > 90% for 2m | critical |
+| `DiskFillPrediction` | predict_linear < 0 in 24h | warning |
+| `HighSwap` | > 50% for 10m | warning |
+| `HighLoad` | load5 > 2× CPU cores for 10m | warning |
+| `NetworkErrors` | err rate > 10/s for 5m | warning |
+
+### Adding a New VPS Target
+
+1. **Install node_exporter** di target VPS:
+   ```bash
+   sudo apt install prometheus-node-exporter
+   sudo systemctl enable --now prometheus-node-exporter
+   ```
+
+2. **Restrict port 9100** ke pro-secretary IP only (jangan expose ke public):
+   ```bash
+   sudo iptables -I INPUT -p tcp --dport 9100 -s <PRO_SECRETARY_IP> -j ACCEPT
+   sudo iptables -I INPUT -p tcp --dport 9100 -s 127.0.0.0/8 -j ACCEPT
+   sudo iptables -A INPUT -p tcp --dport 9100 -j DROP
+   sudo apt install iptables-persistent
+   sudo netfilter-persistent save
+   ```
+
+3. **Tambah target** di [`prometheus/prometheus.yml`](prometheus/prometheus.yml):
+   ```yaml
+   - job_name: "node"
+     static_configs:
+       - targets: ["<IP>:9100"]
+         labels:
+           instance_name: "<short-name>"
+           provider: "<digitalocean|hetzner|...>"
+   ```
+
+4. **Push** ke main → CI auto-deploy. Atau hot-reload tanpa restart:
+   ```bash
+   docker exec prometheus wget -qO- --post-data='' http://localhost:9090/-/reload
+   ```
+
+5. **Verify**:
+   ```bash
+   docker exec prometheus wget -qO- 'http://localhost:9090/api/v1/targets'
+   ```
+   Atau via Telegram: `/monitor`.
+
+### Why Prometheus over Grafana?
+
+Stack sengaja **tidak** include Grafana. Reasoning:
+
+- **Goal utama** = "alert kalau VPS sakit" → ter-solve dengan Prometheus + Alertmanager + Telegram
+- Grafana = +1 service to maintain, butuh auth, butuh dashboard provisioning
+- Prometheus retain 30 hari → data history sudah ada saat Grafana ditambahkan nanti
+- Tunggu sampai user actually butuh trend visualization, baru attach Grafana
+
+Untuk attach Grafana nanti, tinggal tambah container Grafana yang point ke `http://prometheus:9090` sebagai data source.
+
+### Why bot_token diinjeksi via entrypoint script?
+
+Alertmanager tidak support `${ENV_VAR}` substitution di config natively. Solusi:
+
+- [`prometheus/alertmanager.yml`](prometheus/alertmanager.yml) berisi placeholder: `PLACEHOLDER_BOT_TOKEN`, `PLACEHOLDER_CHAT_ID`
+- [`prometheus/alertmanager-entrypoint.sh`](prometheus/alertmanager-entrypoint.sh) jalan saat container start, sed-substitute placeholder dari env var ke config file aktual
+- Container reuse `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS` dari `.env` — no extra secrets needed
+
+---
+
 ## 🎯 Use Case Examples
 
 ### Personal Assistant
@@ -1737,7 +1844,7 @@ free -h
 
 ## 🐳 Docker Compose
 
-Definisi service yang authoritative ada di [`docker-compose.yml`](docker-compose.yml) di root repo. Stack terdiri dari 5 container lokal:
+Definisi service yang authoritative ada di [`docker-compose.yml`](docker-compose.yml) di root repo. Stack terdiri dari 7 container lokal:
 
 | Service | Image | Memory limit | Role |
 |---|---|---|---|
@@ -1745,6 +1852,8 @@ Definisi service yang authoritative ada di [`docker-compose.yml`](docker-compose
 | `langgraph-agent` | built from `./langgraph-agent/` | 1 GB | AI reasoning + Telegram egress |
 | `calcom` | `calcom/cal.com:latest` | 1.5 GB | Calendar |
 | `telegram-bot` | built from `./telegram-bot/` | 512 MB | Telegram inbound |
+| `prometheus` | `prom/prometheus:v3.4.0` | 1 GB | Multi-VPS metrics scrape |
+| `alertmanager` | `prom/alertmanager:v0.28.1` | 256 MB | Alert routing → Telegram |
 | `caddy` | `caddy:2-alpine` | 256 MB | HTTPS reverse proxy |
 
 External services (tidak di-container-kan): Qdrant Cloud, PostgreSQL (Supabase/Neon/Railway), Cloudflare R2, LLM Provider.
@@ -3050,6 +3159,7 @@ docker exec calcom npm run db:migrate
 - Multi-repo code Q&A (done) — 3-pass hybrid retrieval with citation
 - Self-improving skills (done) — passive skill logging + semantic recall
 - Resource alerts (done) — VPS/PostgreSQL/Qdrant threshold monitoring
+- Multi-VPS monitoring (done) — Prometheus + Alertmanager + node_exporter, alerts via Telegram, `/monitor` command
 - Proactive reminders dan suggestions
 - Email auto-categorization dan drafting
 - Meeting notes auto-generation
@@ -3058,6 +3168,7 @@ docker exec calcom npm run db:migrate
 - Browser extension for web capture
 - Integration dengan WhatsApp Business API
 - Fine-tuned local model untuk personal style
+- Grafana dashboard (deferred — Prometheus retain 30d, attach saat butuh trend visualization)
 
 ---
 

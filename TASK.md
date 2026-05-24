@@ -1,34 +1,99 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-24 00:51 UTC  
+**Last Updated:** 2026-05-24 06:15 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Self-improving Skills Phase 1 + 2A shipped — passive logging, semantic recall, auto-log via inline button. All features production-verified. System in "let it cook" phase.
+**Status:** ✅ Monitoring MVP shipped — Prometheus + Alertmanager + node_exporter + Telegram `/monitor` live. Skills/voice/Q&A remain in dogfood phase.
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-24. Self-improving Skills fully implemented (Phase 1 manual + Phase 2A auto-log). 4 commits shipped this session. All deployed green.
+**Where we left off:** Sesi 2026-05-24. Monitoring MVP implemented after user explained workload: monitor 10-15 VPS with mixed stacks, some already have node_exporter. Decision: use Prometheus + Alertmanager now, keep Grafana deferred until trend/dashboard need is proven. Prometheus/Alertmanager deployed green and test alert reached Telegram.
 
-### Session deliverables (4 commits, all deployed green)
+### Session deliverables (monitoring, deployed green)
 
 | # | Commit | Run | Notes |
 |---|---|---|---|
-| 1 | `feat(agent): self-improving skills — passive logging + semantic recall via Qdrant` | 26346777258 | Agent-side: collection, config, skills.py, endpoints |
-| 2 | `feat(bot): /skill command — log and recall skills via Telegram` | 26346777258 | Bot-side: /skill command |
-| 3 | `docs: update README + TASK.md — skills feature shipped, roadmap updated` | (no deploy, *.md) | Docs only |
-| 4 | `feat(bot): skills Phase 2A — auto-log offer via inline button after qualified conversations` | (CI triggered) | Inline button + dedup + rate limit |
+| 1 | `feat(monitoring): Prometheus + Alertmanager + /monitor command` | (CI triggered) | Prometheus v3.4.0, Alertmanager v0.28.1, `/monitor`, node_exporter installed on pro-secretary |
+| 2 | `docs: update monitoring handoff and docs` | (docs only) | Current handoff + README/low-resource guide updates |
 
-### Production state (verified 2026-05-24 00:00 UTC)
+### Production state (verified 2026-05-24 06:10 UTC)
 
-- All 5 containers healthy
+- All 7 containers healthy: `n8n`, `langgraph-agent`, `telegram-bot`, `calcom`, `caddy`, `prometheus`, `alertmanager`
+- Prometheus scrape targets:
+  - `pro-secretary` (`host.docker.internal:9100`) → `up=1`, scrape interval 30s ✅
+  - `prometheus` self-scrape → `up` ✅
+- Alertmanager:
+  - Telegram receiver configured with env-injected `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS`
+  - Test alert delivered to Telegram: `🚨 FIRING TestAlert`, then `✅ RESOLVED` ✅
+- node_exporter installed on pro-secretary VPS:
+  - package: `prometheus-node-exporter` v1.9.0
+  - listening on `*:9100`
+  - external access blocked via iptables, localhost + Docker bridge (`172.16.0.0/12`) allowed
+  - iptables persisted via `iptables-persistent`
 - Skills Phase 1 production-verified:
   - `/api/skills/log` → `{"id":"ea652d2e-...","name":"deploy-bot","status":"logged"}` ✅
   - `/api/skills/search` query="deploy" → `{"count":1, score: 0.43}` ✅
-- Voice handler live — tested 3 voice notes (previous session)
+- Voice handler live — tested 3 voice notes
 - `gmedia-erp` indexed: 3,365 chunks @ `63549bae`
 - `dokfin-backend` indexed: 3,591 chunks @ `7fa15fe0`
-- Last commit on main: `feat(bot): skills Phase 2A — auto-log offer via inline button after qualified conversations`
+- Last code commit on main: `bc75ece feat(monitoring): Prometheus + Alertmanager + /monitor command`
+
+### Monitoring stack — current architecture
+
+**Files:**
+- `docker-compose.yml` — `prometheus` + `alertmanager` services on `secretary-net`
+- `prometheus/prometheus.yml` — scrape config, includes commented template for adding more VPS targets
+- `prometheus/alert_rules.yml` — 10 alert rules: instance down, CPU, RAM (warn+crit), disk (warn+crit+predict_linear), swap, load, network errors
+- `prometheus/alertmanager.yml` — Telegram receiver template (placeholders, NOT a working config standalone)
+- `prometheus/alertmanager-entrypoint.sh` — sed-substitutes `PLACEHOLDER_BOT_TOKEN`/`PLACEHOLDER_CHAT_ID` from env into config at container start
+- `telegram-bot/bot.py` — `cmd_monitor`, `_monitor_detail`, `_prom_query` helper. `PROMETHEUS_URL` env defaults to `http://prometheus:9090`
+
+**Pipeline:**
+```
+node_exporter (each VPS:9100)
+   → Prometheus (scrape every 30s, retain 30d)
+   → Alertmanager (group_wait 30s, group_interval 5m, repeat warn 4h / crit 1h)
+   → Telegram (via bot_token + chat_id reusing TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_USERS)
+```
+
+**Telegram commands:**
+- `/vps` — local pro-secretary detail (existing, via agent `/api/vps_status`)
+- `/monitor` — list all Prometheus targets with up/down + CPU/RAM/disk %, plus active firing alerts
+- `/monitor <name>` — detail for single VPS (CPU, load, RAM, swap, disk /, uptime, alerts)
+
+**Security:**
+- Prometheus + Alertmanager NOT exposed to host. Internal Docker network only. Access via `docker exec` or future Caddy basic auth route.
+- `node_exporter` listens on `*:9100`. iptables blocks external access; allows `127.0.0.0/8` and `172.16.0.0/12` (Docker bridge).
+- `iptables-persistent` installed so rules survive reboot.
+- For new VPS: install `prometheus-node-exporter`, then add iptables rules allowing pro-secretary IP only. **No internet exposure.**
+
+**Adding a new VPS target:**
+1. On target VPS: `apt install prometheus-node-exporter && systemctl enable --now prometheus-node-exporter`
+2. iptables: allow port 9100 only from pro-secretary IP (and `127.0.0.0/8`), DROP rest
+3. Edit `prometheus/prometheus.yml`:
+```yaml
+- job_name: "node"
+  static_configs:
+    - targets: ["<IP>:9100"]
+      labels:
+        instance_name: "<short-name>"
+        provider: "<digitalocean|hetzner|...>"
+```
+4. Push → CI deploys. Or hot-reload: `docker exec prometheus wget -qO- --post-data='' http://localhost:9090/-/reload`
+5. Verify: `/monitor` di Telegram, atau `docker exec prometheus wget -qO- 'http://localhost:9090/api/v1/targets'`
+
+**Why Prometheus over bot-only monitoring:**
+- node_exporter sudah di beberapa VPS user → sayang tidak diScrape
+- PromQL alert rules (`rate`, `predict_linear`, `absent`) jauh lebih ekspresif dari threshold manual
+- Alertmanager handles grouping, deduplication, repeat-interval, inhibit rules
+- Grafana bisa di-attach kapan saja nanti tanpa rework
+- Industry standard, banyak referensi & community
+
+**Why no Grafana yet:**
+- Kebutuhan utama (alert when VPS sakit) sudah selesai
+- Grafana = +1 service to maintain. Hold sampai user actually butuh trend visualization
+- Prometheus retention 30 hari = data sudah ada saat Grafana ditambahkan nanti
 
 ### Self-Improving Skills — current architecture
 
@@ -70,21 +135,34 @@
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **DOGFOOD all features** (1-2 minggu, passive):
-   - Pakai bot daily — voice, Q&A, skills
-   - Perhatikan: apakah inline button terlalu sering muncul? Apakah user tap atau ignore?
-   - Perhatikan: dedup bekerja? Ada skill duplikat?
-   - Perhatikan: retrieval miss rate di Q&A
+1. **Add remaining 9-14 VPS to Prometheus** (high priority, monitoring scope completion):
+   - User punya 10-15 VPS total. Saat ini cuma `pro-secretary` ter-scrape.
+   - Beberapa sudah ada `node_exporter`. Sisanya install `prometheus-node-exporter`.
+   - Per-VPS firewall: allow port 9100 hanya dari IP pro-secretary (159.223.40.74), DROP sisanya.
+   - Format target lihat seksi "Adding a new VPS target" di atas.
+   - Goal: 100% VPS visibility dalam 1-2 hari.
 
-2. **Adjustments (hanya jika data menunjukkan):**
-   - Inline button terlalu sering → naikkan MIN_HISTORY_FOR_SKILL_OFFER (6 → 8)
+2. **Tune alert thresholds setelah 3-5 hari data** (data-driven, bukan tebakan):
+   - Kalau alert noisy → naikkan `for:` duration atau threshold di `prometheus/alert_rules.yml`.
+   - Kalau VPS kecil normal RAM 90% → tambah label override (`env: small`) atau alert rule per-instance.
+   - Track: kategori alert mana paling sering fire, mana yang useful, mana yang noise.
+
+3. **DOGFOOD existing features** (1-2 minggu, passive — tetap relevan):
+   - Pakai bot daily — voice, Q&A, skills
+   - Inline button — terlalu sering muncul? User tap atau ignore?
+   - Dedup bekerja? Ada skill duplikat?
+   - Retrieval miss rate di Q&A
+
+4. **Adjustments existing features (hanya jika data menunjukkan):**
+   - Inline button terlalu sering → naikkan `MIN_HISTORY_FOR_SKILL_OFFER` (6 → 8)
    - Inline button selalu di-ignore → naikkan threshold atau remove
    - Skill names terlalu vague → Phase 2B: LLM summarize conversation into proper skill name
    - Retrieval miss > 30% → evaluate code-aware embedding
 
-3. **Decision point: Personal Journal** — setelah 1 minggu regular usage, decide keep/deactivate
+5. **Decision point: Personal Journal** — setelah 1 minggu regular usage, decide keep/deactivate
 
-4. **Jangan lakukan sebelum 1-2 minggu data pakai:**
+6. **Jangan lakukan sebelum data pakai 1-2 minggu:**
+   - Grafana tambahan (tunggu sampai user actually request trend/dashboard)
    - Ganti embedding model ke code-aware
    - Hybrid search dengan BM25 engine eksternal
    - Multi-repo filter syntax
@@ -665,11 +743,14 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.
+- [ ] **🆕 PRIORITY: Onboard remaining 9-14 VPS to Prometheus** — pro-secretary already scraped + alerting to Telegram. Add other VPS in batches: install `prometheus-node-exporter`, restrict port 9100 (allow pro-secretary IP only), append target to `prometheus/prometheus.yml`. Goal: 100% VPS visibility within 1-2 hari. See TASK monitoring section + commented template di `prometheus.yml`.
+- [ ] **PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.
+- [x] **DONE:** Monitoring MVP — ✅ DEPLOYED (2026-05-24 06:00 UTC). Prometheus v3.4.0 + Alertmanager v0.28.1 in docker-compose. node_exporter installed on pro-secretary, iptables-restricted. Bot `/monitor` command queries Prometheus API. Test alert verified end-to-end to Telegram. Last commit: `bc75ece feat(monitoring): Prometheus + Alertmanager + /monitor command`.
 - [x] **DONE:** Resource Alert Patch v1.1 — deployed live run 26266957115. Files shipped: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`. Monitor transition-only alerts + state file `/app/state/resource-alert-state.json`.
 - [x] **DONE:** Voice handler — ✅ DEPLOYED (2026-05-23 15:00 UTC). 2 commits shipped. Whisper transcribe via Groq + smart routing (repo detection → code Q&A). Tested 3 voice notes: transcription accurate, routing correct.
 - [x] **DONE:** Self-improving Skills Phase 1 — ✅ DEPLOYED (2026-05-24 00:17 UTC). 2 commits shipped. Passive skill logging + semantic recall via Qdrant `skills` collection. `/skill log <name> | <desc>` to save, `/skill <query>` to recall. Production-verified: log returns UUID, search returns scored results.
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
+- [ ] **DEFERRED:** Grafana — sengaja ditunda. Prometheus retention 30 hari sudah simpan history; Grafana bisa di-attach kapan saja saat trend visualization actually needed.
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
 - [ ] **MONITOR:** 1× transient health blip 13:00 WIB 18 Mei (langgraph-agent HTTP 000 dari `docker exec curl`, recovered di 13:05). Container uptime 3h saat itu (bukan grace-period case). Single occurrence = noise. Worth diagnose kalau reproduce dalam pola atau Telegram alert masuk.
 - [ ] **NOTE:** Telegram-router workflow di n8n DELETED (obsolete). Bot sekarang langsung ke `langgraph-agent` via `AGENT_URL`.
@@ -678,6 +759,36 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live post-triage.
 
 ### Recently Completed
+
+- ✅ [2026-05-24 06:00 UTC] Monitoring MVP — Prometheus + Alertmanager + node_exporter + `/monitor` shipped
+  - **Trigger:** User pekerjaan: monitor 10-15 VPS dengan stack berbeda. Belum pakai Grafana. Beberapa VPS sudah ada `node_exporter`. Diskusi: bot-monitoring vs Grafana-Prometheus. Pilih Prometheus + Alertmanager + Telegram (skip Grafana) — node_exporter sudah ada di sebagian VPS, PromQL > threshold manual, Alertmanager handles dedup/grouping.
+  - **Implemented:**
+    - `prometheus/prometheus.yml` — scrape `host.docker.internal:9100` (pro-secretary), 30s interval, 30d retention. Commented template untuk tambah VPS lain.
+    - `prometheus/alert_rules.yml` — 10 alert rules: `InstanceDown`, `HighCPU`, `HighMemory`, `CriticalMemory`, `DiskWarning`, `DiskCritical`, `DiskFillPrediction` (predict_linear 24h), `HighSwap`, `HighLoad`, `NetworkErrors`. Optional SSL cert rule commented out.
+    - `prometheus/alertmanager.yml` — Telegram receiver template, group_by alertname+instance_name, group_wait 30s, repeat 4h (warn) / 1h (crit), inhibit warning saat critical aktif.
+    - `prometheus/alertmanager-entrypoint.sh` — sed-substitute `PLACEHOLDER_BOT_TOKEN`/`PLACEHOLDER_CHAT_ID` dari env saat container start (Alertmanager tidak support env var di config nativly).
+    - `docker-compose.yml` — 2 service baru: `prometheus` (image `prom/prometheus:v3.4.0`, mem 1GB, healthcheck) dan `alertmanager` (image `prom/alertmanager:v0.28.1`, mem 256MB, healthcheck). 2 volume baru: `prometheus_data`, `alertmanager_data`. Bot dapat env `PROMETHEUS_URL=http://prometheus:9090`.
+    - `telegram-bot/bot.py` — `cmd_monitor`, `_monitor_detail`, `_prom_query` helper. `/monitor` list semua VPS dengan up/down + CPU/RAM/disk %, plus active firing alerts. `/monitor <name>` detail.
+    - `.env.example` — section monitoring (no new env vars; reuses TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_USERS).
+  - **VPS-side (159.223.40.74 pro-secretary):**
+    - `apt install prometheus-node-exporter` v1.9.0, `systemctl enable --now`. Listening on `*:9100`.
+    - iptables: `INPUT -p tcp --dport 9100 -s 127.0.0.0/8 -j ACCEPT`, `-s 172.16.0.0/12 -j ACCEPT` (Docker bridge), `-j DROP` external. Persisted via `iptables-persistent`.
+  - **Files changed:**
+    - NEW: `prometheus/prometheus.yml`, `prometheus/alert_rules.yml`, `prometheus/alertmanager.yml`, `prometheus/alertmanager-entrypoint.sh`
+    - MOD: `docker-compose.yml`, `telegram-bot/bot.py`, `.env.example`
+  - **Commit:** `bc75ece feat(monitoring): Prometheus + Alertmanager + /monitor command`
+  - **Deploy:** Push ke main → CI auto-deploy. All 4 monitoring-related containers/services up & healthy.
+  - **Verification (2026-05-24 06:10 UTC):**
+    - `docker ps`: prometheus + alertmanager `Up 4 minutes (healthy)` ✅
+    - Prometheus targets: `pro-secretary` `up=1`, scrape interval 30s, no errors ✅
+    - Alertmanager config check: bot_token injected (`<secret>`), chat_id `561827493`, cluster ready ✅
+    - Test alert via API → Telegram received `🚨 FIRING TestAlert [warning]` lalu `✅ RESOLVED` ✅
+  - **Architecture decisions:**
+    - **Why Prometheus over bot-only:** node_exporter sudah di sebagian VPS user. PromQL alert rules (`rate`, `predict_linear`, `absent`) > threshold manual. Alertmanager handles grouping/dedup/inhibit jauh lebih bagus dari hand-rolled solution. Industry standard, low future-rework.
+    - **Why no Grafana:** Goal awal "alert kalau VPS sakit" sudah selesai dengan Prometheus+Alertmanager+Telegram. Grafana = +1 service to maintain. Tunggu sampai user actually butuh trend visualization. Data sudah retain 30 hari di Prometheus.
+    - **Why entrypoint sed substitute:** Alertmanager tidak support `${ENV}` di config natively. Opsi: (1) pakai `bot_token_file`, butuh secrets file; (2) sidecar template engine; (3) entrypoint sed — paling ringan & no extra deps. Pilih opsi 3.
+    - **Why bind node_exporter ke `*:9100` + iptables (bukan `127.0.0.1` only):** Prometheus container connect via `host.docker.internal` (resolves ke `172.17.0.1`). node_exporter cuma support 1 listen address. Solusi: listen all interfaces, iptables block external.
+  - **Next:** Onboard 9-14 VPS lain ke Prometheus. Tune alert thresholds setelah 3-5 hari data.
 
 - ✅ [2026-05-24 00:17 UTC] Self-improving Skills Phase 1 — deployed + production-verified
   - **Trigger:** User approve next step recommendation from TASK.md.

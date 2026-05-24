@@ -21,12 +21,14 @@
 
 This guide helps you deploy AI Personal Secretary Stack on budget VPS. All heavy stateful services (Qdrant, PostgreSQL) run externally as managed cloud services.
 
-**What runs locally (5 containers):**
+**What runs locally (7 containers):**
 1. n8n (workflow orchestrator)
-2. OpenFang (AI agent)
+2. langgraph-agent (AI agent — replaces unavailable OpenFang)
 3. Cal.com (calendar app)
 4. Telegram Bot (interface)
-5. Caddy (reverse proxy)
+5. Prometheus (multi-VPS metrics)
+6. Alertmanager (alert routing → Telegram)
+7. Caddy (reverse proxy)
 
 **What runs externally:**
 - PostgreSQL (Supabase/Neon/Railway)

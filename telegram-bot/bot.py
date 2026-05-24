@@ -3,12 +3,14 @@
 import logging
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import httpx
-from telegram import BotCommand, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -43,6 +45,10 @@ ALLOWED_UPLOAD_EXTS = {
 }
 
 current_model = LLM_MODEL_DEFAULT
+
+MAX_SKILL_AUTOLOGS_PER_DAY = 5
+MIN_HISTORY_FOR_SKILL_OFFER = 6  # 3 user + 3 bot messages
+MIN_REPLY_LEN_FOR_SKILL = 100
 
 logging.basicConfig(
     level=logging.INFO,
@@ -743,11 +749,93 @@ async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines)[:4000])
 
 
+@authorized
+async def handle_skill_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    history = context.chat_data.get("history", [])
+    if len(history) < 4:
+        await query.edit_message_reply_markup(None)
+        return
+
+    user_msgs = [m["text"] for m in history if m["role"] == "user"]
+    bot_msgs = [m["text"] for m in history if m["role"] == "assistant"]
+
+    name = (user_msgs[0][:80] if user_msgs else "unnamed").strip()
+    description = (bot_msgs[-1][:500] if bot_msgs else "").strip()
+    steps = [m[:200] for m in user_msgs[1:5]] if len(user_msgs) > 1 else []
+
+    if not name or not description:
+        await query.edit_message_reply_markup(None)
+        return
+
+    try:
+        r = await _agent_post(
+            "/api/skills/log",
+            {
+                "name": name,
+                "description": description,
+                "steps": steps,
+                "tags": ["auto"],
+                "user_id": str(update.effective_user.id),
+            },
+            timeout=30.0,
+        )
+    except httpx.RequestError:
+        await query.edit_message_reply_markup(None)
+        return
+
+    await query.edit_message_reply_markup(None)
+    if r.status_code == 200:
+        data = r.json()
+        status = data.get("status", "logged")
+        if status == "dedup":
+            await query.message.reply_text("🧠 Skill serupa sudah ada, tidak disimpan ulang.")
+        else:
+            await query.message.reply_text(f"🧠 Skill disimpan: {name[:50]}")
+        today = datetime.now().strftime("%Y-%m-%d")
+        logs = context.chat_data.setdefault("skill_logs_today", {"date": today, "count": 0})
+        if logs.get("date") != today:
+            logs["date"] = today
+            logs["count"] = 0
+        logs["count"] += 1
+
+    context.chat_data["history"] = []
+    context.chat_data["skill_offered_this_thread"] = False
+
+
 def _is_journal_reply(update: Update) -> bool:
     reply = update.message.reply_to_message if update.message else None
     if not reply or not reply.text:
         return False
     return JOURNAL_PROMPT_MARKER in reply.text
+
+
+def _should_offer_skill(context: ContextTypes.DEFAULT_TYPE, reply: str) -> bool:
+    if len(reply) < MIN_REPLY_LEN_FOR_SKILL:
+        return False
+    if reply.startswith("⚠️"):
+        return False
+    history = context.chat_data.get("history", [])
+    if len(history) < MIN_HISTORY_FOR_SKILL_OFFER:
+        return False
+    today = datetime.now().strftime("%Y-%m-%d")
+    logs_today = context.chat_data.get("skill_logs_today", {})
+    if logs_today.get("date") != today:
+        return True
+    if logs_today.get("count", 0) >= MAX_SKILL_AUTOLOGS_PER_DAY:
+        return False
+    if context.chat_data.get("skill_offered_this_thread"):
+        return False
+    return True
+
+
+def _record_history(context: ContextTypes.DEFAULT_TYPE, role: str, text: str) -> None:
+    history = context.chat_data.setdefault("history", [])
+    history.append({"role": role, "text": text})
+    if len(history) > 10:
+        context.chat_data["history"] = history[-10:]
 
 
 @authorized
@@ -804,7 +892,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         route_info = f" → 📦 {repo}" if repo else ""
         prefix = f"🎙️ \"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\"{route_info}\n\n"
-        await update.message.reply_text(prefix + reply)
+
+        _record_history(context, "user", transcript)
+        _record_history(context, "assistant", reply)
+
+        full_reply = prefix + reply
+        if _should_offer_skill(context, reply):
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("💾 Simpan sebagai skill?", callback_data="autoskill")
+            ]])
+            await update.message.reply_text(full_reply[:4000], reply_markup=kb)
+            context.chat_data["skill_offered_this_thread"] = True
+        else:
+            await update.message.reply_text(full_reply[:4000])
 
     except httpx.RequestError as exc:
         await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
@@ -840,7 +940,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _submit_journal(update, update.message.text or "")
         return
 
-    user_message = update.message.text
+    user_message = update.message.text or ""
     await update.message.reply_chat_action("typing")
 
     try:
@@ -861,7 +961,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = r.json().get("response") or "(respons kosong)"
     else:
         reply = f"⚠️ Error dari agent (HTTP {r.status_code})."
-    await update.message.reply_text(reply)
+
+    _record_history(context, "user", user_message)
+    _record_history(context, "assistant", reply)
+
+    if _should_offer_skill(context, reply):
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("💾 Simpan sebagai skill?", callback_data="autoskill")
+        ]])
+        await update.message.reply_text(reply[:4000], reply_markup=kb)
+        context.chat_data["skill_offered_this_thread"] = True
+    else:
+        await update.message.reply_text(reply[:4000])
 
 
 @authorized
@@ -965,6 +1076,7 @@ def main():
     app.add_handler(CommandHandler("index", cmd_index))
     app.add_handler(CommandHandler("tanya", cmd_tanya))
     app.add_handler(CommandHandler("skill", cmd_skill))
+    app.add_handler(CallbackQueryHandler(handle_skill_callback, pattern="^autoskill$"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

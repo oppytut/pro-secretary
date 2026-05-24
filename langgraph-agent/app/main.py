@@ -342,7 +342,7 @@ class SkillSearchRequest(BaseModel):
 
 @app.post("/api/skills/log", dependencies=[Depends(verify_secret)])
 async def skill_log(req: SkillLogRequest) -> dict[str, Any]:
-    point_id = skills.log_skill(
+    point_id, status = skills.log_skill(
         name=req.name,
         description=req.description,
         steps=req.steps,
@@ -350,7 +350,7 @@ async def skill_log(req: SkillLogRequest) -> dict[str, Any]:
         trigger=req.trigger,
         user_id=req.user_id,
     )
-    return {"id": point_id, "name": req.name, "status": "logged"}
+    return {"id": point_id, "name": req.name, "status": status}
 
 
 @app.post("/api/skills/search", dependencies=[Depends(verify_secret)])

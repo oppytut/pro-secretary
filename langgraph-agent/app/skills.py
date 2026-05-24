@@ -17,13 +17,18 @@ def log_skill(
     tags: list[str] | None = None,
     trigger: str = "",
     user_id: str | int | None = None,
-) -> str:
-    """Store a skill (procedure/pattern) in the skills collection."""
+) -> tuple[str, str]:
+    """Store a skill. Returns (point_id, status) where status is 'logged' or 'dedup'."""
     ensure_collection(config.COLL_SKILLS)
     text_parts = [name, description]
     if steps:
         text_parts.append(" ".join(steps))
     embed_text = " | ".join(text_parts)
+
+    existing = search_skills(embed_text, limit=1)
+    if existing and existing[0]["score"] > 0.85:
+        logger.info("Skill dedup hit: %s (score=%.2f, existing=%s)", name, existing[0]["score"], existing[0]["id"])
+        return existing[0]["id"], "dedup"
 
     payload = {
         "name": name,
@@ -35,7 +40,7 @@ def log_skill(
     }
     point_id = upsert(config.COLL_SKILLS, embed_text, payload)
     logger.info("Skill logged: %s (id=%s)", name, point_id)
-    return point_id
+    return point_id, "logged"
 
 
 def search_skills(query: str, limit: int = 5) -> list[dict[str, Any]]:

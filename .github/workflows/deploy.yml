@@ -131,3 +131,5 @@ jobs:
             echo "=== post-deploy health probes ==="
             docker exec langgraph-agent curl -fsS --max-time 5 http://localhost:8090/health
             docker exec n8n wget -qO- --timeout 5 http://localhost:5678/healthz
+            echo "=== prometheus hot-reload ==="
+            docker exec prometheus wget -qO- --post-data='' --timeout 5 http://localhost:9090/-/reload && echo "prometheus reloaded" || echo "prometheus reload skipped"

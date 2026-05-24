@@ -1,43 +1,72 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-24 06:15 UTC  
+**Last Updated:** 2026-05-24 09:30 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Monitoring MVP shipped — Prometheus + Alertmanager + node_exporter + Telegram `/monitor` live. Skills/voice/Q&A remain in dogfood phase.
+**Status:** ✅ Monitoring MVP shipped — Prometheus + Alertmanager + node_exporter + Telegram `/monitor` live. erpstg onboarded as 2nd VPS target. Skills/voice/Q&A remain in dogfood phase.
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-24. Monitoring MVP implemented after user explained workload: monitor 10-15 VPS with mixed stacks, some already have node_exporter. Decision: use Prometheus + Alertmanager now, keep Grafana deferred until trend/dashboard need is proven. Prometheus/Alertmanager deployed green and test alert reached Telegram.
+**Where we left off:** Sesi 2026-05-24 lanjutan — onboard `erpstg` VPS ke Prometheus. Discovered 2 critical patterns yang sekarang jadi standar untuk semua VPS onboarding ke depan. Container monitoring discussion: **deferred** — `erp-stg-app-1 Up 5d (unhealthy)` ditemukan di erpstg, lebih penting investigate root cause healthcheck dulu sebelum tambah monitoring layer baru. User akan lanjutkan di sesi opencode baru.
 
-### Session deliverables (monitoring, deployed green)
+### Session deliverables (this turn — erpstg onboard + lessons learned)
 
-| # | Commit | Run | Notes |
-|---|---|---|---|
-| 1 | `feat(monitoring): Prometheus + Alertmanager + /monitor command` | (CI triggered) | Prometheus v3.4.0, Alertmanager v0.28.1, `/monitor`, node_exporter installed on pro-secretary |
-| 2 | `docs: update monitoring handoff and docs` | (docs only) | Current handoff + README/low-resource guide updates |
+| # | Commit | Notes |
+|---|---|---|
+| 1 | `feat(monitoring): onboard erpstg VPS to Prometheus` | initial target on :9100 (failed scrape, see lessons) |
+| 2 | `ci(deploy): hot-reload Prometheus after deploy` | superseded by force-recreate (commit 4) |
+| 3 | `ci(deploy): debug — *` (3 commits) | diagnostic dumps, root-cause kept in commit history |
+| 4 | `fix(ci): force-recreate prometheus+alertmanager on deploy` | bind-mount inode-pinning fix |
+| 5 | `fix(monitoring): move erpstg node_exporter to port 19100` | ISP transit drop on :9100 → :19100 |
+| 6 | `docs: monitoring port 19100 + force-recreate pattern` | README + TASK.md updated |
 
-### Production state (verified 2026-05-24 06:10 UTC)
+### Critical patterns adopted this session (read before onboarding next VPS)
 
-- All 7 containers healthy: `n8n`, `langgraph-agent`, `telegram-bot`, `calcom`, `caddy`, `prometheus`, `alertmanager`
-- Prometheus scrape targets:
-  - `pro-secretary` (`host.docker.internal:9100`) → `up=1`, scrape interval 30s ✅
-  - `prometheus` self-scrape → `up` ✅
-- Alertmanager:
-  - Telegram receiver configured with env-injected `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS`
-  - Test alert delivered to Telegram: `🚨 FIRING TestAlert`, then `✅ RESOLVED` ✅
-- node_exporter installed on pro-secretary VPS:
-  - package: `prometheus-node-exporter` v1.9.0
-  - listening on `*:9100`
-  - external access blocked via iptables, localhost + Docker bridge (`172.16.0.0/12`) allowed
-  - iptables persisted via `iptables-persistent`
+**1. Port 19100, NOT 9100 (standard)**
+- erpstg (Biznet ID) → pro-secretary (DO Singapore): SYN ke `:9100` silently dropped in transit. Same source/dest IP, but `:22`/`:443`/`:3270` reachable. Likely ISP-level filter on well-known Prometheus port.
+- Switch ke `:19100` immediate fix.
+- Use `:19100` for ALL future VPS to avoid the same trap. Bonus: avoids opportunistic port scans for `:9100`.
+
+**2. `--force-recreate prometheus alertmanager` di CI deploy (standard)**
+- Bind-mount Docker pins ke inode at container start.
+- `git pull` rewrites `prometheus.yml`/`alert_rules.yml` with new inode → running container keeps serving stale config.
+- POST `/-/reload` against stale file = no-op (file in container's view tidak berubah).
+- Fix: `docker compose up -d --force-recreate prometheus alertmanager` after `up -d --remove-orphans`. ~2s overhead, applied only to config-driven services.
+- Now in `.github/workflows/deploy.yml`. Auto-applied for all subsequent deploys.
+
+**3. Diagnostic pattern yang berhasil di session ini (worth ingat)**
+- Cek `/api/v1/targets` Prometheus API: `lastError`, `lastScrape`, `health`
+- `md5sum` host vs container untuk detect inode-pinning
+- `tcpdump` di destination + probe dari source container untuk localize block (firewall vs ISP vs route)
+- Probe port lain ke same destination (e.g. `:22`, `:443`) untuk confirm pattern source-dest pair
+
+### Production state (verified 2026-05-24 09:25 UTC)
+
+- All containers healthy: n8n, langgraph-agent, telegram-bot, calcom, caddy, prometheus, alertmanager
+- Prometheus scrape targets (job=node):
+  - `pro-secretary` (`host.docker.internal:9100`) → `up=1` ✅ (still on :9100, internal Docker network — no transit issue)
+  - `erpstg` (`119.2.52.24:19100`) → `up=1` ✅ (lastScrape ~30s ago)
+  - `prometheus` self-scrape → `up=1` ✅
+- erpstg metrics (via `/monitor` Telegram): CPU 3% | RAM 33% | Disk 63%
+- node_exporter on erpstg:
+  - listen `:19100` (override via `/etc/default/prometheus-node-exporter` → `ARGS="--web.listen-address=:19100"`)
+  - UFW rule: `19100/tcp ALLOW IN 159.223.40.74` only
+  - imunify360 active on host (no conflict with allowlist for 159.223.40.74)
+  - hostname: `erp-dev-staging-vm`, Ubuntu 22.04.3 LTS
+
+### erpstg observations (worth dipikirkan next session)
+
+- **Disk 63%** — not yet warn (threshold 80%) but trending. `DiskFillPrediction` rule akan fire 24h sebelum mencapai 80%.
+- **`erp-stg-app-1 Up 5 days (unhealthy)`** — Docker healthcheck failed selama 5 hari, NO Telegram alert. Container monitoring (cAdvisor) akan catch ini, but more pressing: **why is healthcheck failing?** Possible causes: app legit broken, healthcheck command wrong, dependency drift. Investigation should precede new monitoring layer.
+- erpstg compose stack: `erp-stg-app-1`, `erp-stg-redis-1`, `erp-stg-meilisearch-1` (registry: `registry.gitlab.com/gmd/erp/erp-l12:8.4-stg`).
 - Skills Phase 1 production-verified:
   - `/api/skills/log` → `{"id":"ea652d2e-...","name":"deploy-bot","status":"logged"}` ✅
   - `/api/skills/search` query="deploy" → `{"count":1, score: 0.43}` ✅
 - Voice handler live — tested 3 voice notes
 - `gmedia-erp` indexed: 3,365 chunks @ `63549bae`
 - `dokfin-backend` indexed: 3,591 chunks @ `7fa15fe0`
-- Last code commit on main: `bc75ece feat(monitoring): Prometheus + Alertmanager + /monitor command`
+- Last code commit on main: `<latest>` (post-erpstg-onboard, see git log)
 
 ### Monitoring stack — current architecture
 
@@ -51,7 +80,7 @@
 
 **Pipeline:**
 ```
-node_exporter (each VPS:9100)
+node_exporter (each VPS:19100, except pro-secretary on :9100 via Docker host gateway)
    → Prometheus (scrape every 30s, retain 30d)
    → Alertmanager (group_wait 30s, group_interval 5m, repeat warn 4h / crit 1h)
    → Telegram (via bot_token + chat_id reusing TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_USERS)
@@ -152,6 +181,21 @@ node_exporter (each VPS:9100)
 
 ### Next session focus (PRIORITY ORDER)
 
+0. **🔍 Investigate `erp-stg-app-1 unhealthy` di erpstg FIRST** (urgent, blocks container monitoring decision):
+   - Container `Up 5 days (unhealthy)` — Docker healthcheck gagal silent 5 hari, tidak ada Telegram alert.
+   - Possible root causes: (a) app legit broken, (b) healthcheck command/timing salah, (c) dependency drift (Redis, Meilisearch).
+   - Step debug:
+     ```
+     ssh ubuntu@119.2.52.24 -p 3270
+     docker inspect erp-stg-app-1 --format '{{json .State.Health}}' | jq
+     docker logs --tail 100 erp-stg-app-1
+     docker exec erp-stg-app-1 <healthcheck-cmd>  # run manually
+     ```
+   - Decision tree:
+     - Healthcheck salah konfigurasi → fix di compose, jangan tambah monitoring layer.
+     - App legit broken → user fix app, baru tambah container monitoring untuk cegah recurrence.
+   - **Why this blocks #1 (container monitoring):** kalau healthcheck sendiri salah, monitor cAdvisor → container_*_healthy metric akan tetap salah. Investigate root cause first, biar monitoring informed by real failure mode.
+
 1. **Add remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):
    - User punya 10-15 VPS total. Saat ini ter-scrape: `pro-secretary` + `erpstg` (onboarded 2026-05-24, port 19100, provider biznet).
    - Beberapa sudah ada `node_exporter` (mungkin di port 9100 default). Sisanya install `prometheus-node-exporter`.
@@ -160,10 +204,21 @@ node_exporter (each VPS:9100)
    - Format target lihat seksi "Adding a new VPS target" di atas.
    - Goal: 100% VPS visibility dalam 1-2 hari.
 
-2. **Tune alert thresholds setelah 3-5 hari data** (data-driven, bukan tebakan):
+2. **Container monitoring (cAdvisor) — DEFERRED, evaluate after #0+#1 done:**
+   - Sample identified: erpstg has 3-container compose stack (`erp-stg-app-1`, `erp-stg-redis-1`, `erp-stg-meilisearch-1`), 1 unhealthy 5d → real failure mode untuk pilot test.
+   - User decision 2026-05-24: tunda. Investigate `#0` dulu untuk understand whether cAdvisor genuinely add value or just noise on top of broken healthcheck.
+   - Pilot plan tersimpan (kalau lanjut nanti):
+     - cAdvisor di erpstg only (port 18080, non-standard, sama logic 19100)
+     - 3 alert rules priority: `ContainerUnhealthy`, `ContainerOOMKilled`, `ContainerRestartLoop`
+     - `metric_relabel_configs` drop high-cardinality container_* metrics
+     - Extend `/monitor` Telegram dengan container count + unhealthy count per VPS
+   - 1 minggu pilot → decide rollout or drop.
+
+3. **Tune alert thresholds setelah 3-5 hari data** (data-driven, bukan tebakan):
    - Kalau alert noisy → naikkan `for:` duration atau threshold di `prometheus/alert_rules.yml`.
    - Kalau VPS kecil normal RAM 90% → tambah label override (`env: small`) atau alert rule per-instance.
    - Track: kategori alert mana paling sering fire, mana yang useful, mana yang noise.
+   - erpstg specifically: disk 63% trending — watch `DiskFillPrediction` rule fire vs noise.
 
 3. **DOGFOOD existing features** (1-2 minggu, passive — tetap relevan):
    - Pakai bot daily — voice, Q&A, skills
@@ -723,6 +778,10 @@ Sebelum implementasi mulai, butuh dari user:
 
 10. **Real-time agent test pattern.** `docker exec langgraph-agent python3 /tmp/foo.py` (with script file via `docker cp`) — JSON in shell escaping is brittle. Avoid `docker exec ... python3 -c "..."` with f-strings + nested quotes.
 
+11. **node_exporter listens on `:19100`, NOT `:9100`.** Some ISPs silently drop SYN to well-known port `:9100` in transit (discovered onboarding erpstg from Biznet → DO Singapore). Same source/dest IP pair can reach `:22`/`:443` fine while `:9100` blackholes. Standard now: `--web.listen-address=:19100` via `/etc/default/prometheus-node-exporter`. Pro-secretary itself still uses `:9100` because it scrapes via `host.docker.internal` (Docker bridge, no ISP transit).
+
+12. **Docker bind-mount pins to inode at container start.** `git pull` rewrites a file → new inode → running container keeps serving stale config. POST `/-/reload` against bind-mounted file = no-op (file in container's view unchanged). Fix in `deploy.yml`: `docker compose up -d --force-recreate prometheus alertmanager` after `up -d --remove-orphans`. ~2s overhead. Apply to ANY config-driven service with bind-mounted YAML/JSON.
+
 ---
 
 ## 📍 CURRENT CONTEXT
@@ -761,8 +820,11 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **🆕 PRIORITY: Onboard remaining 9-14 VPS to Prometheus** — pro-secretary already scraped + alerting to Telegram. Add other VPS in batches: install `prometheus-node-exporter`, restrict port 9100 (allow pro-secretary IP only), append target to `prometheus/prometheus.yml`. Goal: 100% VPS visibility within 1-2 hari. See TASK monitoring section + commented template di `prometheus.yml`.
+- [ ] **🔍 URGENT: Investigate `erp-stg-app-1 unhealthy` di erpstg** (5 hari silent failure, blocks container monitoring decision). Step debug + decision tree di section "Next session focus" di atas. SSH: `ssh ubuntu@119.2.52.24 -p 3270`.
+- [ ] **🆕 PRIORITY: Onboard remaining 8-13 VPS to Prometheus** — pro-secretary + erpstg already scraped + alerting. Add other VPS in batches: install `prometheus-node-exporter` di **port 19100** (NOT 9100, see "Why port 19100" + key knowledge #11), UFW/iptables allow pro-secretary IP only, append target to `prometheus/prometheus.yml`. Goal: 100% VPS visibility within 1-2 hari. CI auto-recreates Prometheus on deploy (force-recreate fix in deploy.yml).
+- [ ] **DEFERRED: Container monitoring (cAdvisor)** — pilot plan documented, sample (erpstg 3-container compose) identified, decision deferred until #0 (`erp-stg-app-1` healthcheck investigation) complete. See "Next session focus" #2.
 - [ ] **PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.
+- [x] **DONE:** Onboard erpstg to Prometheus — ✅ DEPLOYED (2026-05-24 ~09:00 UTC). node_exporter pada `:19100` (workaround ISP transit drop on `:9100`), UFW restricted to 159.223.40.74. CI deploy now `--force-recreate prometheus alertmanager` (bind-mount inode-pinning fix). `/monitor` Telegram returns 2 VPS, both up.
 - [x] **DONE:** Monitoring MVP — ✅ DEPLOYED (2026-05-24 06:00 UTC). Prometheus v3.4.0 + Alertmanager v0.28.1 in docker-compose. node_exporter installed on pro-secretary, iptables-restricted. Bot `/monitor` command queries Prometheus API. Test alert verified end-to-end to Telegram. Last commit: `bc75ece feat(monitoring): Prometheus + Alertmanager + /monitor command`.
 - [x] **DONE:** Resource Alert Patch v1.1 — deployed live run 26266957115. Files shipped: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`. Monitor transition-only alerts + state file `/app/state/resource-alert-state.json`.
 - [x] **DONE:** Voice handler — ✅ DEPLOYED (2026-05-23 15:00 UTC). 2 commits shipped. Whisper transcribe via Groq + smart routing (repo detection → code Q&A). Tested 3 voice notes: transcription accurate, routing correct.

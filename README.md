@@ -974,6 +974,46 @@ Cron job runs every 30 minutes to sync Obsidian vault:
 
 ---
 
+### 5. **Self-Improving Skills**
+
+User dapat menyimpan prosedur/pattern yang sering dipakai ke Qdrant `skills` collection, lalu recall via semantic search.
+
+**Simpan skill:**
+```
+/skill log deploy-bot | Build image, push main, CI auto-deploy, verify docker ps
+```
+
+**Recall skill:**
+```
+/skill deploy
+→ 🧠 Skills matching "deploy":
+  1. deploy-bot (score: 0.43)
+     Build image, push main, CI auto-deploy, verify docker ps
+     • git push main
+     • wait CI green
+     • docker ps verify
+```
+
+**How it works:**
+1. `/skill log <name> | <description>` → embed name+description → store in Qdrant `skills` collection
+2. `/skill <query>` → embed query → cosine similarity search → return top-5 matches
+3. Semantic search means "cara deploy" or "push production" juga match "deploy-bot"
+
+**Payload schema:**
+```json
+{
+  "name": "deploy-bot",
+  "description": "Build image, push main, CI auto-deploy, verify docker ps",
+  "steps": ["git push main", "wait CI green", "docker ps verify"],
+  "tags": ["ops", "deploy"],
+  "user_id": "561827493"
+}
+```
+
+**Result:** Personal knowledge base of procedures that grows over time, searchable by meaning not just keywords.
+
+---
+
 ## 🔐 Security & Authentication Flow
 
 ### Layer 1: User Authentication
@@ -1063,6 +1103,12 @@ fi
 - "Reschedule meeting Client A ke besok"
 - "Apa jadwal saya minggu depan?"
 - "Block calendar saya untuk focus time"
+
+### Skills & Procedures
+- `/skill log deploy-bot | Build image, push main, CI auto-deploy, verify docker ps`
+- `/skill log fix-retrieval | Cek path_terms, expand irrelevant filter, test ulang`
+- `/skill deploy` — recall prosedur deploy via semantic search
+- `/skill tunnel` — recall prosedur setup SSH tunnel
 
 ---
 
@@ -3000,7 +3046,10 @@ docker exec calcom npm run db:migrate
 - Basic setup dan deployment (done)
 - Telegram bot interface (done)
 - Knowledge base sync (done)
-- Voice message support (Whisper ST)
+- Voice message support (done) — Whisper transcription via Groq + smart routing
+- Multi-repo code Q&A (done) — 3-pass hybrid retrieval with citation
+- Self-improving skills (done) — passive skill logging + semantic recall
+- Resource alerts (done) — VPS/PostgreSQL/Qdrant threshold monitoring
 - Proactive reminders dan suggestions
 - Email auto-categorization dan drafting
 - Meeting notes auto-generation

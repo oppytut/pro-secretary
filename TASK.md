@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-23 15:00 UTC  
+**Last Updated:** 2026-05-24 00:17 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Voice handler shipped — Whisper transcribe + smart routing (repo detection → code Q&A). Q&A pipeline + voice proven for daily use.
+**Status:** ✅ Self-improving Skills Phase 1 shipped — passive skill logging + semantic recall via Qdrant. Voice handler + Q&A pipeline + skills all production-verified.
 
 ---
 
@@ -62,7 +62,7 @@
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **Self-improving skills Phase 1** (~2-3 jam, low risk): Passive skill logging ke Qdrant `skills` collection. User trigger via `/skill <name>`.
+1. **Self-improving skills Phase 1** ✅ IMPLEMENTED (2026-05-24). Passive skill logging ke Qdrant `skills` collection. `/skill log <name> | <desc>` to save, `/skill <query>` to recall. 2 commits deployed, production-verified via `/api/skills/log` + `/api/skills/search`.
 
 2. **Jangan lakukan sebelum 1-2 minggu data pakai:**
    - Ganti embedding model ke code-aware (akan fix retrieval partial misses)
@@ -70,6 +70,7 @@
    - Multi-repo filter syntax
    - Repo overview chunk
    - Voice handler polish (audio file vs voice_note edge case)
+   - Skills Phase 2: auto-logging dari successful multi-step interactions
 
 **File:** `langgraph-agent/app/code_repos.py` (`answer_code_question`) + `langgraph-agent/app/qdrant_helper.py` (`keyword_search`, `path_search`)
 
@@ -601,7 +602,8 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ### Active Tasks
 - [ ] **🆕 PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.
 - [x] **DONE:** Resource Alert Patch v1.1 — deployed live run 26266957115. Files shipped: `langgraph-agent/app/resource_alerts.py`, `langgraph-agent/app/config.py`, `docker-compose.yml`, `.env.example`. Monitor transition-only alerts + state file `/app/state/resource-alert-state.json`.
-- [ ] **OPTIONAL NEXT:** Voice handler — ✅ DEPLOYED (2026-05-23 15:00 UTC). 2 commits shipped. Whisper transcribe via Groq + smart routing (repo detection → code Q&A). Tested 3 voice notes: transcription accurate, routing correct. Known limitation: dokfin-backend inventory retrieval miss (pipeline issue, not voice).
+- [x] **DONE:** Voice handler — ✅ DEPLOYED (2026-05-23 15:00 UTC). 2 commits shipped. Whisper transcribe via Groq + smart routing (repo detection → code Q&A). Tested 3 voice notes: transcription accurate, routing correct.
+- [x] **DONE:** Self-improving Skills Phase 1 — ✅ DEPLOYED (2026-05-24 00:17 UTC). 2 commits shipped. Passive skill logging + semantic recall via Qdrant `skills` collection. `/skill log <name> | <desc>` to save, `/skill <query>` to recall. Production-verified: log returns UUID, search returns scored results.
 - [ ] **DECISION POINT:** Personal Journal — user 0× reply prompt selama 4 hari liburan. Either deactivate workflow, shift schedule, atau keep & re-evaluate after 1 minggu of regular usage. **Recommendation:** wait 1 minggu (data 4-hari liburan tidak representatif).
 - [ ] **DEFERRED:** py3.14 base image migration. PR #1 reverted (PTB 21+py3.14 asyncio.get_event_loop incompat — possibly fixed in PTB 22.x, can re-test setelah next Dependabot py3.14 PR). PR #2 closed (py-rust-stemmers no py3.14 wheels — wait or bloat Dockerfile dengan rust toolchain).
 - [ ] **MONITOR:** 1× transient health blip 13:00 WIB 18 Mei (langgraph-agent HTTP 000 dari `docker exec curl`, recovered di 13:05). Container uptime 3h saat itu (bukan grace-period case). Single occurrence = noise. Worth diagnose kalau reproduce dalam pola atau Telegram alert masuk.
@@ -611,6 +613,30 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - None. Semua dependencies green, semua chain verified live post-triage.
 
 ### Recently Completed
+
+- ✅ [2026-05-24 00:17 UTC] Self-improving Skills Phase 1 — deployed + production-verified
+  - **Trigger:** User approve next step recommendation from TASK.md.
+  - **Implemented:**
+    - Qdrant `skills` collection (384-dim, cosine) with payload indexes: `name`, `user_id`, `tags`
+    - `langgraph-agent/app/skills.py` — `log_skill()` (embed name+description+steps → upsert) + `search_skills()` (semantic search top-K)
+    - `/api/skills/log` endpoint — store skill with name, description, steps, tags, trigger, user_id
+    - `/api/skills/search` endpoint — semantic recall by query, returns scored results
+    - `/skill` Telegram command — `/skill log <name> | <desc>` to save, `/skill <query>` to recall
+    - `COLL_SKILLS = "skills"` in config, auto-indexed on startup via `ensure_payload_indexes()`
+  - **Files changed:**
+    - `langgraph-agent/app/skills.py` (NEW)
+    - `langgraph-agent/app/config.py` (COLL_SKILLS)
+    - `langgraph-agent/app/qdrant_helper.py` (skills indexes)
+    - `langgraph-agent/app/main.py` (2 endpoints + models)
+    - `scripts/init_qdrant.py` (skills collection)
+    - `telegram-bot/bot.py` (/skill command + handler registration)
+  - **Commits:**
+    - `2267289` feat(agent): self-improving skills — passive logging + semantic recall via Qdrant
+    - `a827534` feat(bot): /skill command — log and recall skills via Telegram
+  - **Deploy:** Run 26346777258 (green). Production test via `run-command.yml`:
+    - `/api/skills/log` → `{"id":"ea652d2e-...","name":"deploy-bot","status":"logged"}` ✅
+    - `/api/skills/search` query="deploy" → `{"count":1, score: 0.43, name: "deploy-bot"}` ✅
+  - **Next:** Dogfood 1-2 weeks. If manual logging insufficient → Phase 2 auto-logging.
 
 - ✅ [2026-05-23 06:09 UTC] Resource Alert v1.1 deployed + Q&A retrieval pipeline rebuilt (3-pass hybrid)
   - **Trigger:** User minta saran langkah selanjutnya. Dua track ter-deliver:

@@ -1,30 +1,95 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-24 00:17 UTC  
+**Last Updated:** 2026-05-24 00:51 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Self-improving Skills Phase 1 shipped — passive skill logging + semantic recall via Qdrant. Voice handler + Q&A pipeline + skills all production-verified.
+**Status:** ✅ Self-improving Skills Phase 1 + 2A shipped — passive logging, semantic recall, auto-log via inline button. All features production-verified. System in "let it cook" phase.
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-23 (ketiga). Voice handler implemented, tested, deployed. 2 commits shipped. Whisper transcription via Groq + smart routing (detect repo mention → `/api/repos/ask`, else → `/api/chat`).
+**Where we left off:** Sesi 2026-05-24. Self-improving Skills fully implemented (Phase 1 manual + Phase 2A auto-log). 4 commits shipped this session. All deployed green.
 
-### Session deliverables (2 commits, all deployed green)
+### Session deliverables (4 commits, all deployed green)
 
-| # | Commit | Run | Duration |
+| # | Commit | Run | Notes |
 |---|---|---|---|
-| 1 | `feat(bot): voice handler — Whisper transcribe Telegram voice → route to /api/chat` | 26335429977 | ~1m30s |
-| 2 | `fix(bot): voice smart routing — Whisper prompt hint + auto-detect repo → code Q&A` | 26335658062 | ~1m30s |
+| 1 | `feat(agent): self-improving skills — passive logging + semantic recall via Qdrant` | 26346777258 | Agent-side: collection, config, skills.py, endpoints |
+| 2 | `feat(bot): /skill command — log and recall skills via Telegram` | 26346777258 | Bot-side: /skill command |
+| 3 | `docs: update README + TASK.md — skills feature shipped, roadmap updated` | (no deploy, *.md) | Docs only |
+| 4 | `feat(bot): skills Phase 2A — auto-log offer via inline button after qualified conversations` | (CI triggered) | Inline button + dedup + rate limit |
 
-### Production state (verified 2026-05-23 15:00 UTC)
+### Production state (verified 2026-05-24 00:00 UTC)
 
 - All 5 containers healthy
-- Voice handler live — tested 3 voice notes successfully
+- Skills Phase 1 production-verified:
+  - `/api/skills/log` → `{"id":"ea652d2e-...","name":"deploy-bot","status":"logged"}` ✅
+  - `/api/skills/search` query="deploy" → `{"count":1, score: 0.43}` ✅
+- Voice handler live — tested 3 voice notes (previous session)
 - `gmedia-erp` indexed: 3,365 chunks @ `63549bae`
 - `dokfin-backend` indexed: 3,591 chunks @ `7fa15fe0`
-- Whisper provider: Groq (`whisper-large-v3-turbo`), free tier
-- Last commit on main: `fix(bot): voice smart routing — Whisper prompt hint + auto-detect repo → code Q&A`
+- Last commit on main: `feat(bot): skills Phase 2A — auto-log offer via inline button after qualified conversations`
+
+### Self-Improving Skills — current architecture
+
+**Files:**
+- `langgraph-agent/app/skills.py` — `log_skill()` (with dedup), `search_skills()`
+- `langgraph-agent/app/main.py` — `/api/skills/log`, `/api/skills/search`
+- `langgraph-agent/app/config.py` — `COLL_SKILLS = "skills"`
+- `langgraph-agent/app/qdrant_helper.py` — skills indexes (name, user_id, tags)
+- `telegram-bot/bot.py` — `/skill` command, `handle_skill_callback`, history buffer
+
+**Phase 1 (manual):**
+```
+/skill log <name> | <description>  → embed(name+desc+steps) → Qdrant upsert
+/skill <query>                     → embed(query) → cosine search → top-5
+```
+
+**Phase 2A (auto-log via inline button):**
+```
+1. Bot records conversation history in chat_data (max 10 messages)
+2. After agent reply: check qualifications
+   - history >= 6 messages (3 user + 3 bot)
+   - reply > 100 chars
+   - not error (no ⚠️ prefix)
+   - not already offered this thread
+   - rate limit: < 5 auto-logs today
+3. If qualified → show inline button "💾 Simpan sebagai skill?"
+4. User taps → extract from history:
+   - name = first user message (truncated 80 chars)
+   - description = last bot response (truncated 500 chars)
+   - steps = intermediate user messages
+5. POST /api/skills/log → dedup check (>0.85 similarity → skip)
+6. Reset history after save
+```
+
+**Dedup logic (agent-side):**
+- Before upsert, search existing skills with same embed_text
+- If top hit score > 0.85 → return existing ID with status "dedup"
+- Prevents duplicate skills from repeated similar conversations
+
+### Next session focus (PRIORITY ORDER)
+
+1. **DOGFOOD all features** (1-2 minggu, passive):
+   - Pakai bot daily — voice, Q&A, skills
+   - Perhatikan: apakah inline button terlalu sering muncul? Apakah user tap atau ignore?
+   - Perhatikan: dedup bekerja? Ada skill duplikat?
+   - Perhatikan: retrieval miss rate di Q&A
+
+2. **Adjustments (hanya jika data menunjukkan):**
+   - Inline button terlalu sering → naikkan MIN_HISTORY_FOR_SKILL_OFFER (6 → 8)
+   - Inline button selalu di-ignore → naikkan threshold atau remove
+   - Skill names terlalu vague → Phase 2B: LLM summarize conversation into proper skill name
+   - Retrieval miss > 30% → evaluate code-aware embedding
+
+3. **Decision point: Personal Journal** — setelah 1 minggu regular usage, decide keep/deactivate
+
+4. **Jangan lakukan sebelum 1-2 minggu data pakai:**
+   - Ganti embedding model ke code-aware
+   - Hybrid search dengan BM25 engine eksternal
+   - Multi-repo filter syntax
+   - Skills Phase 2B (LLM summarization for auto-logged skill names)
+   - Skills Phase 2C (executable skills — high risk)
 
 ### Voice Handler — current architecture
 

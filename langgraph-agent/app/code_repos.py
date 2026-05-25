@@ -309,7 +309,9 @@ def _prioritize_paths(hits: list[dict[str, Any]], path_terms: list[str] | None =
         for i, prefix in enumerate(_PATH_PRIORITY):
             if prefix.lower() in path:
                 if prefix == "migrations/":
-                    # create_<entity> table migration = highest priority
+                    for term in entity_terms:
+                        if f"create_{term}_table" in path:
+                            return -3
                     if "create_" in path and any(t in path for t in entity_terms):
                         return -2
                     if "create_" in path:

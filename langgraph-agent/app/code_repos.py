@@ -213,17 +213,68 @@ def _extract_path_terms(keywords: list[str]) -> list[str]:
         "service", "action", "model", "migration", "seeder", "factory",
         "test", "spec", "alur", "flow", "proses", "process",
         "validasi", "validation", "filter", "form", "request",
+        "saja", "siapa", "scope", "relasi", "relation", "harus",
     }
+    seen: set[str] = set()
     terms: list[str] = []
     for kw in keywords:
         if kw in _PATH_IRRELEVANT or len(kw) < 4:
             continue
-        terms.append(kw)
-        if not kw.endswith("s"):
-            terms.append(kw + "s")
-        elif kw.endswith("s") and len(kw) > 4:
-            terms.append(kw[:-1])
+        words = [kw]
+        mapped = _ID_TO_EN.get(kw)
+        if mapped and mapped != kw:
+            words.append(mapped)
+        for word in words:
+            for variant in _pluralize_variants(word):
+                if variant not in seen:
+                    seen.add(variant)
+                    terms.append(variant)
     return terms
+
+
+# Codebases use English entity names; users frequently ask in Indonesian.
+_ID_TO_EN: dict[str, str] = {
+    "stok": "stock",
+    "transaksi": "transaction",
+    "pelanggan": "customer",
+    "pegawai": "employee",
+    "karyawan": "employee",
+    "barang": "item",
+    "produk": "product",
+    "pemasok": "supplier",
+    "tagihan": "invoice",
+    "faktur": "invoice",
+    "pembayaran": "payment",
+    "penjualan": "sale",
+    "pembelian": "purchase",
+    "gudang": "warehouse",
+    "pengguna": "user",
+    "perusahaan": "company",
+    "departemen": "department",
+    "jabatan": "position",
+    "pesanan": "order",
+    "kategori": "category",
+    "harga": "price",
+    "diskon": "discount",
+    "pengiriman": "shipment",
+    "alamat": "address",
+}
+
+
+def _pluralize_variants(word: str) -> list[str]:
+    """English plural/singular variants for path matching (inventory↔inventories, employee↔employees)."""
+    variants = [word]
+    if len(word) <= 2:
+        return variants
+    if word.endswith("ies") and len(word) > 4:
+        variants.append(word[:-3] + "y")
+    elif word.endswith("y") and word[-2] not in "aeiou":
+        variants.append(word[:-1] + "ies")
+    elif word.endswith("s") and len(word) > 4 and not word.endswith("ss"):
+        variants.append(word[:-1])
+    else:
+        variants.append(word + "s")
+    return variants
 
 
 _PATH_PRIORITY = [
@@ -233,6 +284,13 @@ _PATH_PRIORITY = [
     "DTOs/",
     "Actions/",
     "Domain/",
+    "Services/",
+    "Repositories/",
+    "Facades/",
+    "Traits/",
+    "Concerns/",
+    "Scopes/",
+    "Providers/",
     "Controllers/",
     "Requests/",
     "Resources/",

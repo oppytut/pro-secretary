@@ -1,25 +1,61 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-25 04:25 UTC  
+**Last Updated:** 2026-05-25 07:55 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Monitoring MVP shipped — Prometheus + Alertmanager + node_exporter + Telegram `/monitor` live. erpstg onboarded as 2nd VPS target + healthcheck unhealthy 5d resolved. Skills/voice/Q&A remain in dogfood phase.
+**Status:** ✅ Monitoring MVP shipped — Prometheus + Alertmanager + node_exporter + Telegram `/monitor` live. erpstg onboarded as 2nd VPS target + healthcheck unhealthy 5d resolved. Q&A retrieval pipeline improved — D1/D3/D4 partial-misses all resolved without embedding upgrade. Skills/voice/Q&A remain in dogfood phase.
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-25 — investigate `erp-stg-app-1 Up 5d (unhealthy)` di erpstg (TASK.md priority #0). Resolved with 2 fixes pushed to `gmd/erp-deployment/erp-l11` repo (`stg` branch). Surfaced latent app-level bug (Inspector APM 4.19 incompatible with Laravel 12 view engine) — flagged untuk dev team, workaround active. Container monitoring (#2) decision **reinforced defer**: real failure mode = config drift, not runtime issue → cAdvisor wouldn't have caught it.
+**Where we left off:** Sesi 2026-05-25 — 2 tracks ter-deliver:
 
-### Session deliverables (this turn — erpstg unhealthy investigation + fix)
+1. **Investigate erpstg unhealthy (TASK.md priority #0):** Resolved with 2 commits ke `gmd/erp-deployment/erp-l11` (`stg`). Surfaced latent app-level bug (Inspector APM 4.19 incompatible Laravel 12 view engine) — flagged untuk dev team, workaround active.
+2. **Audit Q&A retrieval partial-miss patterns (D1/D3/D4):** Investigation + 2 commits ke pro-secretary main. **All 3 dogfood partial-misses resolved.** Pipeline improvements work without embedding upgrade.
 
-| # | Commit | Repo | Notes |
+Container monitoring (#2) decision **reinforced defer** — failure mode di erpstg = config drift, not runtime issue.
+
+### Session deliverables (5 commits across 2 repos)
+
+| # | Commit | Repo | Outcome |
 |---|---|---|---|
-| 1 | `34aa240 fix(healthcheck): use /up endpoint (Laravel 11+ default, /status not registered)` | erp-l11 | First fix attempt — surfaced Inspector APM view decorator bug |
-| 2 | `cbb00a8 fix(healthcheck): probe / instead of /up (Inspector APM view decorator breaks /up on fresh view cache)` | erp-l11 | Final fix — `/` stable, healthcheck passes |
+| 1 | `34aa240 fix(healthcheck): use /up endpoint` | erp-l11 stg | First fix — surfaced Inspector APM bug |
+| 2 | `cbb00a8 fix(healthcheck): probe / instead of /up` | erp-l11 stg | Final healthcheck fix — `Up (healthy)` |
+| 3 | `da39cfd docs: TASK.md handoff erpstg resolved` | pro-secretary main | Investigation context |
+| 4 | `5bdf3c8 fix(agent): improve Q&A path-term extraction` | pro-secretary main | _ID_TO_EN map, y→ies plurals, Facade/Traits priority |
+| 5 | `999f0a7 fix(agent): prioritize exact create_<entity>_table` | pro-secretary main | Distinguish main entity migration from related-entity |
 
-**Final state:** `erp-stg-app-1` `Up (healthy)` FailingStreak 0. App functional, all sibling containers (redis, meilisearch) still healthy. No downtime — app HTTP traffic continued throughout investigation.
+### Q&A retrieval — dogfood verdict (3/3 resolved)
 
-### Investigation findings (worth ingat untuk next agent)
+| Case | Original verdict | After session | Citation source |
+|---|---|---|---|
+| D1: tabel material kolom | ⚠️ PARTIAL — main migration miss | ✅ FULL — 6 columns + types + FK | `create_materials_table.php:1-30` |
+| D3: alur transaksi receipt stok | ⚠️ PARTIAL — POS confusion | ✅ FULL — material_transactions flow | `create_material_transactions_table.php:1-41` |
+| D4: scope business_id di inventory | ⚠️ PARTIAL — interface only | ✅ FULL — Facade impl + middleware | `app/Facades/Inventory/Inventory.php:1-140` |
+
+### Q&A retrieval changes (technical detail for next agent)
+
+**1. `_ID_TO_EN` Indonesian→English entity mapping (24 mappings)**
+- `stok→stock`, `transaksi→transaction`, `pegawai→employee`, `pelanggan→customer`, `barang→item`, `pemasok→supplier`, `gudang→warehouse`, etc.
+- Codebases use English entity names; users frequently query in Indonesian. Both forms searched in path retrieval.
+
+**2. `_pluralize_variants` proper English morphology**
+- Replaces naive `kw + 's'` / `kw[:-1]` with rules: `y→ies` (inventory→inventories), `ies→y` (reverse), `ss` exception (class stays class), default add/strip s.
+- Critical for Laravel migrations using English plural conventions.
+
+**3. `_PATH_PRIORITY` expanded for non-monolith Laravel patterns**
+- Added: Services/, Repositories/, Facades/, Traits/, Concerns/, Scopes/, Providers/
+- Original list assumed strict monolith Laravel layout (Models/Controllers/Resources). Modern repos (dokfin Facade pattern) use richer organization.
+
+**4. Exact `create_<entity>_table` priority (rank -3)**
+- Bug found in D1 trace: `create_materials_table.php` and `create_material_stocks_table.php` both got rank `-2` (substring match `material`). Stable sort defaulted to scroll order, main migration ranked #5.
+- Fix: rank `-3` for path containing exact `create_<entity>_table` substring. Distinguishes main entity migration from related-entity migrations (stocks, issues, units, costs, etc.).
+- D1 production verification: `create_materials_table.php` ranks #0 in `_prioritize_paths` output.
+
+**5. `_PATH_IRRELEVANT` minor expansion**
+- Added: `saja`, `siapa`, `scope`, `relasi`, `relation`, `harus` (filter noise terms in path search).
+
+### Investigation findings (erpstg) — worth ingat untuk next agent
 
 **Root cause #1 (config drift):**
 - Compose set `curl --fail http://localhost:80/status || exit 1`

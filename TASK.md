@@ -1,14 +1,57 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-24 09:30 UTC  
+**Last Updated:** 2026-05-25 04:25 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Monitoring MVP shipped — Prometheus + Alertmanager + node_exporter + Telegram `/monitor` live. erpstg onboarded as 2nd VPS target. Skills/voice/Q&A remain in dogfood phase.
+**Status:** ✅ Monitoring MVP shipped — Prometheus + Alertmanager + node_exporter + Telegram `/monitor` live. erpstg onboarded as 2nd VPS target + healthcheck unhealthy 5d resolved. Skills/voice/Q&A remain in dogfood phase.
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-24 lanjutan — onboard `erpstg` VPS ke Prometheus. Discovered 2 critical patterns yang sekarang jadi standar untuk semua VPS onboarding ke depan. Container monitoring discussion: **deferred** — `erp-stg-app-1 Up 5d (unhealthy)` ditemukan di erpstg, lebih penting investigate root cause healthcheck dulu sebelum tambah monitoring layer baru. User akan lanjutkan di sesi opencode baru.
+**Where we left off:** Sesi 2026-05-25 — investigate `erp-stg-app-1 Up 5d (unhealthy)` di erpstg (TASK.md priority #0). Resolved with 2 fixes pushed to `gmd/erp-deployment/erp-l11` repo (`stg` branch). Surfaced latent app-level bug (Inspector APM 4.19 incompatible with Laravel 12 view engine) — flagged untuk dev team, workaround active. Container monitoring (#2) decision **reinforced defer**: real failure mode = config drift, not runtime issue → cAdvisor wouldn't have caught it.
+
+### Session deliverables (this turn — erpstg unhealthy investigation + fix)
+
+| # | Commit | Repo | Notes |
+|---|---|---|---|
+| 1 | `34aa240 fix(healthcheck): use /up endpoint (Laravel 11+ default, /status not registered)` | erp-l11 | First fix attempt — surfaced Inspector APM view decorator bug |
+| 2 | `cbb00a8 fix(healthcheck): probe / instead of /up (Inspector APM view decorator breaks /up on fresh view cache)` | erp-l11 | Final fix — `/` stable, healthcheck passes |
+
+**Final state:** `erp-stg-app-1` `Up (healthy)` FailingStreak 0. App functional, all sibling containers (redis, meilisearch) still healthy. No downtime — app HTTP traffic continued throughout investigation.
+
+### Investigation findings (worth ingat untuk next agent)
+
+**Root cause #1 (config drift):**
+- Compose set `curl --fail http://localhost:80/status || exit 1`
+- Laravel 12 ship default `/up` health route, no `/status` route ever existed
+- 5-day silent unhealthy = false alarm, app fully responsive throughout
+- Diff: `/status` → `/up` (later: `/up` → `/`)
+
+**Root cause #2 (latent app bug, surfaced by recreate):**
+- After `--force-recreate`, fresh view cache
+- `/up` returned 500: `Property Inspector\Laravel\Views\ViewEngineDecorator::$lastCompiled does not exist`
+- Inspector APM 4.19 (`inspector-apm/inspector-laravel: ^4.19`) hooks ke ViewEngineDecorator, missing property declaration di Laravel 12
+- Original 5-day uptime had compiled views cached — masked the bug entirely
+- Workaround: healthcheck pakai `/` (homepage), bypasses view-decoration code path
+- **Permanent fix is dev team scope, not ops:**
+  - (a) Upgrade `inspector-apm/inspector-laravel` ke version compatible with Laravel 12, OR
+  - (b) Remove package from composer.json kalau tidak dipakai (config currently `inspector=off`), OR
+  - (c) Conditionally register service provider only when `INSPECTOR_ENABLE=true`
+
+**Lessons for monitoring stack:**
+
+1. **Container healthcheck = unreliable signal** without validating the healthcheck command itself. Adding cAdvisor `container_unhealthy` metric over a buggy healthcheck = noise multiplier.
+2. **Bind-mount inode-pinning trap (TASK.md key knowledge #12)** doesn't apply here — erpstg uses local edit + force-recreate manually, not CI deploy with hot-reload. But pattern same: config changes need container restart to take effect.
+3. **5-day silent failure WAS technically caught** (Docker `unhealthy` state in `docker ps`), but no alerting layer was scraping Docker healthcheck status. Prometheus + node_exporter cover VPS-level metrics, NOT container healthcheck. cAdvisor would close that gap, BUT only after fixing the buggy healthchecks first.
+
+### Container monitoring (cAdvisor) — decision reinforced DEFER
+
+Original deferral reason (2026-05-24): investigate root cause of `erp-stg-app-1 unhealthy` first. Now resolved → cAdvisor decision update:
+
+- **Real failure mode here = config drift + latent app bug**, not runtime issue
+- Adding cAdvisor sebelum fix Inspector bug = `container_unhealthy=true` would alert immediately, but ROOT CAUSE wasn't observable runtime — was app-level code bug
+- cAdvisor would have caught this earlier (within hours, not 5 days), but only as "app unhealthy" not "Inspector view decorator broken"
+- **Verdict:** cAdvisor genuine value-add for catching config drift faster, but tunggu real container runtime failure mode (OOMKilled, RestartLoop) sebelum invest. Current Prometheus + node_exporter coverage adequate for now.
 
 ### Session deliverables (this turn — erpstg onboard + lessons learned)
 
@@ -181,20 +224,13 @@ node_exporter (each VPS:19100, except pro-secretary on :9100 via Docker host gat
 
 ### Next session focus (PRIORITY ORDER)
 
-0. **🔍 Investigate `erp-stg-app-1 unhealthy` di erpstg FIRST** (urgent, blocks container monitoring decision):
-   - Container `Up 5 days (unhealthy)` — Docker healthcheck gagal silent 5 hari, tidak ada Telegram alert.
-   - Possible root causes: (a) app legit broken, (b) healthcheck command/timing salah, (c) dependency drift (Redis, Meilisearch).
-   - Step debug:
-     ```
-     ssh ubuntu@119.2.52.24 -p 3270
-     docker inspect erp-stg-app-1 --format '{{json .State.Health}}' | jq
-     docker logs --tail 100 erp-stg-app-1
-     docker exec erp-stg-app-1 <healthcheck-cmd>  # run manually
-     ```
-   - Decision tree:
-     - Healthcheck salah konfigurasi → fix di compose, jangan tambah monitoring layer.
-     - App legit broken → user fix app, baru tambah container monitoring untuk cegah recurrence.
-   - **Why this blocks #1 (container monitoring):** kalau healthcheck sendiri salah, monitor cAdvisor → container_*_healthy metric akan tetap salah. Investigate root cause first, biar monitoring informed by real failure mode.
+0. **✅ DONE 2026-05-25:** Investigate `erp-stg-app-1 unhealthy` di erpstg.
+   - **Resolution:** 2 commits to `gmd/erp-deployment/erp-l11` `stg` branch (`34aa240` then `cbb00a8`). Healthcheck now `curl --fail http://localhost:80/`. Container `Up (healthy)` FailingStreak 0.
+   - **Root cause #1:** Compose set `curl /status` (404). Laravel 12 ship `/up` default, no `/status` route ever existed.
+   - **Root cause #2 (latent, surfaced by recreate):** Inspector APM 4.19 incompatible dengan Laravel 12 view engine. `/up` returns 500 with fresh view cache: `Inspector\Laravel\Views\ViewEngineDecorator::$lastCompiled does not exist`. Original 5-day uptime had cached views, masked bug.
+   - **Workaround active:** healthcheck pakai `/` (homepage), bypasses view-decoration code path.
+   - **Permanent fix = dev team scope:** upgrade Inspector APM, OR remove from composer.json (config currently `inspector=off`), OR conditionally register service provider.
+   - **Container monitoring (#2) decision REINFORCED defer:** real failure mode = config drift + latent app bug, not runtime issue. cAdvisor would have caught earlier (hours not days), but only as "app unhealthy" without root cause clarity. Wait for real container runtime failure (OOMKilled, RestartLoop) sebelum invest.
 
 1. **Add remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):
    - User punya 10-15 VPS total. Saat ini ter-scrape: `pro-secretary` + `erpstg` (onboarded 2026-05-24, port 19100, provider biznet).
@@ -820,7 +856,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **🔍 URGENT: Investigate `erp-stg-app-1 unhealthy` di erpstg** (5 hari silent failure, blocks container monitoring decision). Step debug + decision tree di section "Next session focus" di atas. SSH: `ssh ubuntu@119.2.52.24 -p 3270`.
+- [x] **DONE 2026-05-25:** Investigate `erp-stg-app-1 unhealthy` di erpstg. 2 commits to `gmd/erp-deployment/erp-l11` `stg`: `34aa240` (`/status` → `/up`) surfaced Inspector APM bug, `cbb00a8` (`/up` → `/`) final fix. Container `Up (healthy)` FailingStreak 0. Inspector APM 4.19 incompatible with Laravel 12 view engine — flagged untuk dev team, workaround active. Container monitoring decision (cAdvisor) reinforced defer.
 - [ ] **🆕 PRIORITY: Onboard remaining 8-13 VPS to Prometheus** — pro-secretary + erpstg already scraped + alerting. Add other VPS in batches: install `prometheus-node-exporter` di **port 19100** (NOT 9100, see "Why port 19100" + key knowledge #11), UFW/iptables allow pro-secretary IP only, append target to `prometheus/prometheus.yml`. Goal: 100% VPS visibility within 1-2 hari. CI auto-recreates Prometheus on deploy (force-recreate fix in deploy.yml).
 - [ ] **DEFERRED: Container monitoring (cAdvisor)** — pilot plan documented, sample (erpstg 3-container compose) identified, decision deferred until #0 (`erp-stg-app-1` healthcheck investigation) complete. See "Next session focus" #2.
 - [ ] **PRIORITY: Multi-repo Q&A Phase 1 dogfood** — ✅ DEPLOYED + retrieval pipeline rebuilt. PR #6 merged 2026-05-19. gmedia-erp indexed: 2,669 files → 3,365 chunks @ 63549bae. 2026-05-23: Top-K 20 + keyword pass + path-based client-side substring pass deployed. Employee schema/migration test now retrieves `create_employees_table.php` + `Employee.php`. Next: dogfood 5-10 varied questions before more feature work.

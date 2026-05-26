@@ -342,7 +342,6 @@ services:
       - /dev/disk:/dev/disk:ro
     command:
       - "--housekeeping_interval=30s"
-      - "--docker_only=true"
       - "--disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,referenced_memory,resctrl,sched,tcp,udp,process"
     networks:
       - secretary-net

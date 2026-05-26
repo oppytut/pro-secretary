@@ -325,6 +325,44 @@ services:
       retries: 3
       start_period: 10s
 
+  # ============================================
+  # MONITORING - cAdvisor (container metrics)
+  # ============================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    command:
+      - "--housekeeping_interval=30s"
+      - "--docker_only=true"
+      - "--store_container_labels=false"
+      - "--disable_metrics=accelerator,cpu_topology,disk,diskIO,hugetlb,memory_numa,percpu,referenced_memory,resctrl,sched,tcp,udp"
+    networks:
+      - secretary-net
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.3'
+        reservations:
+          memory: 96M
+          cpus: '0.05'
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 networks:
   secretary-net:
     driver: bridge

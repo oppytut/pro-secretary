@@ -110,3 +110,32 @@ groups:
       #     severity: warning
       #   annotations:
       #     summary: "{{ $labels.instance_name }} SSL cert expires < 7 days"
+
+  - name: container_health
+    rules:
+      - alert: ContainerOOMKilled
+        expr: increase(container_oom_events_total{name!=""}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance_name }} container {{ $labels.name }} OOMKilled"
+          description: "Container {{ $labels.name }} di {{ $labels.instance_name }} ter-OOMKill dalam 5 menit terakhir."
+
+      - alert: ContainerRestartLoop
+        expr: changes(container_start_time_seconds{name!=""}[15m]) > 3
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance_name }} container {{ $labels.name }} restart loop"
+          description: "Container {{ $labels.name }} restart > 3 kali dalam 15 menit."
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_working_set_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""}) * 100 > 90 and container_spec_memory_limit_bytes{name!=""} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance_name }} container {{ $labels.name }} memory > 90% limit"
+          description: "Container {{ $labels.name }} pakai {{ $value | printf \"%.1f\" }}% dari memory limit selama > 10 menit."

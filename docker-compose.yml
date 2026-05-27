@@ -208,7 +208,11 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-whisper-1}
       - MAX_VOICE_DURATION_SEC=${MAX_VOICE_DURATION_SEC:-300}
       - PROMETHEUS_URL=http://prometheus:9090
+      - MONITOR_SSH_TARGETS=${MONITOR_SSH_TARGETS:-}
       - TZ=${TIMEZONE}
+    volumes:
+      - /home/ubuntu/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      - /home/ubuntu/.ssh/known_hosts:/root/.ssh/known_hosts:ro
     depends_on:
       n8n:
         condition: service_healthy

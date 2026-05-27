@@ -24,6 +24,17 @@ AGENT_SECRET = os.getenv("AGENT_SECRET", "")
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
+import asyncio
+import json as _json
+
+_ssh_targets: dict[str, dict[str, str]] = {}
+_raw_ssh = os.getenv("MONITOR_SSH_TARGETS", "")
+if _raw_ssh:
+    try:
+        _ssh_targets = _json.loads(_raw_ssh)
+    except Exception:
+        pass
+
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 MAX_COMMAND_TEXT_LEN = int(os.getenv("MAX_COMMAND_TEXT_LEN", "2000"))
 MAX_JOURNAL_LEN = int(os.getenv("MAX_JOURNAL_LEN", "5000"))
@@ -564,7 +575,9 @@ async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cpu_str = f"CPU {cpu:.0f}%" if cpu is not None else ""
             mem_str = f"RAM {mem:.0f}%" if mem is not None else ""
             disk_str = f"Disk {disk:.0f}%" if disk is not None else ""
-            metrics = " | ".join(filter(None, [cpu_str, mem_str, disk_str]))
+            ctr = await _ssh_docker_ps(name)
+            ctr_str = f"📦 {len(ctr)}" if ctr else ""
+            metrics = " | ".join(filter(None, [cpu_str, mem_str, disk_str, ctr_str]))
             lines.append(f"{icon} {name}: {metrics}")
         else:
             lines.append(f"{icon} {name}: DOWN")
@@ -580,6 +593,34 @@ async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append("")
     lines.append("Detail: /monitor <nama>")
     await update.message.reply_text("\n".join(lines)[:4000])
+
+
+async def _ssh_docker_ps(name: str) -> list[dict] | None:
+    target = _ssh_targets.get(name)
+    if not target:
+        return None
+    host = target.get("host", "")
+    port = str(target.get("port", 22))
+    user = target.get("user", "root")
+    fmt = '{{.Names}}\t{{.Status}}\t{{.Image}}'
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+           "-o", "StrictHostKeyChecking=accept-new", "-p", port,
+           f"{user}@{host}", f"docker ps --format '{fmt}'"]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode != 0:
+            return None
+        containers = []
+        for line in stdout.decode().strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                containers.append({"name": parts[0], "status": parts[1], "image": parts[2] if len(parts) > 2 else ""})
+        return containers
+    except Exception:
+        return None
 
 
 async def _monitor_detail(update: Update, name: str):
@@ -640,6 +681,20 @@ async def _monitor_detail(update: Update, name: str):
         for a in alerts:
             m = a["metric"]
             lines.append(f"• [{m.get('severity')}] {m.get('alertname')}")
+
+    containers = await _ssh_docker_ps(name)
+    if containers is not None:
+        lines.append("")
+        lines.append(f"📦 Containers ({len(containers)}):")
+        for c in containers:
+            status = c["status"]
+            icon = "✅" if "Up" in status else "❌"
+            health = ""
+            if "(healthy)" in status:
+                health = " ♥"
+            elif "(unhealthy)" in status:
+                health = " ⚠️"
+            lines.append(f"  {icon} {c['name']}{health}: {status}")
 
     await update.message.reply_text("\n".join(lines)[:4000])
 

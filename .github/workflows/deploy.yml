@@ -120,7 +120,7 @@ jobs:
             RESOURCE_MEM_CRIT_PCT=92
             RESOURCE_QDRANT_WARN_POINTS=800000
             RESOURCE_QDRANT_CRIT_POINTS=950000
-            MONITOR_SSH_TARGETS={"pro-secretary":{"host":"host.docker.internal","port":"22","user":"ubuntu"},"erpstg":{"host":"119.2.52.24","port":"3270","user":"ubuntu"}}
+            MONITOR_SSH_TARGETS={"pro-secretary":{"host":"host.docker.internal","port":"20128","user":"ubuntu"},"erpstg":{"host":"119.2.52.24","port":"3270","user":"ubuntu"}}
             EOF
             chmod 600 .env
 

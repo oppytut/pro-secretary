@@ -130,7 +130,7 @@ jobs:
             docker compose up -d --force-recreate prometheus alertmanager
             docker image prune -f
             sleep 20
-            rm -rf /home/ubuntu/.ssh
+            sudo rm -rf /home/ubuntu/.ssh
             mkdir -p /home/ubuntu/.ssh && chmod 700 /home/ubuntu/.ssh
             echo "$VPS_SSH_KEY" > /home/ubuntu/.ssh/id_ed25519
             chmod 600 /home/ubuntu/.ssh/id_ed25519

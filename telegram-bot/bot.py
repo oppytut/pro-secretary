@@ -623,6 +623,105 @@ async def _ssh_docker_ps(name: str) -> list[dict] | None:
         return None
 
 
+# --- Periodic Health Check ---
+HEALTH_CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL_SEC", "300"))  # 5 min
+_prev_vps_state: dict[str, bool] = {}  # name -> is_up
+_prev_container_state: dict[str, dict[str, str]] = {}  # vps_name -> {container_name -> status_keyword}
+
+
+def _container_health(status: str) -> str:
+    if "(healthy)" in status:
+        return "healthy"
+    if "(unhealthy)" in status:
+        return "unhealthy"
+    if "Up" in status:
+        return "up"
+    return "down"
+
+
+async def _health_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    global _prev_vps_state, _prev_container_state
+    alerts: list[str] = []
+    recoveries: list[str] = []
+
+    # 1. VPS up/down via Prometheus
+    up_results = await _prom_query('up{job="node"}')
+    if up_results:
+        for target in up_results:
+            name = target["metric"].get("instance_name", target["metric"].get("instance", "?"))
+            is_up = target["value"][1] == "1"
+            prev = _prev_vps_state.get(name)
+
+            if prev is not None:
+                if prev and not is_up:
+                    alerts.append(f"🔴 VPS <b>{name}</b> DOWN")
+                elif not prev and is_up:
+                    recoveries.append(f"🟢 VPS <b>{name}</b> kembali UP")
+
+            _prev_vps_state[name] = is_up
+
+    # 2. Container health via SSH
+    for vps_name in _ssh_targets:
+        containers = await _ssh_docker_ps(vps_name)
+        if containers is None:
+            # SSH failed — if VPS is up per Prometheus, flag SSH issue
+            if _prev_vps_state.get(vps_name, True):
+                prev_ctrs = _prev_container_state.get(vps_name)
+                if prev_ctrs is not None:
+                    alerts.append(f"⚠️ SSH ke <b>{vps_name}</b> gagal (VPS up tapi SSH unreachable)")
+            _prev_container_state.pop(vps_name, None)
+            continue
+
+        current: dict[str, str] = {}
+        for c in containers:
+            current[c["name"]] = _container_health(c["status"])
+
+        prev_ctrs = _prev_container_state.get(vps_name, {})
+        if prev_ctrs:
+            # Detect containers that disappeared or went unhealthy/down
+            for cname, prev_health in prev_ctrs.items():
+                cur_health = current.get(cname)
+                if cur_health is None:
+                    alerts.append(f"🔴 Container <b>{cname}</b> ({vps_name}) HILANG")
+                elif prev_health in ("healthy", "up") and cur_health == "unhealthy":
+                    alerts.append(f"🟡 Container <b>{cname}</b> ({vps_name}) UNHEALTHY")
+                elif prev_health in ("healthy", "up") and cur_health == "down":
+                    alerts.append(f"🔴 Container <b>{cname}</b> ({vps_name}) DOWN")
+
+            # Detect recoveries
+            for cname, cur_health in current.items():
+                prev_health = prev_ctrs.get(cname)
+                if prev_health in ("unhealthy", "down") and cur_health in ("healthy", "up"):
+                    recoveries.append(f"🟢 Container <b>{cname}</b> ({vps_name}) recovered → {cur_health}")
+                elif prev_health is None and cur_health in ("healthy", "up"):
+                    recoveries.append(f"🟢 Container <b>{cname}</b> ({vps_name}) baru muncul")
+
+        _prev_container_state[vps_name] = current
+
+    # Send alerts
+    if alerts or recoveries:
+        lines = []
+        if alerts:
+            lines.append("🚨 <b>Health Alert</b>")
+            lines.extend(alerts)
+        if recoveries:
+            if lines:
+                lines.append("")
+            lines.append("✅ <b>Recovery</b>")
+            lines.extend(recoveries)
+
+        chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+        if chat_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="\n".join(lines),
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                logger.error(f"Failed to send health alert: {e}")
+
+
 async def _monitor_detail(update: Update, name: str):
     up = await _prom_query(f'up{{job="node",instance_name="{name}"}}')
     if not up:
@@ -1246,6 +1345,15 @@ async def post_init(application: Application):
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered.")
+
+    if HEALTH_CHECK_INTERVAL > 0:
+        application.job_queue.run_repeating(
+            _health_check_job,
+            interval=HEALTH_CHECK_INTERVAL,
+            first=60,
+            name="health_check",
+        )
+        logger.info(f"Health check job scheduled every {HEALTH_CHECK_INTERVAL}s.")
 
 
 def main():

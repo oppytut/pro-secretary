@@ -29,15 +29,3 @@ scrape_configs:
           provider: "biznet"
 
   # Add more VPS targets below by appending another `- targets: [...]` block above
-
-  # Container metrics (cAdvisor)
-  - job_name: "cadvisor"
-    static_configs:
-      - targets: ["cadvisor:8080"]
-        labels:
-          instance_name: "pro-secretary"
-          provider: "digitalocean"
-    metric_relabel_configs:
-      - source_labels: [__name__]
-        regex: "container_(network_.*|fs_.*_seconds_total|tasks_state|file_descriptors|sockets|threads.*|ulimits.*|processes)"
-        action: drop

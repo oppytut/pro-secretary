@@ -551,9 +551,6 @@ async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mem_map = {r["metric"].get("instance_name", ""): float(r["value"][1]) for r in (mem_results or [])}
     disk_map = {r["metric"].get("instance_name", ""): float(r["value"][1]) for r in (disk_results or [])}
 
-    container_total = await _prom_query('count by(instance_name) (container_last_seen{name!=""})')
-    ctr_total_map = {r["metric"].get("instance_name", ""): int(float(r["value"][1])) for r in (container_total or [])}
-
     lines = ["📊 Monitor VPS (Prometheus)", ""]
     for target in up_results:
         name = target["metric"].get("instance_name", target["metric"].get("instance", "?"))
@@ -567,9 +564,7 @@ async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cpu_str = f"CPU {cpu:.0f}%" if cpu is not None else ""
             mem_str = f"RAM {mem:.0f}%" if mem is not None else ""
             disk_str = f"Disk {disk:.0f}%" if disk is not None else ""
-            ctr_count = ctr_total_map.get(name)
-            ctr_str = f"📦 {ctr_count}" if ctr_count else ""
-            metrics = " | ".join(filter(None, [cpu_str, mem_str, disk_str, ctr_str]))
+            metrics = " | ".join(filter(None, [cpu_str, mem_str, disk_str]))
             lines.append(f"{icon} {name}: {metrics}")
         else:
             lines.append(f"{icon} {name}: DOWN")
@@ -645,33 +640,6 @@ async def _monitor_detail(update: Update, name: str):
         for a in alerts:
             m = a["metric"]
             lines.append(f"• [{m.get('severity')}] {m.get('alertname')}")
-
-    containers = await _prom_query(
-        f'container_last_seen{{name!="",instance_name="{name}"}}'
-    )
-    if containers:
-        ctr_cpu = await _prom_query(
-            f'sum by(name) (rate(container_cpu_usage_seconds_total{{name!="",instance_name="{name}"}}[5m])) * 100'
-        )
-        ctr_mem = await _prom_query(
-            f'container_memory_working_set_bytes{{name!="",instance_name="{name}"}}'
-        )
-        ctr_restarts = await _prom_query(
-            f'changes(container_start_time_seconds{{name!="",instance_name="{name}"}}[1h])'
-        )
-        cpu_by_name = {r["metric"].get("name", ""): float(r["value"][1]) for r in (ctr_cpu or [])}
-        mem_by_name = {r["metric"].get("name", ""): float(r["value"][1]) for r in (ctr_mem or [])}
-        restart_by_name = {r["metric"].get("name", ""): int(float(r["value"][1])) for r in (ctr_restarts or [])}
-
-        lines.append("")
-        lines.append(f"📦 Containers ({len(containers)}):")
-        for c in sorted(containers, key=lambda x: x["metric"].get("name", "")):
-            cname = c["metric"].get("name", "?")
-            cpu_pct = cpu_by_name.get(cname, 0.0)
-            mem_mb = mem_by_name.get(cname, 0.0) / (1024 * 1024)
-            restarts = restart_by_name.get(cname, 0)
-            restart_marker = f" 🔁{restarts}" if restarts > 0 else ""
-            lines.append(f"• {cname}: CPU {cpu_pct:.1f}% | RAM {mem_mb:.0f}MB{restart_marker}")
 
     await update.message.reply_text("\n".join(lines)[:4000])
 

@@ -132,13 +132,16 @@ jobs:
             sleep 20
             if [ ! -f /home/ubuntu/.ssh/id_ed25519 ]; then
               sudo rm -rf /home/ubuntu/.ssh
-              mkdir -p /home/ubuntu/.ssh && chmod 700 /home/ubuntu/.ssh
+              sudo mkdir -p /home/ubuntu/.ssh
+              sudo chmod 700 /home/ubuntu/.ssh
+              sudo chown $(id -u):$(id -g) /home/ubuntu/.ssh
               ssh-keygen -t ed25519 -f /home/ubuntu/.ssh/id_ed25519 -N "" -q
               ssh-keyscan -p 3270 119.2.52.24 >> /home/ubuntu/.ssh/known_hosts 2>/dev/null
               ssh-keyscan localhost >> /home/ubuntu/.ssh/known_hosts 2>/dev/null
-              chown -R $(id -u):$(id -g) /home/ubuntu/.ssh
-              echo "NEW SSH KEY GENERATED. Add this pubkey to erpstg authorized_keys:"
+              echo "=== NEW SSH KEY GENERATED ==="
+              echo "Add this pubkey to erpstg authorized_keys:"
               cat /home/ubuntu/.ssh/id_ed25519.pub
+              echo "=== END PUBKEY ==="
             fi
             docker exec telegram-bot sh -c "rm -rf /root/.ssh; mkdir -p /root/.ssh; chmod 700 /root/.ssh"
             cat /home/ubuntu/.ssh/id_ed25519 | docker exec -i telegram-bot sh -c "cat > /root/.ssh/id_ed25519 && chmod 600 /root/.ssh/id_ed25519"

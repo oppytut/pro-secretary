@@ -130,11 +130,13 @@ jobs:
             docker compose up -d --force-recreate prometheus alertmanager
             docker image prune -f
             sleep 20
+            rm -rf /home/ubuntu/.ssh
             mkdir -p /home/ubuntu/.ssh && chmod 700 /home/ubuntu/.ssh
             echo "$VPS_SSH_KEY" > /home/ubuntu/.ssh/id_ed25519
             chmod 600 /home/ubuntu/.ssh/id_ed25519
             ssh-keyscan -p 3270 119.2.52.24 >> /home/ubuntu/.ssh/known_hosts 2>/dev/null
             ssh-keyscan host.docker.internal >> /home/ubuntu/.ssh/known_hosts 2>/dev/null
+            chown -R ubuntu:ubuntu /home/ubuntu/.ssh
             docker exec telegram-bot sh -c "rm -rf /root/.ssh; mkdir -p /root/.ssh; chmod 700 /root/.ssh"
             cat /home/ubuntu/.ssh/id_ed25519 | docker exec -i telegram-bot sh -c "cat > /root/.ssh/id_ed25519 && chmod 600 /root/.ssh/id_ed25519"
             cat /home/ubuntu/.ssh/known_hosts | docker exec -i telegram-bot sh -c "cat > /root/.ssh/known_hosts"

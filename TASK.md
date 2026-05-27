@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-25 08:40 UTC  
+**Last Updated:** 2026-05-27 09:52 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Monitoring MVP shipped. Q&A retrieval pipeline improved (D1/D3/D4 resolved). Skills/voice/Q&A in dogfood phase. erpstg healthcheck fixed.
+**Status:** ✅ Container monitoring via SSH deployed. `/monitor erpstg` shows container list. cAdvisor incompatible (cgroups v2 + overlay2), reverted.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,12 +10,21 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-25 — 2 tracks ter-deliver:
+**Where we left off:** Sesi 2026-05-27 — container monitoring shipped via SSH approach.
 
-1. **Investigate erpstg unhealthy (priority #0):** Resolved with 2 commits ke `gmd/erp-deployment/erp-l11` (`stg`). Surfaced latent app-level bug (Inspector APM 4.19 incompatible Laravel 12 view engine) — flagged untuk dev team, workaround active.
-2. **Audit Q&A retrieval partial-miss patterns (D1/D3/D4):** 2 commits ke pro-secretary main. **All 3 dogfood partial-misses resolved** without embedding upgrade.
+### What happened
 
-Container monitoring (#2) decision **reinforced defer** — failure mode di erpstg = config drift, not runtime issue.
+1. **cAdvisor attempted + failed:** 6 commits tried cAdvisor v0.49-v0.52. Incompatible with cgroups v2 + Docker overlay2 storage driver (both VPS confirmed). cAdvisor can't emit per-container metrics — only root cgroup. All 6 commits reverted.
+2. **SSH-based container monitoring deployed:** Bot SSH → target VPS → `docker ps --format`. Works for erpstg (3 containers visible). Deploy generates fresh ed25519 keypair, injects into bot container via stdin pipe.
+3. **SSH key incident:** Docker volume mount destroyed host `/home/ubuntu/.ssh/id_ed25519` (created directory instead of file). Fixed by generating new keypair in deploy script. Pubkey added to erpstg `authorized_keys`.
+4. **pro-secretary self-SSH skipped:** sshd on port 20128 bound to docker0 bridge rejects connections from compose network containers. Not worth fixing — pro-secretary already has full Prometheus metrics.
+
+### Key decisions
+
+- **cAdvisor = NOT VIABLE** on Ubuntu 22.04+ (cgroups v2) + Docker 24+ (overlay2). Don't retry without upstream fix.
+- **SSH-based approach = production pattern** for container listing on remote VPS.
+- **Deploy script now manages SSH key lifecycle** (generate if missing, inject into bot container every deploy).
+- **pro-secretary containers NOT listed** in `/monitor pro-secretary` — only Prometheus metrics. Acceptable trade-off.
 
 ### Session deliverables (5 commits across 2 repos)
 
@@ -125,6 +134,12 @@ Container monitoring (#2) decision **reinforced defer** — failure mode di erps
 
 12. **Docker bind-mount pins to inode at container start.** `git pull` rewrites file → new inode → container serves stale. Fix: `docker compose up -d --force-recreate <service>`. Apply to ANY config-driven service with bind-mounted YAML/JSON.
 
+13. **cAdvisor NOT VIABLE on cgroups v2 + overlay2.** Both VPS confirmed cgroups v2 (Ubuntu 22.04+) + Docker overlay2. cAdvisor v0.49-v0.52 all fail: probes legacy `/image/overlayfs/` path, silently skips per-container metrics. Don't retry without upstream fix.
+
+14. **Container monitoring uses SSH, not metrics.** Bot SSH → target VPS → `docker ps --format`. Config in `MONITOR_SSH_TARGETS` env (JSON). Deploy script generates ed25519 keypair if missing, injects into bot container via stdin pipe. Pubkey must be in target's `authorized_keys`.
+
+15. **Never Docker bind-mount single files from ~/.ssh.** Docker creates empty directories instead of files when source has restrictive permissions (700 dir, 400 file). Use `docker cp` or stdin pipe instead.
+
 ---
 
 ## 📍 CURRENT CONTEXT
@@ -164,8 +179,7 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ### Active Tasks
 - [ ] **PRIORITY: Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
-- [ ] **DEFERRED: Container monitoring (cAdvisor)** — reinforced defer 2026-05-25
-- [ ] **DOGFOOD: Q&A + voice + skills** — passive 1-2 minggu
+- [ ] **DOGFOOD: Q&A + voice + skills + /monitor** — passive 1-2 minggu
 - [ ] **DECISION POINT: Personal Journal** — wait 1 minggu regular usage data
 - [ ] **DEFERRED: Grafana** — wait actual trend visualization need
 - [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels
@@ -176,25 +190,22 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ### Recently Completed
 
+- ✅ [2026-05-27 09:52 UTC] Container monitoring via SSH — deployed
+  - cAdvisor attempted (6 commits), incompatible cgroups v2 + overlay2, reverted
+  - SSH-based approach: bot SSH → docker ps. erpstg 3 containers visible.
+  - Deploy generates ed25519 keypair, injects into bot container
+  - SSH key incident fixed (Docker volume mount destroyed host key)
+
+- ✅ [2026-05-27 08:40 UTC] TASK.md condensed (2562→266 lines)
+  - Full history archived to TASK_ARCHIVE.md
+
 - ✅ [2026-05-25 08:00 UTC] Q&A retrieval audit — D1/D3/D4 all resolved
-  - 2 commits: `5bdf3c8` (ID→EN map, plurals, path priority expansion) + `999f0a7` (exact create_<entity>_table rank -3)
-  - Production verified: `create_materials_table.php` ranks #0, Facade/Traits/Scopes prioritized
-  - User dogfood confirmed: bot now retrieves correct migration + articulates columns
+  - 2 commits: `5bdf3c8` + `999f0a7`
 
 - ✅ [2026-05-25 04:30 UTC] Investigate erpstg unhealthy — resolved
-  - 2 commits to `gmd/erp-deployment/erp-l11` stg: `34aa240` + `cbb00a8`
-  - Root cause: healthcheck config drift (`/status` 404) + latent Inspector APM bug (`/up` 500 on fresh cache)
-  - Final state: `erp-stg-app-1` `Up (healthy)` FailingStreak 0
+  - 2 commits to `gmd/erp-deployment/erp-l11` stg
 
 - ✅ [2026-05-24 09:00 UTC] Onboard erpstg to Prometheus — deployed
-  - node_exporter `:19100`, UFW restricted, CI force-recreate pattern adopted
-  - Discovered ISP transit drop on `:9100` → standard port 19100
-
-- ✅ [2026-05-24 06:00 UTC] Monitoring MVP — Prometheus + Alertmanager + `/monitor` shipped
-  - 10 alert rules, Telegram receiver, bot `/monitor` command
-
-- ✅ [2026-05-24 00:17 UTC] Self-improving Skills Phase 1 — deployed
-  - `/skill log <name> | <desc>` to save, `/skill <query>` to recall
 
 ---
 

@@ -210,8 +210,6 @@ services:
       - PROMETHEUS_URL=http://prometheus:9090
       - MONITOR_SSH_TARGETS=${MONITOR_SSH_TARGETS:-}
       - TZ=${TIMEZONE}
-    volumes:
-      - /home/ubuntu/.ssh:/tmp/host_ssh:ro
     depends_on:
       n8n:
         condition: service_healthy

@@ -119,6 +119,7 @@ jobs:
             RESOURCE_MEM_CRIT_PCT=92
             RESOURCE_QDRANT_WARN_POINTS=800000
             RESOURCE_QDRANT_CRIT_POINTS=950000
+            MONITOR_SSH_TARGETS={"pro-secretary":{"host":"host.docker.internal","port":"22","user":"ubuntu"},"erpstg":{"host":"119.2.52.24","port":"3270","user":"ubuntu"}}
             EOF
             chmod 600 .env
 
@@ -128,6 +129,10 @@ jobs:
             docker compose up -d --force-recreate prometheus alertmanager
             docker image prune -f
             sleep 20
+            docker exec telegram-bot sh -c "mkdir -p /root/.ssh && chmod 700 /root/.ssh"
+            docker cp /home/ubuntu/.ssh/id_ed25519 telegram-bot:/root/.ssh/id_ed25519
+            docker cp /home/ubuntu/.ssh/known_hosts telegram-bot:/root/.ssh/known_hosts
+            docker exec telegram-bot chmod 600 /root/.ssh/id_ed25519
             docker compose ps --format "table {{.Name}}\t{{.Status}}"
             echo "=== post-deploy health probes ==="
             docker exec langgraph-agent curl -fsS --max-time 5 http://localhost:8090/health

@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py .
 
-CMD ["python", "bot.py"]
+CMD ["sh", "-c", "mkdir -p /root/.ssh && cp /tmp/ssh_key /root/.ssh/id_ed25519 2>/dev/null; chmod 600 /root/.ssh/id_ed25519 2>/dev/null; exec python bot.py"]

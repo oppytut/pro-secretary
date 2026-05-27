@@ -211,8 +211,7 @@ services:
       - MONITOR_SSH_TARGETS=${MONITOR_SSH_TARGETS:-}
       - TZ=${TIMEZONE}
     volumes:
-      - /home/ubuntu/.ssh/id_ed25519:/tmp/ssh_key:ro
-      - /home/ubuntu/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+      - /home/ubuntu/.ssh:/tmp/host_ssh:ro
     depends_on:
       n8n:
         condition: service_healthy

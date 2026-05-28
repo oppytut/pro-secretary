@@ -7,7 +7,10 @@
 }
 
 {$AGENT_HOST:agent.localhost} {
-	@webhooks path /api/webhook/github /api/webhook/gitlab
-	reverse_proxy @webhooks langgraph-agent:8090
-	respond 404
+	handle /api/webhook/* {
+		reverse_proxy langgraph-agent:8090
+	}
+	handle {
+		respond 404
+	}
 }

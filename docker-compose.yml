@@ -218,6 +218,9 @@ services:
       - DRIFT_CHECK_ENABLED=${DRIFT_CHECK_ENABLED:-true}
       - DRIFT_CHECK_HOUR=${DRIFT_CHECK_HOUR:-2}
       - DRIFT_CHECK_MINUTE=${DRIFT_CHECK_MINUTE:-0}
+      - SSL_CHECK_ENABLED=${SSL_CHECK_ENABLED:-true}
+      - SSL_CHECK_DOMAINS=${SSL_CHECK_DOMAINS:-}
+      - SSL_WARN_DAYS=${SSL_WARN_DAYS:-30}
       - TZ=${TIMEZONE}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro

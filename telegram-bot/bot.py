@@ -681,6 +681,16 @@ async def cmd_drift(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Drift check failed: {exc}")
 
 
+@authorized
+async def cmd_ssl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔒 Checking SSL certificates...")
+    try:
+        report = await _run_ssl_check()
+        await update.message.reply_text(report[:4000], parse_mode="HTML")
+    except Exception as exc:
+        await update.message.reply_text(f"⚠️ SSL check failed: {exc}")
+
+
 async def _ssh_docker_ps(name: str) -> list[dict] | None:
     target = _ssh_targets.get(name)
     if not target:
@@ -707,6 +717,91 @@ async def _ssh_docker_ps(name: str) -> list[dict] | None:
         return containers
     except Exception:
         return None
+
+
+# --- SSL/Domain Watchdog ---
+import ssl
+import socket
+
+SSL_CHECK_DOMAINS = [d.strip() for d in os.getenv("SSL_CHECK_DOMAINS", "").split(",") if d.strip()]
+SSL_WARN_DAYS = int(os.getenv("SSL_WARN_DAYS", "30"))
+SSL_CHECK_ENABLED = os.getenv("SSL_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
+
+
+async def _check_ssl_expiry(domain: str) -> dict:
+    """Check SSL cert expiry for a single domain. Returns {domain, days_left, expiry, error}."""
+    def _get_cert_expiry(host: str) -> tuple[int, str]:
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=host) as s:
+            s.settimeout(10)
+            s.connect((host, 443))
+            cert = s.getpeercert()
+        expiry_str = cert["notAfter"]
+        from email.utils import parsedate_to_datetime
+        expiry_dt = parsedate_to_datetime(expiry_str)
+        days_left = (expiry_dt - datetime.now(timezone.utc)).days
+        return days_left, expiry_dt.strftime("%Y-%m-%d")
+
+    try:
+        days_left, expiry = await asyncio.to_thread(_get_cert_expiry, domain)
+        return {"domain": domain, "days_left": days_left, "expiry": expiry, "error": None}
+    except Exception as e:
+        return {"domain": domain, "days_left": -1, "expiry": None, "error": str(e)}
+
+
+async def _run_ssl_check() -> str:
+    """Check all configured domains and return formatted report."""
+    if not SSL_CHECK_DOMAINS:
+        return "⚠️ No domains configured. Set <code>SSL_CHECK_DOMAINS</code> env var."
+
+    sections: list[str] = []
+    sections.append("🔒 <b>SSL/Domain Watchdog</b>")
+    sections.append("")
+
+    warnings: list[str] = []
+    ok_list: list[str] = []
+
+    for domain in SSL_CHECK_DOMAINS:
+        result = await _check_ssl_expiry(domain)
+        if result["error"]:
+            warnings.append(f"❌ <b>{domain}</b> — cannot check: {result['error']}")
+        elif result["days_left"] <= 0:
+            warnings.append(f"🔴 <b>{domain}</b> — EXPIRED ({result['expiry']})")
+        elif result["days_left"] <= SSL_WARN_DAYS:
+            warnings.append(f"⚠️ <b>{domain}</b> — expires in {result['days_left']}d ({result['expiry']})")
+        else:
+            ok_list.append(f"✅ <b>{domain}</b> — {result['days_left']}d left ({result['expiry']})")
+
+    if warnings:
+        sections.extend(warnings)
+        sections.append("")
+    sections.extend(ok_list)
+
+    now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    sections.append(f"\n<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
+    return "\n".join(sections)
+
+
+async def _ssl_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled daily SSL check — only notifies if warnings found."""
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+    if not chat_id or not SSL_CHECK_DOMAINS:
+        return
+
+    try:
+        report = await _run_ssl_check()
+        has_warning = "⚠️" in report or "🔴" in report or "❌" in report
+        if has_warning:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=report[:4000],
+                parse_mode="HTML",
+            )
+            logger.info("SSL check: warnings reported")
+        else:
+            logger.info("SSL check: all certs OK")
+    except Exception as e:
+        logger.error(f"SSL check job failed: {e}")
 
 
 # --- Config Drift Detector ---
@@ -1930,6 +2025,19 @@ async def post_init(application: Application):
         )
         logger.info(f"Drift check scheduled daily at {DRIFT_CHECK_HOUR:02d}:{DRIFT_CHECK_MINUTE:02d} WIB.")
 
+    if SSL_CHECK_ENABLED and SSL_CHECK_DOMAINS:
+        ssl_time = _time(
+            hour=DRIFT_CHECK_HOUR,
+            minute=DRIFT_CHECK_MINUTE + 5,
+            tzinfo=ZoneInfo("Asia/Jakarta"),
+        )
+        application.job_queue.run_daily(
+            _ssl_check_job,
+            time=ssl_time,
+            name="ssl_check",
+        )
+        logger.info(f"SSL check scheduled daily at {DRIFT_CHECK_HOUR:02d}:{DRIFT_CHECK_MINUTE + 5:02d} WIB for {len(SSL_CHECK_DOMAINS)} domain(s).")
+
 
 def main():
     if not BOT_TOKEN:
@@ -1953,6 +2061,7 @@ def main():
     app.add_handler(CommandHandler("vps", cmd_vps))
     app.add_handler(CommandHandler("monitor", cmd_monitor))
     app.add_handler(CommandHandler("drift", cmd_drift))
+    app.add_handler(CommandHandler("ssl", cmd_ssl))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("journal", cmd_journal))
     app.add_handler(CommandHandler("projects", cmd_projects))

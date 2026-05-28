@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 08:57 UTC  
+**Last Updated:** 2026-05-28 10:35 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Morning Standup Brief shipped. Full monitoring stack live. AI Agent 24/7 roadmap documented.
+**Status:** ✅ Morning Standup Brief + Incident Auto-Responder shipped. Full monitoring stack live.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -182,7 +182,6 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **PRIORITY: AI Agent 24/7 — Incident Auto-Responder** — extend health check with auto-fix (restart, rollback, prune). See `AI_AGENT_ROADMAP.md` #1.
 - [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
 - [ ] **DOGFOOD: Q&A + voice + skills + /monitor + /menu + /briefing** — passive 1-2 minggu
 - [ ] **DECISION POINT: Pick next roadmap items** — user decides from `AI_AGENT_ROADMAP.md`
@@ -193,6 +192,13 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - VPS list from user (blocks Prometheus onboarding)
 
 ### Recently Completed
+
+- ✅ [2026-05-28 10:35 UTC] Incident Auto-Responder deployed
+  - Auto-restart down/unhealthy containers via SSH (skips restart loops)
+  - Auto-prune Docker when disk >90% (Prometheus-triggered)
+  - Verification re-check after each fix (10s restart, 35s prune)
+  - Separate Telegram audit message for all auto-fix actions
+  - Env: `AUTO_FIX_ENABLED`, `DISK_AUTOFIX_THRESHOLD_PCT`
 
 - ✅ [2026-05-28 08:56 UTC] Morning Standup Brief implemented
   - Bot-side aggregation: schedule+tasks (agent), VPS status+alerts (Prometheus), open PRs+commits+CI (GitHub API)

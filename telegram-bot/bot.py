@@ -164,7 +164,8 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("🌙 EOD", callback_data="menu:eod"),
          InlineKeyboardButton("🤖 Model", callback_data="menu:model")],
         [InlineKeyboardButton("🧠 Skill", callback_data="menu:skill"),
-         InlineKeyboardButton("☁️ Sync", callback_data="menu:sync")],
+         InlineKeyboardButton("☁️ Sync", callback_data="menu:sync"),
+         InlineKeyboardButton("❓ Help", callback_data="menu:help")],
     ]
     await update.message.reply_text(
         "📋 <b>Menu</b>\n\n"
@@ -196,6 +197,36 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if cmd_name in ("task", "catat", "journal", "cari", "tanya", "index", "skill"):
         await query.message.reply_text(f"Ketik: /{cmd_name} <isi>")
+        return
+
+    if cmd_name == "help":
+        await query.message.reply_text(
+            "❓ <b>Help</b>\n\n"
+            "📅 <b>Produktivitas</b>\n"
+            "• /jadwal — Lihat jadwal hari ini dari Cal.com\n"
+            "• /task &lt;judul&gt; — Buat task baru\n"
+            "• /tasks — Lihat semua pending tasks\n"
+            "• /briefing — Ringkasan pagi (jadwal + tasks)\n"
+            "• /eod — End-of-day summary\n\n"
+            "📝 <b>Catatan</b>\n"
+            "• /catat &lt;note&gt; — Simpan catatan cepat\n"
+            "• /journal &lt;isi&gt; — Tulis journal harian\n"
+            "• /cari &lt;query&gt; — Cari di knowledge base\n\n"
+            "💻 <b>Developer</b>\n"
+            "• /tanya &lt;pertanyaan&gt; — Tanya tentang code di repo\n"
+            "• /projects — Lihat repo yang ter-index\n"
+            "• /index &lt;repo|all&gt; — Re-index repo\n"
+            "• /skill &lt;query&gt; — Simpan/cari skill\n\n"
+            "🖥️ <b>Infra</b>\n"
+            "• /monitor [nama] — Monitor VPS + containers\n"
+            "• /vps — Resource VPS lokal (CPU/RAM/disk)\n"
+            "• /status — Status semua komponen stack\n\n"
+            "⚙️ <b>Settings</b>\n"
+            "• /model [nama] — Ganti/lihat model AI\n"
+            "• /sync — Sync Obsidian vault\n\n"
+            "💡 Tip: kirim pesan biasa atau voice note untuk chat langsung.",
+            parse_mode="HTML",
+        )
         return
 
     handler_name = _MENU_HANDLERS.get(cmd_name)

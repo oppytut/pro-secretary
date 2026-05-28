@@ -868,6 +868,8 @@ _prev_container_state: dict[str, dict[str, str]] = {}
 _container_restarts: dict[str, list[float]] = {}  # "vps/container" -> [timestamp, ...]
 RESTART_LOOP_THRESHOLD = int(os.getenv("RESTART_LOOP_THRESHOLD", "3"))
 RESTART_LOOP_WINDOW = int(os.getenv("RESTART_LOOP_WINDOW_SEC", "900"))  # 15 min
+AUTO_FIX_ENABLED = os.getenv("AUTO_FIX_ENABLED", "true").lower() in ("1", "true", "yes")
+DISK_CRITICAL_PCT = float(os.getenv("DISK_AUTOFIX_THRESHOLD_PCT", "90"))
 
 
 def _container_health(status: str) -> str:
@@ -895,6 +897,139 @@ def _record_restart(key: str) -> int:
     cutoff = now - RESTART_LOOP_WINDOW
     _container_restarts[key] = [t for t in _container_restarts[key] if t > cutoff]
     return len(_container_restarts[key])
+
+
+async def _ssh_exec(vps_name: str, command: str) -> tuple[bool, str]:
+    """Run command on remote VPS via SSH. Returns (success, output)."""
+    target = _ssh_targets.get(vps_name)
+    if not target:
+        return False, f"No SSH target for {vps_name}"
+    host = target.get("host", "")
+    port = str(target.get("port", 22))
+    user = target.get("user", "root")
+    cmd = [
+        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+        "-o", "StrictHostKeyChecking=accept-new", "-p", port,
+        f"{user}@{host}", command,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        output = (stdout or stderr).decode().strip()
+        return proc.returncode == 0, output
+    except asyncio.TimeoutError:
+        return False, "SSH command timed out"
+    except Exception as e:
+        return False, str(e)
+
+
+async def _autofix_restart_container(vps_name: str, container_name: str) -> tuple[bool, str]:
+    """Auto-restart a down/unhealthy container."""
+    ok, output = await _ssh_exec(vps_name, f"docker restart {container_name}")
+    if not ok:
+        return False, f"restart failed: {output}"
+    await asyncio.sleep(10)
+    ok2, output2 = await _ssh_exec(vps_name, f"docker inspect --format='{{{{.State.Status}}}}' {container_name}")
+    if ok2 and "running" in output2.lower():
+        return True, "restarted successfully"
+    return False, f"restarted but state={output2}"
+
+
+async def _autofix_disk_prune(vps_name: str) -> tuple[bool, str]:
+    """Auto-prune Docker resources when disk is critical."""
+    ok, output = await _ssh_exec(vps_name, "docker system prune -f --volumes=false")
+    if not ok:
+        return False, f"prune failed: {output}"
+    return True, output
+
+
+async def _verify_disk_after_prune(vps_name: str) -> float | None:
+    """Re-check disk usage via Prometheus after prune."""
+    await asyncio.sleep(35)
+    result = await _prom_query(
+        f'(1 - node_filesystem_avail_bytes{{fstype=~"ext4|xfs",mountpoint="/",instance_name="{vps_name}"}} '
+        f'/ node_filesystem_size_bytes{{fstype=~"ext4|xfs",mountpoint="/",instance_name="{vps_name}"}}) * 100'
+    )
+    if result:
+        return float(result[0]["value"][1])
+    return None
+
+
+async def _run_auto_fixes(
+    alerts: list[str],
+    context: ContextTypes.DEFAULT_TYPE,
+) -> list[str]:
+    """Execute auto-fix actions based on detected issues. Returns action log."""
+    if not AUTO_FIX_ENABLED:
+        return []
+
+    actions: list[str] = []
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+
+    # Auto-restart down/unhealthy containers (skip if in restart loop)
+    for vps_name, containers in _prev_container_state.items():
+        for cname, health in containers.items():
+            if health not in ("down", "unhealthy"):
+                continue
+            key = f"{vps_name}/{cname}"
+            restart_count = len(_container_restarts.get(key, []))
+            if restart_count >= RESTART_LOOP_THRESHOLD:
+                actions.append(f"⏭️ Skip restart <b>{cname}</b> ({vps_name}) — restart loop ({restart_count}x)")
+                continue
+
+            logger.info(f"Auto-fix: restarting {cname} on {vps_name}")
+            ok, msg = await _autofix_restart_container(vps_name, cname)
+            if ok:
+                actions.append(f"🔧 Auto-restart <b>{cname}</b> ({vps_name}) → ✅ {msg}")
+            else:
+                actions.append(f"🔧 Auto-restart <b>{cname}</b> ({vps_name}) → ❌ {msg}")
+
+    # Auto-prune when disk critical
+    disk_results = await _prom_query(
+        '(1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs",mountpoint="/"} '
+        '/ node_filesystem_size_bytes{fstype=~"ext4|xfs",mountpoint="/"}) * 100'
+    )
+    if disk_results:
+        for d in disk_results:
+            name = d["metric"].get("instance_name", d["metric"].get("instance", "?"))
+            pct = float(d["value"][1])
+            if pct < DISK_CRITICAL_PCT:
+                continue
+            if name not in _ssh_targets:
+                actions.append(f"⚠️ Disk {name} {pct:.0f}% — no SSH target, cannot auto-prune")
+                continue
+
+            logger.info(f"Auto-fix: pruning Docker on {name} (disk {pct:.0f}%)")
+            ok, msg = await _autofix_disk_prune(name)
+            if ok:
+                new_pct = await _verify_disk_after_prune(name)
+                if new_pct is not None and new_pct < DISK_CRITICAL_PCT:
+                    actions.append(f"🧹 Auto-prune <b>{name}</b> (disk {pct:.0f}% → {new_pct:.0f}%) → ✅")
+                elif new_pct is not None:
+                    actions.append(f"🧹 Auto-prune <b>{name}</b> (disk {pct:.0f}% → {new_pct:.0f}%) → ⚠️ still critical")
+                else:
+                    actions.append(f"🧹 Auto-prune <b>{name}</b> (disk {pct:.0f}%) → ✅ pruned, verify pending")
+            else:
+                actions.append(f"🧹 Auto-prune <b>{name}</b> (disk {pct:.0f}%) → ❌ {msg}")
+
+    # Report actions
+    if actions and chat_id:
+        lines = ["🤖 <b>Auto-Fix Actions</b>", ""]
+        lines.extend(actions)
+        now = datetime.now(ZoneInfo("Asia/Jakarta"))
+        lines.append(f"\n<i>{now.strftime('%H:%M:%S')} WIB</i>")
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="\n".join(lines)[:4000],
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.error(f"Failed to send auto-fix report: {e}")
+
+    return actions
 
 
 async def _health_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -986,6 +1121,13 @@ async def _health_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             except Exception as e:
                 logger.error(f"Failed to send health alert: {e}")
+
+    # Auto-fix: attempt remediation for detected issues
+    if alerts and AUTO_FIX_ENABLED:
+        try:
+            await _run_auto_fixes(alerts, context)
+        except Exception as e:
+            logger.error(f"Auto-fix execution error: {e}")
 
 
 async def _monitor_detail(update: Update, name: str):

@@ -10,25 +10,38 @@
 | Komponen | Fungsi |
 |---|---|
 | Telegram Bot (PTB 22) | Interface utama, command handler, inline keyboard |
-| LangGraph Agent | AI brain, chat, Q&A, task management |
+| LangGraph Agent | AI brain, chat, Q&A, task management, PR review |
 | Prometheus + Alertmanager | VPS metrics, threshold alerts (CPU/RAM/disk/swap/load) |
-| Bot Health Check (5 min) | VPS up/down + container health transitions + restart loop |
+| Bot Health Check (5 min) | VPS up/down + container health transitions + restart loop + auto-fix |
 | SSH-based Docker PS | Container listing on remote VPS |
 | GitHub Actions | CI/CD deploy pipeline |
+| Caddy | Reverse proxy + auto-SSL (n8n, cal.com, agent webhook) |
 | 8-13 VPS (Docker) | Production infrastructure |
+
+### Shipped Features (2026-05-28)
+
+| Feature | Schedule | Command |
+|---|---|---|
+| Morning Standup Brief | 07:00 WIB daily | `/briefing` |
+| Incident Auto-Responder | Every 5 min (health check) | automatic |
+| Config Drift Detector | 02:00 WIB daily | `/drift` |
+| SSL/Domain Watchdog | 02:05 WIB daily | `/ssl` |
+| Dynamic Config | — | `/ssl add/del/list`, `/monitor add/del/list`, `/review add/del/list` |
+| Capacity Planning | 02:10 WIB daily | `/capacity` |
+| Auto PR Review (GitHub + GitLab) | On webhook event | `/review owner/repo#123` |
 
 ---
 
 ## Priority Recommendation
 
-| # | Fitur | Tier | Effort | Impact |
-|---|---|---|---|---|
-| 1 | Incident Auto-Responder | Infra | 1-2 hari | Tidur tenang — auto-fix sebelum user bangun |
-| 2 | Morning Standup Brief | Productivity | 0.5 hari | 5 menit saved tiap pagi, full visibility |
-| 3 | Config Drift Detector | Infra | 1 hari | Prevent erpstg-style incidents |
-| 4 | Auto PR Review | Code | 1-2 hari | Catch bugs sebelum merge |
-| 5 | Capacity Planning | Infra | 1 hari | Proactive vs reactive scaling |
-| 6 | Spec-to-Implementation | Productivity | 2-3 hari | Multiply developer output |
+| # | Fitur | Tier | Effort | Impact | Status |
+|---|---|---|---|---|---|
+| 1 | Incident Auto-Responder | Infra | 1-2 hari | Tidur tenang — auto-fix sebelum user bangun | ✅ Done |
+| 2 | Morning Standup Brief | Productivity | 0.5 hari | 5 menit saved tiap pagi, full visibility | ✅ Done |
+| 3 | Config Drift Detector | Infra | 1 hari | Prevent erpstg-style incidents | ✅ Done |
+| 4 | Auto PR Review | Code | 1-2 hari | Catch bugs sebelum merge | ✅ Done (GitHub + GitLab) |
+| 5 | Capacity Planning | Infra | 1 hari | Proactive vs reactive scaling | ✅ Done |
+| 6 | Spec-to-Implementation | Productivity | 2-3 hari | Multiply developer output | ⏳ Next |
 
 ---
 

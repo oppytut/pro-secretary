@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 15:08 UTC  
+**Last Updated:** 2026-05-28 23:51 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ 7 features shipped: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab).
+**Status:** ✅ 7 features shipped + deployed: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab).
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -28,7 +28,11 @@
 - **JSON file config store** (not Qdrant) — simpler for key-value config, no agent dependency.
 - **Docker CLI static binary** added to bot container for local drift check (socket mounted ro).
 - **Env vars remain as seed** — dynamic config takes precedence but env is fallback.
-- **Silent notifications** — drift/SSL only alert when issues found, not when clean.
+- **Silent notifications** — drift/SSL/capacity only alert when issues found, not when clean.
+- **Agent-side webhook** for PR review — agent has LLM access, bot syncs whitelist to agent.
+- **Multi-platform PR review** — GitHub (post review) + GitLab (post comment). Same LLM analysis.
+- **Whitelist sync** — bot owns config, pushes to agent via `/api/review/repos`. Empty = review all.
+- **Caddy handle blocks** — only `/api/webhook/*` exposed publicly, everything else 404.
 
 ### Session files changed
 
@@ -117,11 +121,13 @@
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **Dogfood 5 new features** (3-5 hari, passive):
+1. **Dogfood 7 new features** (3-5 hari, passive):
    - `/briefing` — is the morning brief informative enough?
    - Auto-fix — any false positives?
    - `/drift` — noisy or useful?
    - `/ssl add` + `/monitor add` — test dynamic config
+   - `/capacity` — needs 7d Prometheus history to produce meaningful predictions
+   - `/review` — configure webhooks on repos, test with real PRs/MRs
    - Tune if needed
 
 2. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):

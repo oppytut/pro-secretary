@@ -215,7 +215,12 @@ services:
       - MORNING_BRIEF_MINUTE=${MORNING_BRIEF_MINUTE:-0}
       - AUTO_FIX_ENABLED=${AUTO_FIX_ENABLED:-true}
       - DISK_AUTOFIX_THRESHOLD_PCT=${DISK_AUTOFIX_THRESHOLD_PCT:-90}
+      - DRIFT_CHECK_ENABLED=${DRIFT_CHECK_ENABLED:-true}
+      - DRIFT_CHECK_HOUR=${DRIFT_CHECK_HOUR:-2}
+      - DRIFT_CHECK_MINUTE=${DRIFT_CHECK_MINUTE:-0}
       - TZ=${TIMEZONE}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       n8n:
         condition: service_healthy

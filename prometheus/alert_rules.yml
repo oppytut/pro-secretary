@@ -1,16 +1,6 @@
 groups:
   - name: node_health
     rules:
-      # Instance down for > 2 minutes
-      - alert: InstanceDown
-        expr: up{job="node"} == 0
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "{{ $labels.instance_name }} DOWN"
-          description: "{{ $labels.instance_name }} ({{ $labels.instance }}) tidak merespons selama > 2 menit."
-
       # High CPU usage (> 85% sustained 5 min)
       - alert: HighCPU
         expr: 100 - (avg by(instance, instance_name) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85

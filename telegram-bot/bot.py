@@ -625,8 +625,11 @@ async def _ssh_docker_ps(name: str) -> list[dict] | None:
 
 # --- Periodic Health Check ---
 HEALTH_CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL_SEC", "300"))  # 5 min
-_prev_vps_state: dict[str, bool] = {}  # name -> is_up
-_prev_container_state: dict[str, dict[str, str]] = {}  # vps_name -> {container_name -> status_keyword}
+_prev_vps_state: dict[str, bool] = {}
+_prev_container_state: dict[str, dict[str, str]] = {}
+_container_restarts: dict[str, list[float]] = {}  # "vps/container" -> [timestamp, ...]
+RESTART_LOOP_THRESHOLD = int(os.getenv("RESTART_LOOP_THRESHOLD", "3"))
+RESTART_LOOP_WINDOW = int(os.getenv("RESTART_LOOP_WINDOW_SEC", "900"))  # 15 min
 
 
 def _container_health(status: str) -> str:
@@ -637,6 +640,23 @@ def _container_health(status: str) -> str:
     if "Up" in status:
         return "up"
     return "down"
+
+
+def _is_fresh_restart(status: str) -> bool:
+    s = status.lower()
+    if "up" not in s:
+        return False
+    return ("second" in s or "less than a minute" in s) and "hour" not in s and "day" not in s
+
+
+def _record_restart(key: str) -> int:
+    import time
+    now = time.time()
+    _container_restarts.setdefault(key, [])
+    _container_restarts[key].append(now)
+    cutoff = now - RESTART_LOOP_WINDOW
+    _container_restarts[key] = [t for t in _container_restarts[key] if t > cutoff]
+    return len(_container_restarts[key])
 
 
 async def _health_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -675,6 +695,14 @@ async def _health_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         current: dict[str, str] = {}
         for c in containers:
             current[c["name"]] = _container_health(c["status"])
+            if _is_fresh_restart(c["status"]):
+                key = f"{vps_name}/{c['name']}"
+                count = _record_restart(key)
+                if count == RESTART_LOOP_THRESHOLD:
+                    alerts.append(
+                        f"🔁 Container <b>{c['name']}</b> ({vps_name}) restart loop "
+                        f"({count}x dalam {RESTART_LOOP_WINDOW // 60} menit)"
+                    )
 
         prev_ctrs = _prev_container_state.get(vps_name, {})
         if prev_ctrs:

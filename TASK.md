@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 10:35 UTC  
+**Last Updated:** 2026-05-28 10:56 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Morning Standup Brief + Incident Auto-Responder shipped. Full monitoring stack live.
+**Status:** ✅ Morning Brief + Incident Auto-Responder + Config Drift Detector shipped. Top 3 roadmap items done.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -193,6 +193,16 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ### Recently Completed
 
+- ✅ [2026-05-28 10:56 UTC] Config Drift Detector deployed
+  - Docker image version drift check (running vs expected from docker-compose.yml)
+  - Container set check (missing/unexpected containers)
+  - Cron entry verification (health_check, backup, sync_vault)
+  - Remote VPS container liveness via SSH
+  - Daily 02:00 WIB scheduled (silent when clean, alerts on drift)
+  - `/drift` command for on-demand check
+  - Docker CLI added to bot container (static binary + socket mount)
+  - Env: `DRIFT_CHECK_ENABLED`, `DRIFT_CHECK_HOUR`, `DRIFT_CHECK_MINUTE`
+
 - ✅ [2026-05-28 10:35 UTC] Incident Auto-Responder deployed
   - Auto-restart down/unhealthy containers via SSH (skips restart loops)
   - Auto-prune Docker when disk >90% (Prometheus-triggered)
@@ -205,7 +215,6 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
   - `run_daily` at 07:00 WIB via PTB JobQueue with `Asia/Jakarta` timezone
   - `/briefing` command now triggers full morning brief on-demand
   - Env vars: `GH_PAT`, `MORNING_BRIEF_ENABLED`, `MORNING_BRIEF_HOUR`, `MORNING_BRIEF_MINUTE`
-  - Files changed: `telegram-bot/bot.py`, `docker-compose.yml`
 
 - ✅ [2026-05-28 03:26 UTC] AI Agent 24/7 Roadmap documented
   - `AI_AGENT_ROADMAP.md` — 30+ features across 6 tiers with technical how-it-works

@@ -612,6 +612,46 @@ async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     args = context.args
     if args:
+        action = args[0].lower()
+
+        if action == "list":
+            targets = _get_ssh_targets()
+            if not targets:
+                await update.message.reply_text("📋 No VPS targets configured.")
+            else:
+                lines = ["🖥️ <b>VPS Monitor Targets</b>", ""]
+                for name, t in targets.items():
+                    lines.append(f"• <b>{name}</b> — {t.get('user', 'root')}@{t.get('host', '?')}:{t.get('port', '22')}")
+                await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+            return
+
+        if action == "add" and len(args) >= 3:
+            name = args[1]
+            host = args[2]
+            port = args[3] if len(args) >= 4 else "22"
+            user = args[4] if len(args) >= 5 else "root"
+            _add_ssh_target(name, host, port, user)
+            await update.message.reply_text(
+                f"✅ Added VPS <b>{name}</b> ({user}@{host}:{port})", parse_mode="HTML"
+            )
+            return
+
+        if action in ("del", "remove") and len(args) >= 2:
+            name = args[1]
+            if _del_ssh_target(name):
+                await update.message.reply_text(f"✅ Removed VPS <b>{name}</b>", parse_mode="HTML")
+            else:
+                await update.message.reply_text(f"ℹ️ <b>{name}</b> not found in config store (may be env-only).", parse_mode="HTML")
+            return
+
+        if action == "help":
+            await update.message.reply_text(
+                "Usage:\n/monitor — show all VPS status\n/monitor <name> — detail\n"
+                "/monitor list — show targets\n/monitor add <name> <host> [port] [user]\n"
+                "/monitor del <name>"
+            )
+            return
+
         await _monitor_detail(update, args[0])
         return
 
@@ -683,16 +723,52 @@ async def cmd_drift(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def cmd_ssl(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔒 Checking SSL certificates...")
-    try:
-        report = await _run_ssl_check()
-        await update.message.reply_text(report[:4000], parse_mode="HTML")
-    except Exception as exc:
-        await update.message.reply_text(f"⚠️ SSL check failed: {exc}")
+    args = context.args or []
+
+    if not args:
+        await update.message.reply_text("🔒 Checking SSL certificates...")
+        try:
+            report = await _run_ssl_check()
+            await update.message.reply_text(report[:4000], parse_mode="HTML")
+        except Exception as exc:
+            await update.message.reply_text(f"⚠️ SSL check failed: {exc}")
+        return
+
+    action = args[0].lower()
+
+    if action == "list":
+        domains = _get_ssl_domains()
+        if not domains:
+            await update.message.reply_text("📋 No SSL domains configured.")
+        else:
+            lines = ["🔒 <b>SSL Domains</b>", ""]
+            for d in domains:
+                lines.append(f"• <code>{d}</code>")
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+    elif action == "add" and len(args) >= 2:
+        domain = args[1].lower().strip()
+        if _add_ssl_domain(domain):
+            await update.message.reply_text(f"✅ Added <code>{domain}</code> to SSL watchlist.", parse_mode="HTML")
+        else:
+            await update.message.reply_text(f"ℹ️ <code>{domain}</code> already in watchlist.", parse_mode="HTML")
+
+    elif action in ("del", "remove") and len(args) >= 2:
+        domain = args[1].lower().strip()
+        if _del_ssl_domain(domain):
+            await update.message.reply_text(f"✅ Removed <code>{domain}</code> from SSL watchlist.", parse_mode="HTML")
+        else:
+            await update.message.reply_text(f"ℹ️ <code>{domain}</code> not in watchlist.", parse_mode="HTML")
+
+    else:
+        await update.message.reply_text(
+            "Usage:\n/ssl — check all certs\n/ssl list — show domains\n"
+            "/ssl add domain.com — add domain\n/ssl del domain.com — remove domain"
+        )
 
 
 async def _ssh_docker_ps(name: str) -> list[dict] | None:
-    target = _ssh_targets.get(name)
+    target = _get_ssh_targets().get(name)
     if not target:
         return None
     host = target.get("host", "")
@@ -719,13 +795,90 @@ async def _ssh_docker_ps(name: str) -> list[dict] | None:
         return None
 
 
+# --- Dynamic Config Store (JSON file, persistent via volume) ---
+_CONFIG_DIR = Path("/app/data")
+_CONFIG_FILE = _CONFIG_DIR / "config.json"
+
+
+def _load_config() -> dict:
+    if _CONFIG_FILE.exists():
+        try:
+            return _json.loads(_CONFIG_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_config(cfg: dict) -> None:
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    _CONFIG_FILE.write_text(_json.dumps(cfg, indent=2))
+
+
+def _config_get(key: str, default=None):
+    return _load_config().get(key, default)
+
+
+def _config_set(key: str, value) -> None:
+    cfg = _load_config()
+    cfg[key] = value
+    _save_config(cfg)
+
+
+def _get_ssh_targets() -> dict[str, dict[str, str]]:
+    """Merge env-based SSH targets with config-stored ones. Config wins on conflict."""
+    merged = dict(_ssh_targets)
+    stored = _config_get("ssh_targets", {})
+    merged.update(stored)
+    return merged
+
+
+def _add_ssh_target(name: str, host: str, port: str = "22", user: str = "root") -> bool:
+    targets = _config_get("ssh_targets", {})
+    targets[name] = {"host": host, "port": port, "user": user}
+    _config_set("ssh_targets", targets)
+    return True
+
+
+def _del_ssh_target(name: str) -> bool:
+    targets = _config_get("ssh_targets", {})
+    if name not in targets:
+        return False
+    del targets[name]
+    _config_set("ssh_targets", targets)
+    return True
+
+
 # --- SSL/Domain Watchdog ---
 import ssl
 import socket
 
-SSL_CHECK_DOMAINS = [d.strip() for d in os.getenv("SSL_CHECK_DOMAINS", "").split(",") if d.strip()]
+_SSL_ENV_DOMAINS = [d.strip() for d in os.getenv("SSL_CHECK_DOMAINS", "").split(",") if d.strip()]
 SSL_WARN_DAYS = int(os.getenv("SSL_WARN_DAYS", "30"))
 SSL_CHECK_ENABLED = os.getenv("SSL_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
+
+
+def _get_ssl_domains() -> list[str]:
+    stored = _config_get("ssl_domains", [])
+    merged = list(dict.fromkeys(stored + _SSL_ENV_DOMAINS))
+    return merged
+
+
+def _add_ssl_domain(domain: str) -> bool:
+    domains = _config_get("ssl_domains", [])
+    if domain in domains:
+        return False
+    domains.append(domain)
+    _config_set("ssl_domains", domains)
+    return True
+
+
+def _del_ssl_domain(domain: str) -> bool:
+    domains = _config_get("ssl_domains", [])
+    if domain not in domains:
+        return False
+    domains.remove(domain)
+    _config_set("ssl_domains", domains)
+    return True
 
 
 async def _check_ssl_expiry(domain: str) -> dict:
@@ -751,8 +904,9 @@ async def _check_ssl_expiry(domain: str) -> dict:
 
 async def _run_ssl_check() -> str:
     """Check all configured domains and return formatted report."""
-    if not SSL_CHECK_DOMAINS:
-        return "⚠️ No domains configured. Set <code>SSL_CHECK_DOMAINS</code> env var."
+    domains = _get_ssl_domains()
+    if not domains:
+        return "⚠️ No domains configured. Use <code>/ssl add domain.com</code> or set <code>SSL_CHECK_DOMAINS</code> env var."
 
     sections: list[str] = []
     sections.append("🔒 <b>SSL/Domain Watchdog</b>")
@@ -761,7 +915,7 @@ async def _run_ssl_check() -> str:
     warnings: list[str] = []
     ok_list: list[str] = []
 
-    for domain in SSL_CHECK_DOMAINS:
+    for domain in domains:
         result = await _check_ssl_expiry(domain)
         if result["error"]:
             warnings.append(f"❌ <b>{domain}</b> — cannot check: {result['error']}")
@@ -785,7 +939,7 @@ async def _run_ssl_check() -> str:
 async def _ssl_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Scheduled daily SSL check — only notifies if warnings found."""
     chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
-    if not chat_id or not SSL_CHECK_DOMAINS:
+    if not chat_id or not _get_ssl_domains():
         return
 
     try:
@@ -909,7 +1063,7 @@ async def _run_drift_check() -> str:
 
     # Remote VPS drift
     remote_findings: list[str] = []
-    for vps_name in _ssh_targets:
+    for vps_name in _get_ssh_targets():
         remote_findings.extend(await _check_remote_docker_drift(vps_name))
 
     all_findings = docker_findings + cron_findings + remote_findings
@@ -1149,7 +1303,7 @@ def _record_restart(key: str) -> int:
 
 async def _ssh_exec(vps_name: str, command: str) -> tuple[bool, str]:
     """Run command on remote VPS via SSH. Returns (success, output)."""
-    target = _ssh_targets.get(vps_name)
+    target = _get_ssh_targets().get(vps_name)
     if not target:
         return False, f"No SSH target for {vps_name}"
     host = target.get("host", "")
@@ -1245,7 +1399,7 @@ async def _run_auto_fixes(
             pct = float(d["value"][1])
             if pct < DISK_CRITICAL_PCT:
                 continue
-            if name not in _ssh_targets:
+            if name not in _get_ssh_targets():
                 actions.append(f"⚠️ Disk {name} {pct:.0f}% — no SSH target, cannot auto-prune")
                 continue
 
@@ -1302,7 +1456,7 @@ async def _health_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             _prev_vps_state[name] = is_up
 
     # 2. Container health via SSH
-    for vps_name in _ssh_targets:
+    for vps_name in _get_ssh_targets():
         containers = await _ssh_docker_ps(vps_name)
         if containers is None:
             # SSH failed — if VPS is up per Prometheus, flag SSH issue
@@ -2025,7 +2179,7 @@ async def post_init(application: Application):
         )
         logger.info(f"Drift check scheduled daily at {DRIFT_CHECK_HOUR:02d}:{DRIFT_CHECK_MINUTE:02d} WIB.")
 
-    if SSL_CHECK_ENABLED and SSL_CHECK_DOMAINS:
+    if SSL_CHECK_ENABLED and _get_ssl_domains():
         ssl_time = _time(
             hour=DRIFT_CHECK_HOUR,
             minute=DRIFT_CHECK_MINUTE + 5,

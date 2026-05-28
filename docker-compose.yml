@@ -224,6 +224,7 @@ services:
       - TZ=${TIMEZONE}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - bot_data:/app/data
     depends_on:
       n8n:
         condition: service_healthy
@@ -353,3 +354,4 @@ volumes:
   agent_state:
   prometheus_data:
   alertmanager_data:
+  bot_data:

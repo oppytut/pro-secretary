@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 11:36 UTC  
+**Last Updated:** 2026-05-28 14:12 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Morning Brief + Auto-Responder + Drift Detector + SSL Watchdog shipped. Top 4 roadmap items done.
+**Status:** ✅ 5 features shipped in one session: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config via Telegram.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,25 +10,56 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-27/28 — monitoring + UX + roadmap planning.
+**Where we left off:** Sesi 2026-05-28 — shipped 5 AI Agent 24/7 features from roadmap.
 
 ### What happened (this session)
 
-1. **cAdvisor attempted + failed:** 6 commits tried cAdvisor v0.49-v0.52. Incompatible with cgroups v2 + Docker overlay2. All reverted.
-2. **SSH-based container monitoring deployed:** Bot SSH → erpstg → `docker ps`. Deploy generates ed25519 keypair, injects into bot container.
-3. **Periodic health check (5 min):** VPS up/down + container health transitions → Telegram alert. Verified end-to-end (stop meilisearch → alert → restart → recovery alert).
-4. **Restart loop detection:** Track container restarts in rolling window, alert if >3 in 15 min.
-5. **Alertmanager dedup:** Removed `InstanceDown` rule (bot health check covers it better).
-6. **`/menu` UX overhaul:** Grouped inline keyboard buttons + Help. BotCommand list reduced to 6.
-7. **AI Agent 24/7 Roadmap:** Full plan documented in [`AI_AGENT_ROADMAP.md`](AI_AGENT_ROADMAP.md).
+1. **Morning Standup Brief** — daily 07:00 WIB aggregated message (schedule+tasks from agent, VPS status+alerts from Prometheus, open PRs+commits+CI from GitHub API). `/briefing` on-demand.
+2. **Incident Auto-Responder** — extends health check with auto-restart containers (skips restart loops) + auto-prune disk >90%. Verification re-check after each fix. Telegram audit trail.
+3. **Config Drift Detector** — daily 02:00 WIB check: running images vs docker-compose.yml, container set, cron entries, remote VPS liveness. `/drift` on-demand.
+4. **SSL/Domain Watchdog** — daily 02:05 WIB cert expiry check. Alert 30 days before. `/ssl` on-demand.
+5. **Dynamic Config via Telegram** — `/ssl add/del/list` + `/monitor add/del/list`. JSON config store persisted in `bot_data` volume. Env vars as seed/fallback.
 
 ### Key decisions
 
-- **cAdvisor = NOT VIABLE** on Ubuntu 22.04+ (cgroups v2) + Docker 24+ (overlay2).
-- **SSH-based approach = production pattern** for container monitoring on remote VPS.
-- **Deploy script manages SSH key lifecycle** (generate if missing, inject into bot container).
-- **Voice handler already existed** — no work needed.
-- **Next priority: AI Agent 24/7 features** — see roadmap doc for full plan.rometheus metrics. Acceptable trade-off.
+- **Bot-side aggregation** for morning brief (not agent) — bot already has Prometheus + SSH access.
+- **JSON file config store** (not Qdrant) — simpler for key-value config, no agent dependency.
+- **Docker CLI static binary** added to bot container for local drift check (socket mounted ro).
+- **Env vars remain as seed** — dynamic config takes precedence but env is fallback.
+- **Silent notifications** — drift/SSL only alert when issues found, not when clean.
+
+### Session files changed
+
+- `telegram-bot/bot.py` — all 5 features implemented here
+- `telegram-bot/Dockerfile` — added Docker CLI static binary
+- `docker-compose.yml` — env vars, docker socket mount, bot_data volume
+
+### New env vars (all have defaults, optional)
+
+| Var | Default | Purpose |
+|---|---|---|
+| `GH_PAT` | (empty) | GitHub API for morning brief |
+| `MORNING_BRIEF_ENABLED` | true | Enable/disable morning brief |
+| `MORNING_BRIEF_HOUR` | 7 | Hour (WIB) |
+| `MORNING_BRIEF_MINUTE` | 0 | Minute |
+| `AUTO_FIX_ENABLED` | true | Enable/disable auto-fix |
+| `DISK_AUTOFIX_THRESHOLD_PCT` | 90 | Disk % trigger for prune |
+| `DRIFT_CHECK_ENABLED` | true | Enable/disable drift check |
+| `DRIFT_CHECK_HOUR` | 2 | Hour (WIB) |
+| `DRIFT_CHECK_MINUTE` | 0 | Minute |
+| `SSL_CHECK_ENABLED` | true | Enable/disable SSL check |
+| `SSL_CHECK_DOMAINS` | (empty) | Comma-separated seed domains |
+| `SSL_WARN_DAYS` | 30 | Days before expiry to warn |
+
+### New commands
+
+| Command | Purpose |
+|---|---|
+| `/briefing` | Full morning brief on-demand |
+| `/drift` | Config drift check on-demand |
+| `/ssl` | SSL cert check on-demand |
+| `/ssl add/del/list` | Manage SSL watchlist via Telegram |
+| `/monitor add/del/list` | Manage VPS targets via Telegram |
 
 ### Session deliverables (5 commits across 2 repos)
 
@@ -68,26 +99,25 @@
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):
+1. **Dogfood 5 new features** (3-5 hari, passive):
+   - `/briefing` — is the morning brief informative enough?
+   - Auto-fix — any false positives?
+   - `/drift` — noisy or useful?
+   - `/ssl add` + `/monitor add` — test dynamic config
+   - Tune if needed
+
+2. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):
    - User punya 10-15 VPS total. Saat ini ter-scrape: `pro-secretary` + `erpstg`.
    - **STANDARD: port 19100, bukan 9100.** See "Why port 19100" in KEY KNOWLEDGE #11.
    - Per-VPS: install `prometheus-node-exporter`, UFW allow pro-secretary IP only, append target.
    - Butuh dari user: list IP/hostname + provider + SSH access.
+   - **NEW:** Bisa juga `/monitor add <name> <host> <port> <user>` via Telegram.
 
-2. **Container monitoring (cAdvisor) — DEFERRED:**
-   - Decision reinforced 2026-05-25: real failure mode = config drift, not runtime.
-   - Wait for real container runtime failure (OOMKilled, RestartLoop) sebelum invest.
+3. **Capacity Planning** (1 hari) — Prometheus trend forecasting, predict disk/RAM exhaustion 2 weeks ahead.
 
-3. **Tune alert thresholds** setelah 3-5 hari data (data-driven, bukan tebakan).
+4. **Auto PR Review** (1-2 hari) — GitHub webhook + code analysis + auto-comment.
 
-4. **DOGFOOD existing features** (1-2 minggu, passive):
-   - Pakai bot daily — voice, Q&A, skills
-   - Track: inline button noise, retrieval miss rate, alert noise
-
-5. **Adjustments (hanya jika data menunjukkan):**
-   - Inline button terlalu sering → naikkan threshold
-   - Retrieval miss > 30% → evaluate code-aware embedding
-   - Skills Phase 2B (LLM summarization for auto-logged skill names)
+5. **`/repo add/del/list`** — dynamic project management via Telegram (needs agent endpoint for re-indexing).
 
 6. **Jangan lakukan sebelum 1-2 minggu data:**
    - Grafana (tunggu actual trend visualization need)
@@ -192,6 +222,13 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - VPS list from user (blocks Prometheus onboarding)
 
 ### Recently Completed
+
+- ✅ [2026-05-28 14:12 UTC] Dynamic Config via Telegram
+  - `/ssl add/del/list` — manage SSL watchlist domains
+  - `/monitor add/del/list` — manage VPS SSH targets
+  - JSON config store persisted in `bot_data` volume
+  - Env vars remain as seed/fallback, config store takes precedence
+  - All existing code refactored to use dynamic config
 
 - ✅ [2026-05-28 11:36 UTC] SSL/Domain Watchdog deployed
   - Check SSL cert expiry for all configured domains via TLS connection

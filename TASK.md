@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-27 09:52 UTC  
+**Last Updated:** 2026-05-28 03:26 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Container monitoring via SSH deployed. `/monitor erpstg` shows container list. cAdvisor incompatible (cgroups v2 + overlay2), reverted.
+**Status:** ✅ Full monitoring stack shipped (VPS + container health check + alerts + restart loop detection). `/menu` UX overhaul deployed. AI Agent 24/7 roadmap documented.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,21 +10,25 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-27 — container monitoring shipped via SSH approach.
+**Where we left off:** Sesi 2026-05-27/28 — monitoring + UX + roadmap planning.
 
-### What happened
+### What happened (this session)
 
-1. **cAdvisor attempted + failed:** 6 commits tried cAdvisor v0.49-v0.52. Incompatible with cgroups v2 + Docker overlay2 storage driver (both VPS confirmed). cAdvisor can't emit per-container metrics — only root cgroup. All 6 commits reverted.
-2. **SSH-based container monitoring deployed:** Bot SSH → target VPS → `docker ps --format`. Works for erpstg (3 containers visible). Deploy generates fresh ed25519 keypair, injects into bot container via stdin pipe.
-3. **SSH key incident:** Docker volume mount destroyed host `/home/ubuntu/.ssh/id_ed25519` (created directory instead of file). Fixed by generating new keypair in deploy script. Pubkey added to erpstg `authorized_keys`.
-4. **pro-secretary self-SSH skipped:** sshd on port 20128 bound to docker0 bridge rejects connections from compose network containers. Not worth fixing — pro-secretary already has full Prometheus metrics.
+1. **cAdvisor attempted + failed:** 6 commits tried cAdvisor v0.49-v0.52. Incompatible with cgroups v2 + Docker overlay2. All reverted.
+2. **SSH-based container monitoring deployed:** Bot SSH → erpstg → `docker ps`. Deploy generates ed25519 keypair, injects into bot container.
+3. **Periodic health check (5 min):** VPS up/down + container health transitions → Telegram alert. Verified end-to-end (stop meilisearch → alert → restart → recovery alert).
+4. **Restart loop detection:** Track container restarts in rolling window, alert if >3 in 15 min.
+5. **Alertmanager dedup:** Removed `InstanceDown` rule (bot health check covers it better).
+6. **`/menu` UX overhaul:** Grouped inline keyboard buttons + Help. BotCommand list reduced to 6.
+7. **AI Agent 24/7 Roadmap:** Full plan documented in [`AI_AGENT_ROADMAP.md`](AI_AGENT_ROADMAP.md).
 
 ### Key decisions
 
-- **cAdvisor = NOT VIABLE** on Ubuntu 22.04+ (cgroups v2) + Docker 24+ (overlay2). Don't retry without upstream fix.
-- **SSH-based approach = production pattern** for container listing on remote VPS.
-- **Deploy script now manages SSH key lifecycle** (generate if missing, inject into bot container every deploy).
-- **pro-secretary containers NOT listed** in `/monitor pro-secretary` — only Prometheus metrics. Acceptable trade-off.
+- **cAdvisor = NOT VIABLE** on Ubuntu 22.04+ (cgroups v2) + Docker 24+ (overlay2).
+- **SSH-based approach = production pattern** for container monitoring on remote VPS.
+- **Deploy script manages SSH key lifecycle** (generate if missing, inject into bot container).
+- **Voice handler already existed** — no work needed.
+- **Next priority: AI Agent 24/7 features** — see roadmap doc for full plan.rometheus metrics. Acceptable trade-off.
 
 ### Session deliverables (5 commits across 2 repos)
 
@@ -178,34 +182,40 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **PRIORITY: Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
-- [ ] **DOGFOOD: Q&A + voice + skills + /monitor** — passive 1-2 minggu
-- [ ] **DECISION POINT: Personal Journal** — wait 1 minggu regular usage data
+- [ ] **PRIORITY: AI Agent 24/7 — Incident Auto-Responder** — extend health check with auto-fix (restart, rollback, prune). See `AI_AGENT_ROADMAP.md` #1.
+- [ ] **PRIORITY: Morning Standup Brief** — 07:00 daily consolidated message. See roadmap #2.
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
+- [ ] **DOGFOOD: Q&A + voice + skills + /monitor + /menu** — passive 1-2 minggu
+- [ ] **DECISION POINT: Pick next roadmap items** — user decides from `AI_AGENT_ROADMAP.md`
 - [ ] **DEFERRED: Grafana** — wait actual trend visualization need
 - [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels
-- [ ] **MONITOR: Inspector APM bug** — workaround active, dev team scope
 
 ### Blocked/Waiting
 - VPS list from user (blocks Prometheus onboarding)
+- User decision on roadmap priority (blocks next AI agent feature)
 
 ### Recently Completed
 
+- ✅ [2026-05-28 03:26 UTC] AI Agent 24/7 Roadmap documented
+  - `AI_AGENT_ROADMAP.md` — 30+ features across 6 tiers with technical how-it-works
+
+- ✅ [2026-05-28 02:45 UTC] `/menu` UX overhaul
+  - Grouped inline keyboard buttons (6 categories)
+  - Help button with full command reference
+  - BotCommand list reduced to 6 most-used
+
+- ✅ [2026-05-28 02:30 UTC] Restart loop detection + Alertmanager dedup
+  - Track restart count in rolling window (3x in 15 min = alert)
+  - Removed InstanceDown from Prometheus (bot covers it)
+
+- ✅ [2026-05-28 02:10 UTC] Periodic health check verified end-to-end
+  - Stop meilisearch → alert fired → restart → recovery alert fired
+  - Both sendMessage returned 200 OK
+
 - ✅ [2026-05-27 09:52 UTC] Container monitoring via SSH — deployed
-  - cAdvisor attempted (6 commits), incompatible cgroups v2 + overlay2, reverted
   - SSH-based approach: bot SSH → docker ps. erpstg 3 containers visible.
-  - Deploy generates ed25519 keypair, injects into bot container
-  - SSH key incident fixed (Docker volume mount destroyed host key)
 
 - ✅ [2026-05-27 08:40 UTC] TASK.md condensed (2562→266 lines)
-  - Full history archived to TASK_ARCHIVE.md
-
-- ✅ [2026-05-25 08:00 UTC] Q&A retrieval audit — D1/D3/D4 all resolved
-  - 2 commits: `5bdf3c8` + `999f0a7`
-
-- ✅ [2026-05-25 04:30 UTC] Investigate erpstg unhealthy — resolved
-  - 2 commits to `gmd/erp-deployment/erp-l11` stg
-
-- ✅ [2026-05-24 09:00 UTC] Onboard erpstg to Prometheus — deployed
 
 ---
 

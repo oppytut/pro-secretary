@@ -3,8 +3,9 @@
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta, time as _time, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -417,19 +418,10 @@ async def cmd_catat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Menyiapkan briefing...")
     try:
-        r = await _agent_post(
-            "/api/briefing",
-            {"user_id": update.effective_user.id},
-            timeout=90.0,
-        )
-    except httpx.RequestError as exc:
-        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
-        return
-
-    if r.status_code == 200:
-        await update.message.reply_text(r.json().get("response", "Briefing kosong."))
-    else:
-        await update.message.reply_text(f"⚠️ Gagal membuat briefing (HTTP {r.status_code}).")
+        text = await _build_morning_brief()
+        await update.message.reply_text(text[:4000], parse_mode="HTML")
+    except Exception as exc:
+        await update.message.reply_text(f"⚠️ Gagal membuat briefing: {exc}")
 
 
 @authorized
@@ -705,6 +697,168 @@ async def _ssh_docker_ps(name: str) -> list[dict] | None:
         return containers
     except Exception:
         return None
+
+
+# --- Morning Standup Brief ---
+GH_PAT = os.getenv("GH_PAT", "")
+MORNING_BRIEF_ENABLED = os.getenv("MORNING_BRIEF_ENABLED", "true").lower() in ("1", "true", "yes")
+MORNING_BRIEF_HOUR = int(os.getenv("MORNING_BRIEF_HOUR", "7"))
+MORNING_BRIEF_MINUTE = int(os.getenv("MORNING_BRIEF_MINUTE", "0"))
+
+# GitHub repos to check (owner/repo format) — extracted from repos.yml
+_GH_REPOS: list[str] = ["gmedia/erp"]
+
+
+async def _gh_api(path: str) -> dict | list | None:
+    """Call GitHub REST API with GH_PAT."""
+    if not GH_PAT:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"https://api.github.com{path}",
+                headers={
+                    "Authorization": f"Bearer {GH_PAT}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+        if r.status_code == 200:
+            return r.json()
+    except httpx.RequestError:
+        pass
+    return None
+
+
+async def _collect_github_summary() -> list[str]:
+    """Collect open PRs and recent commits from GitHub repos."""
+    lines: list[str] = []
+    if not GH_PAT:
+        return lines
+
+    for repo in _GH_REPOS:
+        # Open PRs
+        prs = await _gh_api(f"/repos/{repo}/pulls?state=open&per_page=10&sort=updated")
+        if prs:
+            lines.append(f"📌 <b>{repo}</b> — {len(prs)} open PR(s):")
+            for pr in prs[:5]:
+                draft = " [draft]" if pr.get("draft") else ""
+                lines.append(f"  • #{pr['number']} {pr['title']}{draft}")
+
+        # Recent commits (last 12h)
+        since = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
+        commits = await _gh_api(f"/repos/{repo}/commits?per_page=10&since={since}")
+        if commits:
+            lines.append(f"  📝 {len(commits)} commit(s) last 12h:")
+            for c in commits[:3]:
+                msg = (c.get("commit", {}).get("message") or "").split("\n")[0][:60]
+                author = c.get("commit", {}).get("author", {}).get("name", "?")
+                lines.append(f"  • {msg} ({author})")
+
+        # Failing CI (check runs on default branch)
+        checks = await _gh_api(f"/repos/{repo}/commits/HEAD/check-runs?per_page=10")
+        if isinstance(checks, dict) and checks.get("check_runs"):
+            failed = [cr for cr in checks["check_runs"] if cr.get("conclusion") == "failure"]
+            if failed:
+                lines.append(f"  ❌ {len(failed)} failing CI check(s):")
+                for cr in failed[:3]:
+                    lines.append(f"  • {cr['name']}")
+
+    return lines
+
+
+async def _collect_prom_summary() -> list[str]:
+    """Collect VPS status + active alerts from Prometheus."""
+    lines: list[str] = []
+
+    up_results = await _prom_query('up{job="node"}')
+    if not up_results:
+        return ["⚠️ Prometheus tidak tersedia"]
+
+    all_up = True
+    for target in up_results:
+        name = target["metric"].get("instance_name", target["metric"].get("instance", "?"))
+        is_up = target["value"][1] == "1"
+        if not is_up:
+            all_up = False
+            lines.append(f"❌ VPS <b>{name}</b> DOWN")
+
+    if all_up:
+        lines.append(f"✅ Semua VPS UP ({len(up_results)} target)")
+
+    # Active alerts
+    alerts = await _prom_query('ALERTS{alertstate="firing"}')
+    if alerts:
+        lines.append(f"🚨 {len(alerts)} active alert(s):")
+        for a in alerts[:5]:
+            m = a["metric"]
+            lines.append(f"  • [{m.get('severity', '?')}] {m.get('alertname', '?')} — {m.get('instance_name', '?')}")
+    else:
+        lines.append("✅ No active alerts")
+
+    return lines
+
+
+async def _collect_agent_briefing() -> str:
+    """Get schedule + tasks from agent."""
+    try:
+        r = await _agent_post("/api/briefing", {}, timeout=60.0)
+        if r.status_code == 200:
+            return r.json().get("response", "")
+    except httpx.RequestError:
+        pass
+    return ""
+
+
+async def _build_morning_brief() -> str:
+    """Aggregate all sources into morning brief message."""
+    sections: list[str] = []
+    sections.append("☀️ <b>Morning Standup Brief</b>")
+    sections.append("")
+
+    # 1. Agent briefing (schedule + tasks)
+    agent_brief = await _collect_agent_briefing()
+    if agent_brief:
+        sections.append(agent_brief)
+        sections.append("")
+
+    # 2. Infra status
+    prom_lines = await _collect_prom_summary()
+    if prom_lines:
+        sections.append("🖥️ <b>Infra Status</b>")
+        sections.extend(prom_lines)
+        sections.append("")
+
+    # 3. GitHub activity
+    gh_lines = await _collect_github_summary()
+    if gh_lines:
+        sections.append("🐙 <b>Code Activity</b>")
+        sections.extend(gh_lines)
+        sections.append("")
+
+    # Timestamp
+    now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    sections.append(f"<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
+
+    return "\n".join(sections)
+
+
+async def _morning_brief_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job: send morning brief at configured time."""
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+    if not chat_id:
+        return
+
+    try:
+        text = await _build_morning_brief()
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text[:4000],
+            parse_mode="HTML",
+        )
+        logger.info("Morning brief sent to %s", chat_id)
+    except Exception as e:
+        logger.error("Morning brief job failed: %s", e)
 
 
 # --- Periodic Health Check ---
@@ -1454,6 +1608,19 @@ async def post_init(application: Application):
             name="health_check",
         )
         logger.info(f"Health check job scheduled every {HEALTH_CHECK_INTERVAL}s.")
+
+    if MORNING_BRIEF_ENABLED:
+        brief_time = _time(
+            hour=MORNING_BRIEF_HOUR,
+            minute=MORNING_BRIEF_MINUTE,
+            tzinfo=ZoneInfo("Asia/Jakarta"),
+        )
+        application.job_queue.run_daily(
+            _morning_brief_job,
+            time=brief_time,
+            name="morning_brief",
+        )
+        logger.info(f"Morning brief scheduled daily at {MORNING_BRIEF_HOUR:02d}:{MORNING_BRIEF_MINUTE:02d} WIB.")
 
 
 def main():

@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 03:26 UTC  
+**Last Updated:** 2026-05-28 08:57 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Full monitoring stack shipped (VPS + container health check + alerts + restart loop detection). `/menu` UX overhaul deployed. AI Agent 24/7 roadmap documented.
+**Status:** ✅ Morning Standup Brief shipped. Full monitoring stack live. AI Agent 24/7 roadmap documented.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -183,18 +183,23 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 
 ### Active Tasks
 - [ ] **PRIORITY: AI Agent 24/7 — Incident Auto-Responder** — extend health check with auto-fix (restart, rollback, prune). See `AI_AGENT_ROADMAP.md` #1.
-- [ ] **PRIORITY: Morning Standup Brief** — 07:00 daily consolidated message. See roadmap #2.
 - [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
-- [ ] **DOGFOOD: Q&A + voice + skills + /monitor + /menu** — passive 1-2 minggu
+- [ ] **DOGFOOD: Q&A + voice + skills + /monitor + /menu + /briefing** — passive 1-2 minggu
 - [ ] **DECISION POINT: Pick next roadmap items** — user decides from `AI_AGENT_ROADMAP.md`
 - [ ] **DEFERRED: Grafana** — wait actual trend visualization need
 - [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels
 
 ### Blocked/Waiting
 - VPS list from user (blocks Prometheus onboarding)
-- User decision on roadmap priority (blocks next AI agent feature)
 
 ### Recently Completed
+
+- ✅ [2026-05-28 08:56 UTC] Morning Standup Brief implemented
+  - Bot-side aggregation: schedule+tasks (agent), VPS status+alerts (Prometheus), open PRs+commits+CI (GitHub API)
+  - `run_daily` at 07:00 WIB via PTB JobQueue with `Asia/Jakarta` timezone
+  - `/briefing` command now triggers full morning brief on-demand
+  - Env vars: `GH_PAT`, `MORNING_BRIEF_ENABLED`, `MORNING_BRIEF_HOUR`, `MORNING_BRIEF_MINUTE`
+  - Files changed: `telegram-bot/bot.py`, `docker-compose.yml`
 
 - ✅ [2026-05-28 03:26 UTC] AI Agent 24/7 Roadmap documented
   - `AI_AGENT_ROADMAP.md` — 30+ features across 6 tiers with technical how-it-works

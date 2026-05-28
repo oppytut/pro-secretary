@@ -167,13 +167,16 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🧠 Skill", callback_data="menu:skill"),
          InlineKeyboardButton("☁️ Sync", callback_data="menu:sync"),
          InlineKeyboardButton("❓ Help", callback_data="menu:help")],
+        [InlineKeyboardButton("📈 Capacity", callback_data="menu:capacity"),
+         InlineKeyboardButton("🔍 Review", callback_data="menu:review"),
+         InlineKeyboardButton("🔒 SSL", callback_data="menu:ssl")],
     ]
     await update.message.reply_text(
         "📋 <b>Menu</b>\n\n"
         "📅 <b>Produktivitas</b> — Jadwal, Task, Tasks\n"
         "📝 <b>Catatan</b> — Catat, Journal, Cari\n"
-        "💻 <b>Developer</b> — Tanya, Projects, Index\n"
-        "🖥️ <b>Infra</b> — Monitor, VPS, Status\n"
+        "💻 <b>Developer</b> — Tanya, Projects, Index, Review\n"
+        "🖥️ <b>Infra</b> — Monitor, VPS, Status, Capacity, SSL\n"
         "⚙️ <b>Lainnya</b> — Briefing, EOD, Model, Skill, Sync\n\n"
         "Tap tombol di bawah atau ketik command langsung.",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -200,6 +203,33 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.message.reply_text(f"Ketik: /{cmd_name} <isi>")
         return
 
+    if cmd_name == "review":
+        await query.message.reply_text(
+            "🔍 <b>Auto PR/MR Review</b>\n\n"
+            "• /review list — Lihat repo yang di-review\n"
+            "• /review add github:owner/repo — Tambah repo\n"
+            "• /review add gitlab:owner/repo — Tambah GitLab repo\n"
+            "• /review del github:owner/repo — Hapus repo\n"
+            "• /review owner/repo#123 — Review on-demand",
+            parse_mode="HTML",
+        )
+        return
+
+    if cmd_name == "capacity":
+        await query.message.reply_text("📈 Ketik: /capacity")
+        return
+
+    if cmd_name == "ssl":
+        await query.message.reply_text(
+            "🔒 <b>SSL Watchdog</b>\n\n"
+            "• /ssl — Cek semua cert\n"
+            "• /ssl list — Lihat domain\n"
+            "• /ssl add domain.com — Tambah domain\n"
+            "• /ssl del domain.com — Hapus domain",
+            parse_mode="HTML",
+        )
+        return
+
     if cmd_name == "help":
         await query.message.reply_text(
             "❓ <b>Help</b>\n\n"
@@ -217,11 +247,15 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "• /tanya &lt;pertanyaan&gt; — Tanya tentang code di repo\n"
             "• /projects — Lihat repo yang ter-index\n"
             "• /index &lt;repo|all&gt; — Re-index repo\n"
-            "• /skill &lt;query&gt; — Simpan/cari skill\n\n"
+            "• /skill &lt;query&gt; — Simpan/cari skill\n"
+            "• /review — Auto PR/MR review (add/del/list)\n\n"
             "🖥️ <b>Infra</b>\n"
             "• /monitor [nama] — Monitor VPS + containers\n"
             "• /vps — Resource VPS lokal (CPU/RAM/disk)\n"
-            "• /status — Status semua komponen stack\n\n"
+            "• /status — Status semua komponen stack\n"
+            "• /capacity — Forecast disk/RAM exhaustion\n"
+            "• /drift — Config drift check\n"
+            "• /ssl — SSL cert expiry check\n\n"
             "⚙️ <b>Settings</b>\n"
             "• /model [nama] — Ganti/lihat model AI\n"
             "• /sync — Sync Obsidian vault\n\n"
@@ -2407,6 +2441,10 @@ async def post_init(application: Application):
         BotCommand("task", "Buat task baru"),
         BotCommand("journal", "Catat journal harian"),
         BotCommand("briefing", "Daily briefing"),
+        BotCommand("capacity", "Capacity forecast disk/RAM"),
+        BotCommand("review", "Auto PR/MR review"),
+        BotCommand("ssl", "SSL cert check"),
+        BotCommand("drift", "Config drift check"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered.")

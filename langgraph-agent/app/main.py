@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from . import code_repos, config, journal, llm, resource_alerts, skills, system_status, telegram, tools, vps_status, workflow
+from . import code_repos, config, gitlab_review, journal, llm, pr_review, resource_alerts, skills, system_status, telegram, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -435,3 +435,72 @@ async def _build_summary(mode: str) -> str:
         reply = facts
 
     return reply
+
+
+# --- GitHub Webhook (Auto PR Review) ---
+
+
+@app.post("/api/webhook/github")
+async def github_webhook(request: Request) -> dict[str, Any]:
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+
+    if not pr_review.verify_webhook_signature(body, signature):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid signature")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event != "pull_request":
+        return {"skipped": True, "reason": f"event={event} not handled"}
+
+    import json
+    payload = json.loads(body)
+    result = await pr_review.handle_pr_event(payload)
+    return result
+
+
+@app.post("/api/webhook/gitlab")
+async def gitlab_webhook(request: Request) -> dict[str, Any]:
+    token = request.headers.get("X-Gitlab-Token", "")
+
+    if not gitlab_review.verify_webhook_token(token):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token")
+
+    event = request.headers.get("X-Gitlab-Event", "")
+    if event != "Merge Request Hook":
+        return {"skipped": True, "reason": f"event={event} not handled"}
+
+    import json
+    body = await request.body()
+    payload = json.loads(body)
+    result = await gitlab_review.handle_mr_event(payload)
+    return result
+
+
+class ReviewPRRequest(BaseModel):
+    repo: str = Field(..., min_length=1)
+    pr_number: int = Field(..., ge=1)
+
+
+@app.post("/api/review_pr", dependencies=[Depends(verify_secret)])
+async def review_pr_on_demand(req: ReviewPRRequest) -> dict[str, Any]:
+    repo = req.repo
+    if ":" in repo:
+        platform, full_name = repo.split(":", 1)
+    else:
+        platform, full_name = "github", repo
+    return await pr_review.review_pr_on_demand(platform, full_name, req.pr_number)
+
+
+class ReviewReposRequest(BaseModel):
+    repos: list[str]
+
+
+@app.get("/api/review/repos", dependencies=[Depends(verify_secret)])
+async def get_review_repos() -> dict[str, Any]:
+    return {"repos": pr_review.get_whitelist()}
+
+
+@app.post("/api/review/repos", dependencies=[Depends(verify_secret)])
+async def set_review_repos(req: ReviewReposRequest) -> dict[str, Any]:
+    pr_review.set_whitelist(req.repos)
+    return {"ok": True, "repos": req.repos}

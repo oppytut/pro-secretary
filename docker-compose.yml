@@ -83,7 +83,9 @@ services:
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - GH_PAT=${GH_PAT}
+      - GH_WEBHOOK_SECRET=${GH_WEBHOOK_SECRET:-}
       - GITLAB_PAT=${GITLAB_PAT}
+      - GITLAB_WEBHOOK_SECRET=${GITLAB_WEBHOOK_SECRET:-}
       - REPO_BASE_DIR=${REPO_BASE_DIR:-/repos}
       - REPOS_CONFIG_PATH=${REPOS_CONFIG_PATH:-/app/repos.yml}
       - RESOURCE_ALERT_STATE_FILE=/app/state/resource-alert-state.json
@@ -221,6 +223,10 @@ services:
       - SSL_CHECK_ENABLED=${SSL_CHECK_ENABLED:-true}
       - SSL_CHECK_DOMAINS=${SSL_CHECK_DOMAINS:-}
       - SSL_WARN_DAYS=${SSL_WARN_DAYS:-30}
+      - CAPACITY_CHECK_ENABLED=${CAPACITY_CHECK_ENABLED:-true}
+      - CAPACITY_CHECK_HOUR=${CAPACITY_CHECK_HOUR:-2}
+      - CAPACITY_CHECK_MINUTE=${CAPACITY_CHECK_MINUTE:-10}
+      - CAPACITY_WARN_DAYS=${CAPACITY_WARN_DAYS:-14}
       - TZ=${TIMEZONE}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -255,6 +261,7 @@ services:
     environment:
       - N8N_HOST=${N8N_HOST}
       - CALCOM_HOST=${CALCOM_HOST}
+      - AGENT_HOST=${AGENT_HOST:-}
       - TZ=${TIMEZONE}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro

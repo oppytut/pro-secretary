@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 14:12 UTC  
+**Last Updated:** 2026-05-28 15:08 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ 5 features shipped in one session: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config via Telegram.
+**Status:** ✅ 7 features shipped: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab).
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,7 +10,7 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-28 — shipped 5 AI Agent 24/7 features from roadmap.
+**Where we left off:** Sesi 2026-05-28 — shipped 7 AI Agent 24/7 features from roadmap.
 
 ### What happened (this session)
 
@@ -19,6 +19,8 @@
 3. **Config Drift Detector** — daily 02:00 WIB check: running images vs docker-compose.yml, container set, cron entries, remote VPS liveness. `/drift` on-demand.
 4. **SSL/Domain Watchdog** — daily 02:05 WIB cert expiry check. Alert 30 days before. `/ssl` on-demand.
 5. **Dynamic Config via Telegram** — `/ssl add/del/list` + `/monitor add/del/list`. JSON config store persisted in `bot_data` volume. Env vars as seed/fallback.
+6. **Capacity Planning** — daily 02:10 WIB predict_linear forecast for disk and RAM exhaustion (7d lookback, 14d horizon). `/capacity` on-demand. Silent when OK, alerts when predicted exhaustion within CAPACITY_WARN_DAYS.
+7. **Auto PR Review** — GitHub webhook → LangGraph agent fetches diff → LLM analyzes (bugs, security, performance) → posts review on PR (APPROVE/COMMENT/REQUEST_CHANGES) → Telegram notification.
 
 ### Key decisions
 
@@ -30,9 +32,14 @@
 
 ### Session files changed
 
-- `telegram-bot/bot.py` — all 5 features implemented here
-- `telegram-bot/Dockerfile` — added Docker CLI static binary
-- `docker-compose.yml` — env vars, docker socket mount, bot_data volume
+- `telegram-bot/bot.py` — capacity planning + /review command with config store
+- `langgraph-agent/app/main.py` — GitHub/GitLab webhook endpoints + /api/review_pr + /api/review/repos
+- `langgraph-agent/app/pr_review.py` — NEW: PR diff fetch, LLM analysis, review posting, whitelist
+- `langgraph-agent/app/gitlab_review.py` — NEW: GitLab MR diff fetch, comment posting
+- `langgraph-agent/app/config.py` — added GH_WEBHOOK_SECRET, GITLAB_WEBHOOK_SECRET
+- `docker-compose.yml` — capacity + webhook env vars
+- `caddy/Caddyfile` — agent webhook routes (GitHub + GitLab)
+- `.env.example` — GH_WEBHOOK_SECRET, GITLAB_WEBHOOK_SECRET, AGENT_HOST
 
 ### New env vars (all have defaults, optional)
 
@@ -51,6 +58,14 @@
 | `SSL_CHECK_DOMAINS` | (empty) | Comma-separated seed domains |
 | `SSL_WARN_DAYS` | 30 | Days before expiry to warn |
 
+| `CAPACITY_CHECK_ENABLED` | true | Enable/disable capacity forecast |
+| `CAPACITY_CHECK_HOUR` | 2 | Hour (WIB) |
+| `CAPACITY_CHECK_MINUTE` | 10 | Minute |
+| `CAPACITY_WARN_DAYS` | 14 | Days ahead to predict exhaustion |
+| `GH_WEBHOOK_SECRET` | (empty) | GitHub webhook HMAC secret for PR review |
+| `GITLAB_WEBHOOK_SECRET` | (empty) | GitLab webhook token for MR review |
+| `AGENT_HOST` | agent.localhost | Public hostname for agent webhook endpoint |
+
 ### New commands
 
 | Command | Purpose |
@@ -60,6 +75,9 @@
 | `/ssl` | SSL cert check on-demand |
 | `/ssl add/del/list` | Manage SSL watchlist via Telegram |
 | `/monitor add/del/list` | Manage VPS targets via Telegram |
+| `/capacity` | Disk/RAM exhaustion forecast on-demand |
+| `/review add/del/list` | Manage auto-review repo whitelist |
+| `/review owner/repo#123` | On-demand PR/MR review |
 
 ### Session deliverables (5 commits across 2 repos)
 
@@ -112,12 +130,7 @@
    - Per-VPS: install `prometheus-node-exporter`, UFW allow pro-secretary IP only, append target.
    - Butuh dari user: list IP/hostname + provider + SSH access.
    - **NEW:** Bisa juga `/monitor add <name> <host> <port> <user>` via Telegram.
-
-3. **Capacity Planning** (1 hari) — Prometheus trend forecasting, predict disk/RAM exhaustion 2 weeks ahead.
-
-4. **Auto PR Review** (1-2 hari) — GitHub webhook + code analysis + auto-comment.
-
-5. **`/repo add/del/list`** — dynamic project management via Telegram (needs agent endpoint for re-indexing).
+3. **`/repo add/del/list`** — dynamic project management via Telegram (needs agent endpoint for re-indexing).
 
 6. **Jangan lakukan sebelum 1-2 minggu data:**
    - Grafana (tunggu actual trend visualization need)
@@ -222,6 +235,31 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - VPS list from user (blocks Prometheus onboarding)
 
 ### Recently Completed
+
+- ✅ [2026-05-28 14:36 UTC] Auto PR Review deployed
+  - GitHub webhook → agent `/api/webhook/github` endpoint
+  - GitLab webhook → agent `/api/webhook/gitlab` endpoint
+  - Signature verification (HMAC SHA-256 for GitHub, token for GitLab)
+  - Fetches PR/MR diff, LLM analyzes (bugs, security, performance, error handling)
+  - GitHub: posts review (APPROVE/COMMENT/REQUEST_CHANGES)
+  - GitLab: posts comment on MR
+  - `/review add github:owner/repo` or `/review add gitlab:owner/repo` — manage whitelist via Telegram
+  - `/review del`, `/review list` — remove/list monitored repos
+  - `/review owner/repo#123` — on-demand review trigger
+  - Whitelist synced from bot → agent on every add/del
+  - Empty whitelist = review all (backward compat)
+  - Telegram notification on every review posted
+  - Caddy route exposes only webhook paths
+  - New files: `langgraph-agent/app/pr_review.py`, `langgraph-agent/app/gitlab_review.py`
+  - Env: `GH_WEBHOOK_SECRET`, `GITLAB_WEBHOOK_SECRET`, `AGENT_HOST`
+  - Setup: configure repo webhook → `https://{AGENT_HOST}/api/webhook/github` or `/api/webhook/gitlab`
+
+- ✅ [2026-05-28 14:24 UTC] Capacity Planning deployed
+  - predict_linear forecast: disk + RAM exhaustion (7d lookback, 14d horizon)
+  - Daily 02:10 WIB scheduled (silent when OK, alerts on predicted exhaustion)
+  - `/capacity` command for on-demand forecast
+  - Current usage snapshot included in report
+  - Env: `CAPACITY_CHECK_ENABLED`, `CAPACITY_CHECK_HOUR`, `CAPACITY_CHECK_MINUTE`, `CAPACITY_WARN_DAYS`
 
 - ✅ [2026-05-28 14:12 UTC] Dynamic Config via Telegram
   - `/ssl add/del/list` — manage SSL watchlist domains

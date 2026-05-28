@@ -767,6 +767,129 @@ async def cmd_ssl(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+@authorized
+async def cmd_capacity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📈 Running capacity forecast...")
+    try:
+        report = await _run_capacity_check()
+        await update.message.reply_text(report[:4000], parse_mode="HTML")
+    except Exception as exc:
+        await update.message.reply_text(f"⚠️ Capacity check failed: {exc}")
+
+
+def _get_review_repos() -> list[str]:
+    return _config_get("review_repos", [])
+
+
+def _add_review_repo(repo: str) -> bool:
+    repos = _config_get("review_repos", [])
+    if repo in repos:
+        return False
+    repos.append(repo)
+    _config_set("review_repos", repos)
+    return True
+
+
+def _del_review_repo(repo: str) -> bool:
+    repos = _config_get("review_repos", [])
+    if repo not in repos:
+        return False
+    repos.remove(repo)
+    _config_set("review_repos", repos)
+    return True
+
+
+async def _sync_review_repos_to_agent() -> None:
+    repos = _get_review_repos()
+    try:
+        await _agent_post("/api/review/repos", {"repos": repos}, timeout=10.0)
+    except Exception:
+        pass
+
+
+@authorized
+async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+
+    if not args:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/review list — show monitored repos\n"
+            "/review add github:owner/repo — add repo\n"
+            "/review add gitlab:owner/repo — add GitLab repo\n"
+            "/review del github:owner/repo — remove repo\n"
+            "/review owner/repo#123 — review PR on-demand"
+        )
+        return
+
+    action = args[0].lower()
+
+    if action == "list":
+        repos = _get_review_repos()
+        if not repos:
+            await update.message.reply_text("📋 No repos configured for auto-review.")
+        else:
+            lines = ["🔍 <b>Auto PR Review Repos</b>", ""]
+            for r in repos:
+                lines.append(f"• <code>{r}</code>")
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    if action == "add" and len(args) >= 2:
+        repo = args[1].strip()
+        if ":" not in repo:
+            repo = f"github:{repo}"
+        if _add_review_repo(repo):
+            await _sync_review_repos_to_agent()
+            await update.message.reply_text(f"✅ Added <code>{repo}</code> to auto-review.", parse_mode="HTML")
+        else:
+            await update.message.reply_text(f"ℹ️ <code>{repo}</code> already in list.", parse_mode="HTML")
+        return
+
+    if action in ("del", "remove") and len(args) >= 2:
+        repo = args[1].strip()
+        if ":" not in repo:
+            repo = f"github:{repo}"
+        if _del_review_repo(repo):
+            await _sync_review_repos_to_agent()
+            await update.message.reply_text(f"✅ Removed <code>{repo}</code> from auto-review.", parse_mode="HTML")
+        else:
+            await update.message.reply_text(f"ℹ️ <code>{repo}</code> not in list.", parse_mode="HTML")
+        return
+
+    # On-demand: /review owner/repo#123
+    target = args[0]
+    if "#" in target:
+        repo_part, pr_str = target.rsplit("#", 1)
+        if ":" not in repo_part:
+            repo_part = f"github:{repo_part}"
+        try:
+            pr_number = int(pr_str)
+        except ValueError:
+            await update.message.reply_text("⚠️ Invalid PR number. Use: /review owner/repo#123")
+            return
+        await update.message.reply_text(f"🔍 Reviewing {repo_part}#{pr_number}...")
+        try:
+            r = await _agent_post("/api/review_pr", {
+                "repo": repo_part,
+                "pr_number": pr_number,
+            }, timeout=90.0)
+            if r.status_code == 200:
+                data = r.json()
+                verdict = data.get("verdict", "?")
+                await update.message.reply_text(
+                    f"✅ Review posted: <b>{verdict}</b>", parse_mode="HTML"
+                )
+            else:
+                await update.message.reply_text(f"⚠️ Review failed: {r.status_code} {r.text[:200]}")
+        except Exception as exc:
+            await update.message.reply_text(f"⚠️ Review failed: {exc}")
+    else:
+        await update.message.reply_text(
+            "Usage: /review owner/repo#123 or /review add/del/list"
+        )
+
+
 async def _ssh_docker_ps(name: str) -> list[dict] | None:
     target = _get_ssh_targets().get(name)
     if not target:
@@ -956,6 +1079,150 @@ async def _ssl_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info("SSL check: all certs OK")
     except Exception as e:
         logger.error(f"SSL check job failed: {e}")
+
+
+# --- Capacity Planning ---
+CAPACITY_CHECK_ENABLED = os.getenv("CAPACITY_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
+CAPACITY_CHECK_HOUR = int(os.getenv("CAPACITY_CHECK_HOUR", "2"))
+CAPACITY_CHECK_MINUTE = int(os.getenv("CAPACITY_CHECK_MINUTE", "10"))
+CAPACITY_WARN_DAYS = int(os.getenv("CAPACITY_WARN_DAYS", "14"))  # alert N days before exhaustion
+
+
+async def _run_capacity_check() -> str:
+    """Query Prometheus predict_linear for disk/RAM exhaustion forecasting."""
+    sections: list[str] = ["📈 <b>Capacity Planning Report</b>", ""]
+    warnings: list[str] = []
+    ok_list: list[str] = []
+    horizon_sec = CAPACITY_WARN_DAYS * 86400
+
+    # --- Disk exhaustion prediction ---
+    # predict_linear over 7d window, predict CAPACITY_WARN_DAYS ahead
+    disk_query = (
+        f'predict_linear(node_filesystem_avail_bytes{{fstype=~"ext4|xfs",mountpoint="/"}}[7d], {horizon_sec})'
+    )
+    disk_results = await _prom_query(disk_query)
+    if disk_results:
+        for r in disk_results:
+            name = r.get("metric", {}).get("instance_name", r.get("metric", {}).get("instance", "?"))
+            predicted_avail = float(r["value"][1])
+            if predicted_avail < 0:
+                # Calculate days until full using current avail and rate
+                current_q = f'node_filesystem_avail_bytes{{fstype=~"ext4|xfs",mountpoint="/",instance_name="{name}"}}'
+                current_res = await _prom_query(current_q)
+                current_avail_gb = 0.0
+                if current_res:
+                    current_avail_gb = float(current_res[0]["value"][1]) / (1024**3)
+                # Estimate days: solve predict_linear=0
+                rate_q = f'rate(node_filesystem_avail_bytes{{fstype=~"ext4|xfs",mountpoint="/",instance_name="{name}"}}[7d])'
+                rate_res = await _prom_query(rate_q)
+                days_left = "?"
+                if rate_res:
+                    rate_per_sec = float(rate_res[0]["value"][1])
+                    if rate_per_sec < 0:
+                        secs_left = abs(float(current_res[0]["value"][1]) / rate_per_sec) if current_res else 0
+                        days_left = f"{secs_left / 86400:.0f}"
+                warnings.append(
+                    f"🔴 <b>{name}</b> disk penuh dalam ~{days_left} hari "
+                    f"(sisa {current_avail_gb:.1f} GB)"
+                )
+            else:
+                predicted_gb = predicted_avail / (1024**3)
+                ok_list.append(f"✅ <b>{name}</b> disk OK — predicted {predicted_gb:.1f} GB free in {CAPACITY_WARN_DAYS}d")
+
+    # --- RAM exhaustion prediction ---
+    ram_query = (
+        f'predict_linear(node_memory_MemAvailable_bytes[7d], {horizon_sec})'
+    )
+    ram_results = await _prom_query(ram_query)
+    if ram_results:
+        for r in ram_results:
+            name = r.get("metric", {}).get("instance_name", r.get("metric", {}).get("instance", "?"))
+            predicted_avail = float(r["value"][1])
+            if predicted_avail < 0:
+                current_q = f'node_memory_MemAvailable_bytes{{instance_name="{name}"}}'
+                current_res = await _prom_query(current_q)
+                current_avail_gb = 0.0
+                if current_res:
+                    current_avail_gb = float(current_res[0]["value"][1]) / (1024**3)
+                total_q = f'node_memory_MemTotal_bytes{{instance_name="{name}"}}'
+                total_res = await _prom_query(total_q)
+                total_gb = 0.0
+                if total_res:
+                    total_gb = float(total_res[0]["value"][1]) / (1024**3)
+                # Estimate days
+                rate_q = f'rate(node_memory_MemAvailable_bytes{{instance_name="{name}"}}[7d])'
+                rate_res = await _prom_query(rate_q)
+                days_left = "?"
+                if rate_res:
+                    rate_per_sec = float(rate_res[0]["value"][1])
+                    if rate_per_sec < 0 and current_res:
+                        secs_left = abs(float(current_res[0]["value"][1]) / rate_per_sec)
+                        days_left = f"{secs_left / 86400:.0f}"
+                warnings.append(
+                    f"⚠️ <b>{name}</b> RAM exhaustion ~{days_left} hari "
+                    f"(sisa {current_avail_gb:.1f}/{total_gb:.1f} GB)"
+                )
+            else:
+                predicted_gb = predicted_avail / (1024**3)
+                ok_list.append(f"✅ <b>{name}</b> RAM OK — predicted {predicted_gb:.1f} GB free in {CAPACITY_WARN_DAYS}d")
+
+    # --- Current usage summary (for context) ---
+    usage_q = '(1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs",mountpoint="/"} / node_filesystem_size_bytes{fstype=~"ext4|xfs",mountpoint="/"}) * 100'
+    usage_res = await _prom_query(usage_q)
+    ram_usage_q = '(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100'
+    ram_usage_res = await _prom_query(ram_usage_q)
+
+    if not disk_results and not ram_results:
+        sections.append("⚠️ No Prometheus data available — ensure targets are scraped with 7+ days of history.")
+    else:
+        if warnings:
+            sections.append(f"🚨 <b>{len(warnings)} warning(s):</b>")
+            sections.append("")
+            sections.extend(warnings)
+            sections.append("")
+        if ok_list:
+            sections.extend(ok_list)
+            sections.append("")
+
+        # Current snapshot
+        if usage_res or ram_usage_res:
+            sections.append("<b>Current Usage:</b>")
+            if usage_res:
+                for r in usage_res:
+                    name = r.get("metric", {}).get("instance_name", r.get("metric", {}).get("instance", "?"))
+                    pct = float(r["value"][1])
+                    sections.append(f"  💾 {name} disk: {pct:.1f}%")
+            if ram_usage_res:
+                for r in ram_usage_res:
+                    name = r.get("metric", {}).get("instance_name", r.get("metric", {}).get("instance", "?"))
+                    pct = float(r["value"][1])
+                    sections.append(f"  🧠 {name} RAM: {pct:.1f}%")
+
+    now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    sections.append(f"\n<i>Forecast window: {CAPACITY_WARN_DAYS} days | {now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
+    return "\n".join(sections)
+
+
+async def _capacity_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled daily capacity check — only notifies if warnings found."""
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+    if not chat_id:
+        return
+
+    try:
+        report = await _run_capacity_check()
+        has_warning = "🔴" in report or "⚠️" in report
+        if has_warning:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=report[:4000],
+                parse_mode="HTML",
+            )
+            logger.info("Capacity check: warnings reported")
+        else:
+            logger.info("Capacity check: all OK, no notification sent")
+    except Exception as e:
+        logger.error(f"Capacity check job failed: {e}")
 
 
 # --- Config Drift Detector ---
@@ -2192,6 +2459,19 @@ async def post_init(application: Application):
         )
         logger.info(f"SSL check scheduled daily at {DRIFT_CHECK_HOUR:02d}:{DRIFT_CHECK_MINUTE + 5:02d} WIB for {len(SSL_CHECK_DOMAINS)} domain(s).")
 
+    if CAPACITY_CHECK_ENABLED:
+        capacity_time = _time(
+            hour=CAPACITY_CHECK_HOUR,
+            minute=CAPACITY_CHECK_MINUTE,
+            tzinfo=ZoneInfo("Asia/Jakarta"),
+        )
+        application.job_queue.run_daily(
+            _capacity_check_job,
+            time=capacity_time,
+            name="capacity_check",
+        )
+        logger.info(f"Capacity check scheduled daily at {CAPACITY_CHECK_HOUR:02d}:{CAPACITY_CHECK_MINUTE:02d} WIB.")
+
 
 def main():
     if not BOT_TOKEN:
@@ -2216,6 +2496,8 @@ def main():
     app.add_handler(CommandHandler("monitor", cmd_monitor))
     app.add_handler(CommandHandler("drift", cmd_drift))
     app.add_handler(CommandHandler("ssl", cmd_ssl))
+    app.add_handler(CommandHandler("capacity", cmd_capacity))
+    app.add_handler(CommandHandler("review", cmd_review))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("journal", cmd_journal))
     app.add_handler(CommandHandler("projects", cmd_projects))

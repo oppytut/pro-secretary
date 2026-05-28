@@ -5,3 +5,9 @@
 {$CALCOM_HOST} {
 	reverse_proxy calcom:3000
 }
+
+{$AGENT_HOST:agent.localhost} {
+	@webhooks path /api/webhook/github /api/webhook/gitlab
+	reverse_proxy @webhooks langgraph-agent:8090
+	respond 404
+}

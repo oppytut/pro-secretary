@@ -42,7 +42,9 @@ COLL_CODE = "code_chunks"
 COLL_SKILLS = "skills"
 
 GH_PAT = os.getenv("GH_PAT", "")
+GH_WEBHOOK_SECRET = os.getenv("GH_WEBHOOK_SECRET", "")
 GITLAB_PAT = os.getenv("GITLAB_PAT", "")
+GITLAB_WEBHOOK_SECRET = os.getenv("GITLAB_WEBHOOK_SECRET", "")
 REPO_BASE_DIR = Path(os.getenv("REPO_BASE_DIR", "/repos"))
 REPOS_CONFIG_PATH = Path(os.getenv("REPOS_CONFIG_PATH", "/app/repos.yml"))
 

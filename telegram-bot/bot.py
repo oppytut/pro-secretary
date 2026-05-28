@@ -140,26 +140,79 @@ def _detect_repo_intent(text: str) -> tuple[str | None, str]:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 AI Secretary Active\n\n"
-        "Perintah tersedia:\n"
-        "/jadwal - Lihat jadwal hari ini\n"
-        "/task <judul> - Buat task baru\n"
-        "/tasks - Lihat pending tasks\n"
-        "/cari <query> - Cari di indexed code repos\n"
-        "/cari di <repo> <query> - Cari di repo tertentu\n"
-        "/catat <note> - Catat sesuatu\n"
-        "/briefing - Daily briefing\n"
-        "/eod - End-of-day summary\n"
-        "/sync - Sync Obsidian vault\n"
-        "/status - Cek status semua komponen\n"
-        "/vps - Cek resource VPS lokal\n"
-        "/monitor - Monitor semua VPS (Prometheus)\n"
-        "/model - Ganti/lihat model AI\n"
-        "/journal <isi> - Catat journal (atau reply pesan 21:30)\n"
-        "/projects - Lihat repo yang ter-index\n"
-        "/index <repo|all> - Re-index repo\n"
-        "/tanya <pertanyaan> - Tanya tentang code di repo\n\n"
-        "Atau kirim pesan biasa atau voice note untuk chat."
+        "Ketik /menu untuk lihat semua fitur.\n"
+        "Atau kirim pesan biasa / voice note untuk chat."
     )
+
+
+@authorized
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("📅 Jadwal", callback_data="menu:jadwal"),
+         InlineKeyboardButton("✅ Task", callback_data="menu:task"),
+         InlineKeyboardButton("📋 Tasks", callback_data="menu:tasks")],
+        [InlineKeyboardButton("📝 Catat", callback_data="menu:catat"),
+         InlineKeyboardButton("📓 Journal", callback_data="menu:journal"),
+         InlineKeyboardButton("🔍 Cari", callback_data="menu:cari")],
+        [InlineKeyboardButton("💬 Tanya", callback_data="menu:tanya"),
+         InlineKeyboardButton("📂 Projects", callback_data="menu:projects"),
+         InlineKeyboardButton("🔄 Index", callback_data="menu:index")],
+        [InlineKeyboardButton("🖥️ Monitor", callback_data="menu:monitor"),
+         InlineKeyboardButton("📊 VPS", callback_data="menu:vps"),
+         InlineKeyboardButton("🔌 Status", callback_data="menu:status")],
+        [InlineKeyboardButton("☀️ Briefing", callback_data="menu:briefing"),
+         InlineKeyboardButton("🌙 EOD", callback_data="menu:eod"),
+         InlineKeyboardButton("🤖 Model", callback_data="menu:model")],
+        [InlineKeyboardButton("🧠 Skill", callback_data="menu:skill"),
+         InlineKeyboardButton("☁️ Sync", callback_data="menu:sync")],
+    ]
+    await update.message.reply_text(
+        "📋 <b>Menu</b>\n\n"
+        "📅 <b>Produktivitas</b> — Jadwal, Task, Tasks\n"
+        "📝 <b>Catatan</b> — Catat, Journal, Cari\n"
+        "💻 <b>Developer</b> — Tanya, Projects, Index\n"
+        "🖥️ <b>Infra</b> — Monitor, VPS, Status\n"
+        "⚙️ <b>Lainnya</b> — Briefing, EOD, Model, Skill, Sync\n\n"
+        "Tap tombol di bawah atau ketik command langsung.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
+
+
+_MENU_HANDLERS: dict[str, str] = {
+    "jadwal": "cmd_jadwal", "task": "cmd_task", "tasks": "cmd_tasks",
+    "catat": "cmd_catat", "journal": "cmd_journal", "cari": "cmd_cari",
+    "tanya": "cmd_tanya", "projects": "cmd_projects", "index": "cmd_index",
+    "monitor": "cmd_monitor", "vps": "cmd_vps", "status": "cmd_status",
+    "briefing": "cmd_briefing", "eod": "cmd_eod", "model": "cmd_model",
+    "skill": "cmd_skill", "sync": "cmd_sync",
+}
+
+
+async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cmd_name = query.data.replace("menu:", "")
+
+    if cmd_name in ("task", "catat", "journal", "cari", "tanya", "index", "skill"):
+        await query.message.reply_text(f"Ketik: /{cmd_name} <isi>")
+        return
+
+    handler_name = _MENU_HANDLERS.get(cmd_name)
+    if not handler_name:
+        return
+    handler_fn = globals().get(handler_name)
+    if not handler_fn:
+        return
+
+    class _FakeUpdate:
+        def __init__(self, msg, user):
+            self.message = msg
+            self.effective_user = user
+    
+    fake = _FakeUpdate(query.message, update.effective_user)
+    context.args = []
+    await handler_fn(fake, context)
 
 
 @authorized
@@ -1352,24 +1405,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application: Application):
     await _load_repo_names()
     commands = [
-        BotCommand("start", "Mulai bot"),
-        BotCommand("jadwal", "Lihat jadwal hari ini"),
-        BotCommand("task", "Buat task baru"),
-        BotCommand("tasks", "Lihat pending tasks"),
-        BotCommand("cari", "Cari di knowledge base"),
-        BotCommand("catat", "Catat sesuatu"),
-        BotCommand("briefing", "Daily briefing"),
-        BotCommand("eod", "End-of-day summary"),
-        BotCommand("sync", "Sync Obsidian vault → knowledge"),
-        BotCommand("status", "Cek status semua komponen"),
-        BotCommand("vps", "Cek resource VPS lokal"),
-        BotCommand("monitor", "Monitor semua VPS (Prometheus)"),
-        BotCommand("model", "Ganti/lihat model AI"),
-        BotCommand("journal", "Catat journal harian"),
-        BotCommand("projects", "Lihat repo terdaftar"),
-        BotCommand("index", "Re-index repo (atau all)"),
+        BotCommand("menu", "Lihat semua fitur"),
+        BotCommand("monitor", "Monitor VPS + containers"),
         BotCommand("tanya", "Tanya tentang code di repo"),
-        BotCommand("skill", "Simpan/cari skill"),
+        BotCommand("task", "Buat task baru"),
+        BotCommand("journal", "Catat journal harian"),
+        BotCommand("briefing", "Daily briefing"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered.")
@@ -1393,6 +1434,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(CommandHandler("jadwal", cmd_jadwal))
     app.add_handler(CommandHandler("task", cmd_task))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
@@ -1411,6 +1453,7 @@ def main():
     app.add_handler(CommandHandler("tanya", cmd_tanya))
     app.add_handler(CommandHandler("skill", cmd_skill))
     app.add_handler(CallbackQueryHandler(handle_skill_callback, pattern="^autoskill$"))
+    app.add_handler(CallbackQueryHandler(handle_menu_callback, pattern="^menu:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

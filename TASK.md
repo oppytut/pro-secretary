@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 10:56 UTC  
+**Last Updated:** 2026-05-28 11:36 UTC  
 **Project:** AI Personal Secretary Stack  
-**Status:** ✅ Morning Brief + Incident Auto-Responder + Config Drift Detector shipped. Top 3 roadmap items done.
+**Status:** ✅ Morning Brief + Auto-Responder + Drift Detector + SSL Watchdog shipped. Top 4 roadmap items done.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -192,6 +192,14 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - VPS list from user (blocks Prometheus onboarding)
 
 ### Recently Completed
+
+- ✅ [2026-05-28 11:36 UTC] SSL/Domain Watchdog deployed
+  - Check SSL cert expiry for all configured domains via TLS connection
+  - Alert 30 days before expiry (configurable via `SSL_WARN_DAYS`)
+  - Daily scheduled at 02:05 WIB (silent when OK, alerts on warnings)
+  - `/ssl` command for on-demand check
+  - Env: `SSL_CHECK_ENABLED`, `SSL_CHECK_DOMAINS`, `SSL_WARN_DAYS`
+  - Requires: set `SSL_CHECK_DOMAINS=domain1.com,domain2.com` in `.env`
 
 - ✅ [2026-05-28 10:56 UTC] Config Drift Detector deployed
   - Docker image version drift check (running vs expected from docker-compose.yml)

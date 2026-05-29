@@ -13,6 +13,7 @@ async def send_message(
     text: str,
     chat_id: str | int | None = None,
     reply_markup: dict[str, Any] | None = None,
+    parse_mode: str | None = None,
 ) -> dict:
     if not config.TELEGRAM_BOT_TOKEN:
         return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not set"}
@@ -34,6 +35,8 @@ async def send_message(
                 "text": text,
                 "disable_web_page_preview": True,
             }
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
             if reply_markup is not None:
                 payload["reply_markup"] = reply_markup
             r = await client.post(

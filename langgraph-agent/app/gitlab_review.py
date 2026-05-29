@@ -106,7 +106,7 @@ async def handle_mr_event(payload: dict[str, Any]) -> dict[str, Any]:
         f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
         f"💬 {analysis['summary']}"
     )
-    await telegram.send_message(notify_text)
+    await telegram.send_message(notify_text, parse_mode="HTML")
 
     return {
         "reviewed": True,
@@ -151,7 +151,7 @@ async def review_mr_on_demand(full_name: str, mr_iid: int) -> dict[str, Any]:
         f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
         f"💬 {analysis['summary']}"
     )
-    await telegram.send_message(notify_text)
+    await telegram.send_message(notify_text, parse_mode="HTML")
 
     return {
         "reviewed": True,

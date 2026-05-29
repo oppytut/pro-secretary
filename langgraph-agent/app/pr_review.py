@@ -203,7 +203,7 @@ async def handle_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
         f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
         f"💬 {analysis['summary']}"
     )
-    await telegram.send_message(notify_text)
+    await telegram.send_message(notify_text, parse_mode="HTML")
 
     return {
         "reviewed": True,
@@ -256,7 +256,7 @@ async def review_pr_on_demand(platform: str, full_name: str, pr_number: int) -> 
             f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
             f"💬 {analysis['summary']}"
         )
-        await telegram.send_message(notify_text)
+        await telegram.send_message(notify_text, parse_mode="HTML")
 
         return {
             "reviewed": True,

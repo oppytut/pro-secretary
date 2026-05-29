@@ -22,6 +22,9 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 AGENT_URL = os.getenv("AGENT_URL", "http://langgraph-agent:8090").rstrip("/")
 AGENT_SECRET = os.getenv("AGENT_SECRET", "")
+AGENT_HOST = os.getenv("AGENT_HOST", "").strip()
+GH_WEBHOOK_SECRET = os.getenv("GH_WEBHOOK_SECRET", "")
+GITLAB_WEBHOOK_SECRET = os.getenv("GITLAB_WEBHOOK_SECRET", "")
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
@@ -833,6 +836,44 @@ def _del_review_repo(repo: str) -> bool:
     return True
 
 
+def _webhook_setup_hint(repo_key: str) -> str:
+    """Generate webhook setup instructions for a repo."""
+    if not AGENT_HOST:
+        return ""
+
+    parts = repo_key.split(":", 1)
+    platform = parts[0] if len(parts) == 2 else "github"
+    full_name = parts[1] if len(parts) == 2 else parts[0]
+
+    if platform == "github":
+        secret_display = GH_WEBHOOK_SECRET[:4] + "..." if len(GH_WEBHOOK_SECRET) > 4 else "(not set)"
+        return (
+            f"\n\n🔧 <b>Webhook setup:</b>\n"
+            f"<pre>gh api repos/{full_name}/hooks "
+            f"--method POST "
+            f"-f name=web "
+            f'-F config[url]=https://{AGENT_HOST}/api/webhook/github '
+            f"-F config[secret]=YOUR_GH_WEBHOOK_SECRET "
+            f"-F config[content_type]=json "
+            f'-f "events[]=pull_request"</pre>\n'
+            f"Secret starts with: <code>{secret_display}</code>\n"
+            f"Or: https://github.com/{full_name}/settings/hooks/new"
+        )
+    elif platform == "gitlab":
+        token_display = GITLAB_WEBHOOK_SECRET[:4] + "..." if len(GITLAB_WEBHOOK_SECRET) > 4 else "(not set)"
+        return (
+            f"\n\n🔧 <b>Webhook setup:</b>\n"
+            f"<pre>glab api projects/{full_name.replace('/', '%2F')}/hooks "
+            f"--method POST "
+            f'-f url=https://{AGENT_HOST}/api/webhook/gitlab '
+            f"-f token=YOUR_GITLAB_WEBHOOK_SECRET "
+            f'-f merge_requests_events=true</pre>\n'
+            f"Token starts with: <code>{token_display}</code>\n"
+            f"Or: https://gitlab.com/{full_name}/-/hooks"
+        )
+    return ""
+
+
 async def _sync_review_repos_to_agent(update: "Update | None" = None) -> None:
     repos = _get_review_repos()
     try:
@@ -881,7 +922,12 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
             repo = f"github:{repo}"
         if _add_review_repo(repo):
             await _sync_review_repos_to_agent(update)
-            await update.message.reply_text(f"✅ Added <code>{repo}</code> to auto-review.", parse_mode="HTML")
+            hint = _webhook_setup_hint(repo)
+            await update.message.reply_text(
+                f"✅ Added <code>{repo}</code> to auto-review.{hint}",
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
         else:
             await update.message.reply_text(f"ℹ️ <code>{repo}</code> already in list.", parse_mode="HTML")
         return

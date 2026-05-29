@@ -28,23 +28,31 @@ def _gl_headers() -> dict[str, str]:
 
 
 async def fetch_mr_diff(project_id: int, mr_iid: int) -> str | None:
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(
-                f"{GL_API}/projects/{project_id}/merge_requests/{mr_iid}/changes",
-                headers=_gl_headers(),
-            )
-        if r.status_code == 200:
-            data = r.json()
-            changes = data.get("changes", [])
-            diff_parts: list[str] = []
-            for change in changes:
-                diff_parts.append(f"--- a/{change.get('old_path', '')}")
-                diff_parts.append(f"+++ b/{change.get('new_path', '')}")
-                diff_parts.append(change.get("diff", ""))
-            return "\n".join(diff_parts)
-    except httpx.RequestError as exc:
-        logger.error("Failed to fetch MR diff for project %d MR !%d: %s", project_id, mr_iid, exc)
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(
+                    f"{GL_API}/projects/{project_id}/merge_requests/{mr_iid}/changes",
+                    headers=_gl_headers(),
+                )
+            if r.status_code == 200:
+                data = r.json()
+                changes = data.get("changes", [])
+                diff_parts: list[str] = []
+                for change in changes:
+                    diff_parts.append(f"--- a/{change.get('old_path', '')}")
+                    diff_parts.append(f"+++ b/{change.get('new_path', '')}")
+                    diff_parts.append(change.get("diff", ""))
+                return "\n".join(diff_parts)
+            if r.status_code in (403, 404, 422):
+                logger.error("Fetch MR diff project %d !%d returned %d (not retryable)", project_id, mr_iid, r.status_code)
+                return None
+            logger.warning("Fetch MR diff project %d !%d attempt %d returned %d", project_id, mr_iid, attempt + 1, r.status_code)
+        except httpx.RequestError as exc:
+            logger.warning("Fetch MR diff project %d !%d attempt %d error: %s", project_id, mr_iid, attempt + 1, exc)
+        if attempt == 0:
+            import asyncio
+            await asyncio.sleep(2)
     return None
 
 

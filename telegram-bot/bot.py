@@ -833,12 +833,18 @@ def _del_review_repo(repo: str) -> bool:
     return True
 
 
-async def _sync_review_repos_to_agent() -> None:
+async def _sync_review_repos_to_agent(update: "Update | None" = None) -> None:
     repos = _get_review_repos()
     try:
-        await _agent_post("/api/review/repos", {"repos": repos}, timeout=10.0)
-    except Exception:
-        pass
+        r = await _agent_post("/api/review/repos", {"repos": repos}, timeout=10.0)
+        if r.status_code != 200:
+            logger.warning("Review whitelist sync failed: %d %s", r.status_code, r.text[:200])
+            if update:
+                await update.message.reply_text("⚠️ Whitelist saved locally but agent sync failed. Will retry next change.")
+    except Exception as exc:
+        logger.warning("Review whitelist sync error: %s", exc)
+        if update:
+            await update.message.reply_text("⚠️ Whitelist saved locally but agent sync failed. Will retry next change.")
 
 
 @authorized
@@ -874,7 +880,7 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ":" not in repo:
             repo = f"github:{repo}"
         if _add_review_repo(repo):
-            await _sync_review_repos_to_agent()
+            await _sync_review_repos_to_agent(update)
             await update.message.reply_text(f"✅ Added <code>{repo}</code> to auto-review.", parse_mode="HTML")
         else:
             await update.message.reply_text(f"ℹ️ <code>{repo}</code> already in list.", parse_mode="HTML")
@@ -885,7 +891,7 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ":" not in repo:
             repo = f"github:{repo}"
         if _del_review_repo(repo):
-            await _sync_review_repos_to_agent()
+            await _sync_review_repos_to_agent(update)
             await update.message.reply_text(f"✅ Removed <code>{repo}</code> from auto-review.", parse_mode="HTML")
         else:
             await update.message.reply_text(f"ℹ️ <code>{repo}</code> not in list.", parse_mode="HTML")

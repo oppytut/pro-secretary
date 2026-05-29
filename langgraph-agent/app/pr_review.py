@@ -81,26 +81,35 @@ def _gh_headers() -> dict[str, str]:
 
 
 async def fetch_pr_diff(owner: str, repo: str, pr_number: int) -> str | None:
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(
-                f"{GH_API}/repos/{owner}/{repo}/pulls/{pr_number}",
-                headers={
-                    "Authorization": f"Bearer {config.GH_PAT}",
-                    "Accept": "application/vnd.github.diff",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-        if r.status_code == 200:
-            return r.text
-    except httpx.RequestError as exc:
-        logger.error("Failed to fetch diff for %s/%s#%d: %s", owner, repo, pr_number, exc)
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(
+                    f"{GH_API}/repos/{owner}/{repo}/pulls/{pr_number}",
+                    headers={
+                        "Authorization": f"Bearer {config.GH_PAT}",
+                        "Accept": "application/vnd.github.diff",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                )
+            if r.status_code == 200:
+                return r.text
+            if r.status_code in (403, 404, 422):
+                logger.error("Fetch diff %s/%s#%d returned %d (not retryable)", owner, repo, pr_number, r.status_code)
+                return None
+            logger.warning("Fetch diff %s/%s#%d attempt %d returned %d", owner, repo, pr_number, attempt + 1, r.status_code)
+        except httpx.RequestError as exc:
+            logger.warning("Fetch diff %s/%s#%d attempt %d error: %s", owner, repo, pr_number, attempt + 1, exc)
+        if attempt == 0:
+            import asyncio
+            await asyncio.sleep(2)
     return None
 
 
 async def analyze_diff(diff: str, pr_title: str, pr_body: str | None = None) -> dict[str, str]:
     truncated = diff[:_MAX_DIFF_CHARS]
-    if len(diff) > _MAX_DIFF_CHARS:
+    was_truncated = len(diff) > _MAX_DIFF_CHARS
+    if was_truncated:
         truncated += f"\n\n... (truncated, {len(diff)} total chars)"
 
     user_content = f"PR Title: {pr_title}\n"
@@ -132,7 +141,11 @@ async def analyze_diff(diff: str, pr_title: str, pr_body: str | None = None) -> 
         if line.strip().upper().startswith("SUMMARY:"):
             summary = line.strip()[len("SUMMARY:"):].strip()
 
-    return {"verdict": verdict, "body": response, "summary": summary}
+    body = response
+    if was_truncated:
+        body += f"\n\n---\n⚠️ _Note: diff was truncated ({len(diff)} chars total, reviewed first {_MAX_DIFF_CHARS}). Some changes may not be covered._"
+
+    return {"verdict": verdict, "body": body, "summary": summary}
 
 
 async def post_review(

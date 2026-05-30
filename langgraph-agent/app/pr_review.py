@@ -150,7 +150,7 @@ async def analyze_diff(diff: str, pr_title: str, pr_body: str | None = None) -> 
 
 async def post_review(
     owner: str, repo: str, pr_number: int, commit_sha: str, body: str, event: str
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "commit_id": commit_sha,
         "body": body,
@@ -164,11 +164,13 @@ async def post_review(
                 json=payload,
             )
         if r.status_code in (200, 201):
-            return r.json()
-        logger.error("Post review failed %d: %s", r.status_code, r.text[:300])
+            return {"ok": True, "data": r.json()}
+        err_msg = r.text[:300]
+        logger.error("Post review failed %d: %s", r.status_code, err_msg)
+        return {"ok": False, "status": r.status_code, "error": err_msg}
     except httpx.RequestError as exc:
         logger.error("Post review request error: %s", exc)
-    return None
+        return {"ok": False, "status": 0, "error": f"request error: {exc}"}
 
 
 async def handle_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
@@ -209,13 +211,19 @@ async def handle_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
         owner, repo, pr_number, head_sha, analysis["body"], analysis["verdict"]
     )
 
+    post_status = "✅ Posted to GitHub" if result["ok"] else f"⚠️ <b>NOT posted</b> (HTTP {result.get('status', '?')})"
     notify_text = (
         f"🔍 <b>Auto PR Review</b>\n\n"
         f"📦 {full_name}#{pr_number}\n"
         f"📝 {pr_title}\n"
         f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
-        f"💬 {analysis['summary']}"
+        f"💬 {analysis['summary']}\n"
+        f"{post_status}"
     )
+    if not result["ok"]:
+        err = result.get("error", "")[:200]
+        if err:
+            notify_text += f"\n<code>{err}</code>"
     await telegram.send_message(notify_text, parse_mode="HTML")
 
     return {
@@ -223,7 +231,8 @@ async def handle_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
         "repo": full_name,
         "pr": pr_number,
         "verdict": analysis["verdict"],
-        "review_id": result.get("id") if result else None,
+        "review_posted": result["ok"],
+        "review_id": result["data"].get("id") if result["ok"] else None,
     }
 
 
@@ -256,19 +265,25 @@ async def review_pr_on_demand(platform: str, full_name: str, pr_number: int) -> 
 
         analysis = await analyze_diff(diff, pr_title, pr_body)
 
-        result = None
+        result: dict[str, Any] = {"ok": False, "status": 0, "error": "missing head_sha"}
         if head_sha:
             result = await post_review(
                 owner, repo, pr_number, head_sha, analysis["body"], analysis["verdict"]
             )
 
+        post_status = "✅ Posted to GitHub" if result["ok"] else f"⚠️ <b>NOT posted</b> (HTTP {result.get('status', '?')})"
         notify_text = (
             f"🔍 <b>Auto PR Review (on-demand)</b>\n\n"
             f"📦 {full_name}#{pr_number}\n"
             f"📝 {pr_title}\n"
             f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
-            f"💬 {analysis['summary']}"
+            f"💬 {analysis['summary']}\n"
+            f"{post_status}"
         )
+        if not result["ok"]:
+            err = result.get("error", "")[:200]
+            if err:
+                notify_text += f"\n<code>{err}</code>"
         await telegram.send_message(notify_text, parse_mode="HTML")
 
         return {
@@ -276,7 +291,8 @@ async def review_pr_on_demand(platform: str, full_name: str, pr_number: int) -> 
             "repo": full_name,
             "pr": pr_number,
             "verdict": analysis["verdict"],
-            "review_id": result.get("id") if result else None,
+            "review_posted": result["ok"],
+            "review_id": result["data"].get("id") if result["ok"] else None,
         }
 
     elif platform == "gitlab":

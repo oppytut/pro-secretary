@@ -97,7 +97,7 @@ jobs:
         run: |
           pip install --quiet pytest
           pip install --quiet -r telegram-bot/requirements.txt
-          pip install --quiet httpx pydantic
+          pip install --quiet -r langgraph-agent/requirements.txt
 
       - name: Run pytest
         run: pytest -v

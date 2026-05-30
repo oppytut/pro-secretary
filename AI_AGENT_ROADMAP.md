@@ -18,7 +18,7 @@
 | Caddy | Reverse proxy + auto-SSL (n8n, cal.com, agent webhook) |
 | 8-13 VPS (Docker) | Production infrastructure |
 
-### Shipped Features (2026-05-28)
+### Shipped Features (2026-05-28 .. 2026-05-30)
 
 | Feature | Schedule | Command |
 |---|---|---|
@@ -26,12 +26,15 @@
 | Incident Auto-Responder | Every 5 min (health check) | automatic |
 | Config Drift Detector | 02:00 WIB daily | `/drift` |
 | SSL/Domain Watchdog | 02:05 WIB daily | `/ssl` |
-| Dynamic Config | — | `/ssl add/del/list`, `/monitor add/del/list`, `/review add/del/list` |
+| Dynamic Config | — | `/ssl add/del/list`, `/monitor add/del/list`, `/review add/del/list`, `/dns add/del/list`, `/firewall add/del/list` |
 | Capacity Planning | 02:10 WIB daily | `/capacity` |
+| Docker Image Hygiene | 02:15 WIB daily | `/hygiene` |
 | Auto PR Review (GitHub + GitLab) | On webhook event | `/review owner/repo#123` |
 | Meeting Notes → Action Items | On voice/text trigger | `/meeting <transkrip>` |
 | Dependency Watchdog | 03:00 WIB daily | `/deps [repo_id]` |
+| Firewall Audit Agent | 03:30 WIB daily | `/firewall` |
 | Documentation Sync | On demand | `/docsync owner/repo#123` |
+| DNS Health Monitor | Every 4h | `/dns` |
 
 ---
 
@@ -709,63 +712,78 @@
 
 ### I.5 Firewall Audit Agent
 
-**Deskripsi:** Nightly scan: open ports vs expected, UFW rules consistency across VPS, detect unauthorized exposure.
+**Status:** ✅ Done (2026-05-30) — read-only audit, no auto-remediation.
 
-**Cara Kerja:**
-1. Nightly: SSH ke setiap VPS
-2. Run: ufw status, ss -tlnp, iptables -L
-3. Compare against expected (config in git)
-4. Detect: unexpected open port, missing rule, exposed service
-5. Alert: "VPS X has port 5432 (PostgreSQL) exposed to 0.0.0.0"
-6. Optional auto-fix: apply expected rules
+**Deskripsi:** Daily SSH ke setiap VPS, list public-listening TCP ports, flag yang tidak masuk whitelist.
 
-**Komponen:**
-- SSH command runner per VPS
-- Expected state config (per VPS port whitelist)
-- Diff + alert
-- Auto-remediation (ufw reload from config)
+**Cara Kerja (implemented):**
+1. Daily 03:30 WIB → loop semua VPS di `_get_ssh_targets()`
+2. Per VPS SSH `ss -H -tlnp` (fallback `ss -H -tln` lalu `netstat -tln`) — capture LISTEN sockets
+3. Parse local addr, kategorikan public (`0.0.0.0`/`::`/`*`) vs loopback (`127.0.0.1`)
+4. Whitelist per-VPS: default `{22, 80, 443}`, override via `/firewall add <vps> <port>` (persisted JSON di volume)
+5. Findings = public ports yang TIDAK di whitelist
+6. Telegram alert silent-on-clean
 
-**Estimasi:** 1 hari
+**Komponen (shipped):**
+- `_audit_vps_firewall`, `_run_firewall_audit`, `_firewall_audit_job`, `cmd_firewall` di `bot.py`
+- `_parse_listening_ports` (ss output regex-free split, handles `0.0.0.0`/`::`/`*`/`127.0.0.1`)
+- Whitelist manager: `_get_firewall_whitelist`/`_add_firewall_port`/`_del_firewall_port` (config store)
+- Reuse `_ssh_exec` + `_get_ssh_targets`
+- Dockerfile adds `iproute2` for fallback `ss` execution if needed
+- Env: `FIREWALL_AUDIT_ENABLED`, `FIREWALL_AUDIT_HOUR`, `FIREWALL_AUDIT_MINUTE`
+
+**Phase 2 (deferred):** UFW rule replay (auto-remediation). Wait dogfood data dulu.
+
+**Estimasi:** 1 hari (actual: ~0.5 hari karena reuse `_ssh_exec` infra)
 
 ---
 
 ### I.6 Docker Image Hygiene
 
-**Deskripsi:** Monitor image sizes, unused layers, dangling volumes. Auto-prune + alert kalau disk usage naik.
+**Status:** ✅ Done (2026-05-30)
 
-**Cara Kerja:**
-1. Daily per VPS: docker system df
-2. Track trends: image size growth, dangling images, unused volumes
-3. Auto-prune kalau aman: docker image prune (no force, only dangling)
-4. Alert kalau disk pressure: "VPS X /var/lib/docker = 80% used"
-5. Suggest: rebuild image (smaller base, multi-stage)
+**Deskripsi:** Daily audit `docker system df` lokal + setiap VPS via SSH. Auto-prune dangling images kalau reclaimable di atas threshold.
 
-**Komponen:**
-- Disk usage tracker (Prometheus + Docker API)
-- Auto-prune (safe defaults)
-- Image size analyzer (suggest optimization)
+**Cara Kerja (implemented):**
+1. Daily 02:15 WIB → loop pro-secretary lokal + semua `_get_ssh_targets()`
+2. Per host run `docker system df --format` (TSV) → parse Images/Containers/Local Volumes/Build Cache
+3. Konversi size strings (KB/MB/GB/TB) ke GB float
+4. Total reclaimable per host vs `DOCKER_HYGIENE_RECLAIMABLE_WARN_GB` (default 5 GB)
+5. Auto-prune dangling-only (`docker image prune -f`) saat threshold breached + auto-prune flag enabled
+6. Telegram alert silent-on-clean
 
-**Estimasi:** 0.5 hari
+**Komponen (shipped):**
+- `_run_docker_hygiene`, `_docker_hygiene_job`, `cmd_hygiene` di `bot.py`
+- `_parse_docker_df` + `_docker_size_to_gb` (handles K/M/G/T/B + edge cases)
+- `_docker_df_local`/`_docker_df_remote`/`_docker_prune_local`/`_docker_prune_remote`
+- Reuse `_ssh_exec` + existing local `docker` static binary in container
+- Env: `DOCKER_HYGIENE_ENABLED`, `DOCKER_HYGIENE_HOUR`, `DOCKER_HYGIENE_MINUTE`, `DOCKER_HYGIENE_RECLAIMABLE_WARN_GB`, `DOCKER_HYGIENE_AUTO_PRUNE`
+
+**Estimasi:** 0.5 hari (actual)
 
 ---
 
 ### I.7 DNS Health Monitor
 
-**Deskripsi:** Check propagation, TTL consistency, detect hijacking, monitor semua domain/subdomain.
+**Status:** ✅ Done (2026-05-30)
 
-**Cara Kerja:**
-1. Hourly: dig semua domain dari multiple resolvers (Google, Cloudflare, ISP)
-2. Compare results: detect inconsistency (propagation issue or hijack)
-3. Verify: A/AAAA matches expected, MX records intact
-4. Alert anomaly: "Domain X resolves to unexpected IP from Cloudflare DNS"
-5. Track TTL changes (low TTL = recent change, audit it)
+**Deskripsi:** Periodic multi-resolver dig untuk detect DNS divergence (propagation lag, hijack, route leak).
 
-**Komponen:**
-- Multi-resolver query (dig with @resolver)
-- Expected DNS state (config in git)
-- Anomaly detection (cross-resolver comparison)
+**Cara Kerja (implemented):**
+1. Every 4h (`DNS_CHECK_INTERVAL_SEC=14400`) → loop semua domain di `_get_dns_domains()`
+2. Per domain run `dig @1.1.1.1`, `dig @8.8.8.8`, `dig @9.9.9.9` (Cloudflare/Google/Quad9)
+3. Sort A records per resolver, bandingkan record sets
+4. Flag: divergent (>1 unique set), empty response, atau dig error
+5. Domains seeded dari `_get_ssl_domains()` (reuse SSL watchlist) — override via `/dns add/del`
+6. Telegram alert silent-on-clean
 
-**Estimasi:** 0.5 hari
+**Komponen (shipped):**
+- `_dig_record`, `_check_domain_consistency`, `_run_dns_check`, `_dns_check_job`, `cmd_dns` di `bot.py`
+- `_get_dns_domains`/`_add_dns_domain`/`_del_dns_domain` dengan SSL fallback
+- Dockerfile adds `dnsutils` package
+- Env: `DNS_CHECK_ENABLED`, `DNS_CHECK_INTERVAL_SEC`
+
+**Estimasi:** 0.5 hari (actual)
 
 ---
 

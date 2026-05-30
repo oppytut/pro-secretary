@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-30 15:03 UTC
+**Last Updated:** 2026-05-30 22:55 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 10 features shipped + Auto PR Review fully fixed (5 bugs surfaced + fixed in single dogfood loop): Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab), Meeting Notes → Action Items, Dependency Watchdog, Documentation Sync.
+**Status:** ✅ 13 features shipped + Auto PR Review fully fixed: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab), Meeting Notes → Action Items, Dependency Watchdog, Documentation Sync, **Docker Image Hygiene, DNS Health Monitor, Firewall Audit Agent (NEW)**.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,7 +10,101 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-30 — shipped 4 items autonom: Meeting Notes, Dependency Watchdog Phase 1, README/DEPLOYMENT cleanup, Documentation Sync Phase 1.
+**Where we left off:** Sesi 2026-05-30 part 2 — shipped 3 read-only infra agents (Docker Hygiene, DNS Health Monitor, Firewall Audit) sambil menunggu dogfood dari 4 fitur Phase 1 sebelumnya.
+
+### What happened (this session, in order)
+
+1. **Docker Image Hygiene** (Tier I.6) — 0.5 hari
+   - Inline di `bot.py` (~210 lines): `_run_docker_hygiene`, `_docker_hygiene_job`, `cmd_hygiene`
+   - `docker system df --format` TSV parser (`_parse_docker_df` + `_docker_size_to_gb` handles K/M/G/T/B)
+   - Local docker via static binary + remote via `_ssh_exec`
+   - Auto-prune dangling-only (`docker image prune -f`) saat reclaimable > `DOCKER_HYGIENE_RECLAIMABLE_WARN_GB` (default 5 GB)
+   - Daily 02:15 WIB scheduler, silent-on-clean
+   - Smoke tests pass: parser handles 7 size formats + edge cases (empty string, 0B)
+   - Env: `DOCKER_HYGIENE_ENABLED|HOUR|MINUTE|RECLAIMABLE_WARN_GB|AUTO_PRUNE`
+
+2. **DNS Health Monitor** (Tier I.7) — 0.5 hari
+   - Inline di `bot.py` (~155 lines): `_check_domain_consistency`, `_run_dns_check`, `_dns_check_job`, `cmd_dns`
+   - Multi-resolver `dig` against Cloudflare (1.1.1.1), Google (8.8.8.8), Quad9 (9.9.9.9)
+   - Detect: divergent record sets across resolvers, empty responses, dig errors
+   - Domains seeded dari SSL watchlist via `_get_ssl_domains()`, override via `/dns add/del`
+   - Every 4h scheduler (`run_repeating`), silent-on-clean
+   - Live test: `cloudflare.com` returns 2 records consistent across all 3 resolvers
+   - Dockerfile: added `dnsutils` (ships `dig`)
+   - Env: `DNS_CHECK_ENABLED|INTERVAL_SEC` (default 14400)
+
+3. **Firewall Audit Agent** (Tier I.5) — 1 hari (actual ~0.5 reuse)
+   - Inline di `bot.py` (~155 lines): `_audit_vps_firewall`, `_run_firewall_audit`, `_firewall_audit_job`, `cmd_firewall`
+   - SSH `ss -H -tlnp` (fallback `ss -H -tln` lalu `netstat -tln`) per VPS
+   - `_parse_listening_ports` distinguishes `0.0.0.0`/`::`/`*` (public) vs `127.0.0.1` (private)
+   - Per-VPS whitelist (default `{22, 80, 443}`), override via `/firewall add <vps> <port>` (config-store JSON)
+   - Daily 03:30 WIB, silent-on-clean
+   - Smoke test: ss sample with 5 sockets correctly classified (4 public, 1 loopback)
+   - Dockerfile: added `iproute2` (fallback if VPS missing `ss`)
+   - Env: `FIREWALL_AUDIT_ENABLED|HOUR|MINUTE`
+
+### Why this scope (instead of Spec-to-Implementation)
+
+- 4 Phase 1 fitur (Meeting Notes, Deps, Docs Sync, Auto PR Review) butuh 1-2 minggu dogfood pasif dulu sebelum Phase 2 auto-PR di-justify
+- Spec-to-Implementation butuh real PRD dari user untuk kalibrasi prompt — tanpa input itu = AI slop generator
+- 3 fitur ini semua **read-only**, low-risk, fit pattern existing (SSL Watchdog/Capacity Planning/Drift Detector)
+- Ship momentum tetap jalan, dogfood paralel tanpa interferensi
+
+### Files changed this session
+
+**Modified:**
+- `telegram-bot/bot.py` — +633/-1 lines: 3 inline blocks (DNS, Docker Hygiene, Firewall Audit) + 3 BotCommand entries + 3 CommandHandler registrations + 4 scheduler blocks + help text update
+- `telegram-bot/Dockerfile` — added `dnsutils` + `iproute2` to apt install
+- `.env.example` — 3 new sections (Docker Hygiene, DNS, Firewall Audit) with config defaults
+- `AI_AGENT_ROADMAP.md` — 3 sections marked done (I.5, I.6, I.7), shipped table updated
+- `TASK.md` — this update
+
+### Verification done
+
+- ✅ `py_compile` clean
+- ✅ AST orphan-ref check: all 27 expected functions defined (avoid lesson dari sesi sebelumnya)
+- ✅ LSP diagnostics: only pre-existing PTB Optional warnings (no new errors)
+- ✅ Smoke test parsers:
+  - `_docker_size_to_gb`: 7 size formats (K/M/G/T/B + empty + 0B) all correct
+  - `_parse_docker_df`: 4-row sample parsed, totals match
+  - `_format_hygiene_section`: aggregation correct (7.5 GB reclaimable)
+  - `_parse_listening_ports`: 5-socket sample, public vs loopback classification correct
+  - `_check_domain_consistency`: live `cloudflare.com` consistent across all 3 resolvers
+- ✅ Schedule allocation non-overlapping: 02:00 drift, 02:05 ssl, 02:10 capacity, 02:15 hygiene, 03:00 deps, 03:30 firewall, DNS every 4h
+
+### NOT verified (need real-world dogfood)
+
+- ⚠️ DNS check on actual customer domains (TTL anomaly detection)
+- ⚠️ Docker hygiene auto-prune on real disk pressure
+- ⚠️ Firewall audit catching real unauthorized exposure
+- ⚠️ Daily schedulers fire correctly at allocated times
+
+### Deferred (wait dogfood data)
+
+- **Auto-PR for deps** (Phase 2) — after Phase 1 validates noise level
+- **Auto-PR with doc updates** (docs_sync Phase 2) — same reason
+- **Firewall auto-remediation** (Phase 2) — UFW rule replay, wait audit data dulu
+- Grafana (tunggu actual trend visualization need)
+- Embedding model upgrade / Hybrid search BM25
+- Skills Phase 2C (executable skills)
+- py3.14 migration (wait wheels)
+- `/repo add/del/list` — dynamic project management via Telegram
+
+### Next session focus (PRIORITY ORDER)
+
+1. **Dogfood the 7 new features** — passive ongoing, real workload signal
+   - `/meeting`, `/deps`, `/docsync`, Auto PR Review (from previous session)
+   - `/hygiene`, `/dns`, `/firewall` (this session)
+2. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion)
+   - Butuh dari user: list IP/hostname + provider + SSH access
+   - `/monitor add <name> <host> <port> <user>` via Telegram
+3. **Next roadmap items** (AI-suitable, recommended order):
+   - **Spec-to-Implementation** (2-3 hari) — needs real spec from user
+   - **Deps Watchdog Phase 2: auto-PR** (1 hari) — after dogfood Phase 1
+   - **Docs Sync Phase 2: auto-PR** (1 hari) — after dogfood Phase 1
+   - **Firewall Audit Phase 2: auto-remediation** (1 hari) — after audit data
+   - **Test Coverage Agent** (Tier 1.5, 2-3 hari) — coverage report → gap test gen
+   - **Performance Regression Detector** (Tier 2.2, 1-2 hari) — per-deploy benchmark
 
 ### What happened (this session, in order)
 
@@ -263,11 +357,12 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ## 🚧 CURRENT WORK
 
 ### Active Tasks
-- [ ] **DOGFOOD 4 new features** — `/meeting`, `/deps`, `/docsync`, plus existing Auto PR Review on real workload (passive 1-2 minggu)
+- [ ] **DOGFOOD 7 new features** — `/meeting`, `/deps`, `/docsync`, Auto PR Review (Phase 1) + `/hygiene`, `/dns`, `/firewall` (read-only infra) on real workload (passive 1-2 minggu)
 - [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
 - [ ] **DECISION POINT: Pick next roadmap items** — user decides from `AI_AGENT_ROADMAP.md`
 - [ ] **DEFERRED: Deps Watchdog Phase 2 (auto-PR)** — wait Phase 1 dogfood data
 - [ ] **DEFERRED: Docs Sync Phase 2 (auto-PR)** — wait Phase 1 dogfood data
+- [ ] **DEFERRED: Firewall Audit Phase 2 (auto-remediation)** — wait audit signal data
 - [ ] **DEFERRED: Grafana** — wait actual trend visualization need
 - [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels
 
@@ -276,6 +371,16 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - Real PR/MR + voice rapat for Phase 1 dogfood validation
 
 ### Recently Completed
+
+- ✅ [2026-05-30 22:55 UTC] **Docker Image Hygiene + DNS Health Monitor + Firewall Audit Agent** shipped
+  - 3 read-only infra agents inline di `bot.py` (~520 lines total): scheduler + parsers + commands
+  - Reuse pattern: `_ssh_exec`, `_get_ssh_targets`, `_config_get/_set`, JSON config store, silent-on-clean alert
+  - Schedule allocation: 02:15 hygiene, 03:30 firewall, DNS every 4h (non-overlap dengan existing)
+  - Dockerfile: added `dnsutils` (dig) + `iproute2` (fallback ss)
+  - 5 BotCommand entries added: `/hygiene`, `/dns`, `/firewall` (+ `add/del/list` subcommands)
+  - Smoke tests pass: docker size parser (7 formats), df parser, ss output parser (public/loopback split), live DNS dig
+  - All schedulers wired in `post_init`, AST orphan-ref check passed (27 expected functions)
+  - Phase 2 firewall auto-remediation deferred until audit data validates noise level
 
 - ✅ [2026-05-30 10:50 UTC] Auto PR/MR Review silent-failure fixed
   - **Bug:** Bot mengirim Telegram notif "Verdict: COMMENT" + summary, tapi review TIDAK pernah muncul di GitHub/GitLab. User report: oppytut/jeevatix#10/11/12 dapat Telegram tapi PR comment kosong.

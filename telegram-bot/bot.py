@@ -259,7 +259,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "• /status — Status semua komponen stack\n"
             "• /capacity — Forecast disk/RAM exhaustion\n"
             "• /drift — Config drift check\n"
-            "• /ssl — SSL cert expiry check\n\n"
+            "• /ssl — SSL cert expiry check\n"
+            "• /dns — DNS resolver consistency check\n"
+            "• /hygiene — Docker image hygiene + reclaimable size\n"
+            "• /firewall — Audit unauthorized public ports\n\n"
             "⚙️ <b>Settings</b>\n"
             "• /model [nama] — Ganti/lihat model AI\n"
             "• /sync — Sync Obsidian vault\n\n"
@@ -1302,6 +1305,188 @@ async def _ssl_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"SSL check job failed: {e}")
 
 
+# --- DNS Health Monitor ---
+DNS_CHECK_ENABLED = os.getenv("DNS_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
+DNS_CHECK_INTERVAL_SEC = int(os.getenv("DNS_CHECK_INTERVAL_SEC", "14400"))  # 4h
+_DNS_RESOLVERS = [
+    ("Cloudflare", "1.1.1.1"),
+    ("Google", "8.8.8.8"),
+    ("Quad9", "9.9.9.9"),
+]
+
+
+def _get_dns_domains() -> list[str]:
+    """DNS watchlist. Falls back to SSL watchlist as default seed."""
+    stored = _config_get("dns_domains", None)
+    if stored is not None:
+        return list(stored)
+    return list(_get_ssl_domains())
+
+
+def _add_dns_domain(domain: str) -> bool:
+    domains = _config_get("dns_domains", None)
+    domains = list(domains) if domains is not None else list(_get_ssl_domains())
+    if domain in domains:
+        return False
+    domains.append(domain)
+    _config_set("dns_domains", domains)
+    return True
+
+
+def _del_dns_domain(domain: str) -> bool:
+    domains = _config_get("dns_domains", None)
+    domains = list(domains) if domains is not None else list(_get_ssl_domains())
+    if domain not in domains:
+        return False
+    domains.remove(domain)
+    _config_set("dns_domains", domains)
+    return True
+
+
+async def _dig_record(domain: str, resolver: str, rtype: str = "A") -> tuple[list[str], str | None]:
+    """Run `dig +short` against a specific resolver. Returns (sorted records, error)."""
+    cmd = [
+        "dig", f"@{resolver}", "+short", "+time=5", "+tries=1", "+retry=0",
+        domain, rtype,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=12)
+    except asyncio.TimeoutError:
+        return [], "timeout"
+    except FileNotFoundError:
+        return [], "dig binary not installed"
+    except Exception as e:
+        return [], type(e).__name__
+    if proc.returncode != 0:
+        err = (stderr or b"").decode().strip()
+        return [], err.split("\n")[0][:80] or f"exit {proc.returncode}"
+    records = [
+        r.strip() for r in stdout.decode().splitlines()
+        if r.strip() and not r.startswith(";")
+    ]
+    return sorted(records), None
+
+
+async def _check_domain_consistency(domain: str) -> dict:
+    """Query domain across all resolvers, detect divergence."""
+    results: dict[str, dict] = {}
+    for label, resolver in _DNS_RESOLVERS:
+        records, err = await _dig_record(domain, resolver, "A")
+        results[label] = {"records": records, "error": err}
+    record_sets = {tuple(r["records"]) for r in results.values() if not r["error"] and r["records"]}
+    return {
+        "domain": domain,
+        "consistent": len(record_sets) <= 1,
+        "results": results,
+        "any_error": any(r["error"] for r in results.values()),
+        "any_empty": any(not r["records"] and not r["error"] for r in results.values()),
+        "record_sets": [list(rs) for rs in record_sets],
+    }
+
+
+async def _run_dns_check() -> str:
+    domains = _get_dns_domains()
+    if not domains:
+        return (
+            "⚠️ No DNS domains configured. Use <code>/dns add domain.com</code> "
+            "or set <code>SSL_CHECK_DOMAINS</code> (DNS reuses SSL list as seed)."
+        )
+    sections: list[str] = ["🌐 <b>DNS Health Monitor</b>", ""]
+    warnings: list[str] = []
+    ok_list: list[str] = []
+
+    for domain in domains:
+        result = await _check_domain_consistency(domain)
+        if result["any_error"]:
+            errs = [f"{label}={r['error']}" for label, r in result["results"].items() if r["error"]]
+            warnings.append(f"❌ <b>{domain}</b> — resolver error: {', '.join(errs)}")
+        elif result["any_empty"]:
+            empties = [label for label, r in result["results"].items() if not r["records"]]
+            warnings.append(f"⚠️ <b>{domain}</b> — empty response from: {', '.join(empties)}")
+        elif not result["consistent"]:
+            div_lines = []
+            for label, r in result["results"].items():
+                div_lines.append(f"      {label}: {', '.join(r['records']) or '(empty)'}")
+            warnings.append(
+                f"🔴 <b>{domain}</b> — divergent across resolvers:\n" + "\n".join(div_lines)
+            )
+        else:
+            sample = next(iter(result["results"].values()))
+            ips = ", ".join(sample["records"])
+            ok_list.append(f"✅ <b>{domain}</b> → <code>{ips}</code>")
+
+    if warnings:
+        sections.extend(warnings)
+        sections.append("")
+    sections.extend(ok_list)
+    now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    sections.append(f"\n<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
+    return "\n".join(sections)
+
+
+async def _dns_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+    if not chat_id or not _get_dns_domains():
+        return
+    try:
+        report = await _run_dns_check()
+        if "🔴" in report or "❌" in report or "⚠️" in report:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=report[:4000],
+                parse_mode="HTML",
+            )
+            logger.info("DNS check: warnings reported")
+        else:
+            logger.info("DNS check: all consistent")
+    except Exception as e:
+        logger.error(f"DNS check job failed: {e}")
+
+
+@authorized
+async def cmd_dns(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("🌐 Checking DNS health...")
+        try:
+            report = await _run_dns_check()
+            await update.message.reply_text(report[:4000], parse_mode="HTML")
+        except Exception as exc:
+            await update.message.reply_text(f"⚠️ DNS check failed: {exc}")
+        return
+
+    action = args[0].lower()
+    if action == "list":
+        domains = _get_dns_domains()
+        if not domains:
+            await update.message.reply_text("📋 No DNS domains configured.")
+        else:
+            lines = ["🌐 <b>DNS Domains</b>", ""]
+            for d in domains:
+                lines.append(f"• <code>{d}</code>")
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    elif action == "add" and len(args) >= 2:
+        domain = args[1].lower().strip()
+        if _add_dns_domain(domain):
+            await update.message.reply_text(f"✅ Added <code>{domain}</code> to DNS watchlist.", parse_mode="HTML")
+        else:
+            await update.message.reply_text(f"ℹ️ <code>{domain}</code> already in watchlist.", parse_mode="HTML")
+    elif action in ("del", "remove") and len(args) >= 2:
+        domain = args[1].lower().strip()
+        if _del_dns_domain(domain):
+            await update.message.reply_text(f"✅ Removed <code>{domain}</code> from DNS watchlist.", parse_mode="HTML")
+        else:
+            await update.message.reply_text(f"ℹ️ <code>{domain}</code> not in watchlist.", parse_mode="HTML")
+    else:
+        await update.message.reply_text(
+            "Usage:\n/dns — check all domains\n/dns list — show domains\n"
+            "/dns add domain.com — add domain\n/dns del domain.com — remove domain"
+        )
+
+
 # --- Capacity Planning ---
 CAPACITY_CHECK_ENABLED = os.getenv("CAPACITY_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
 CAPACITY_CHECK_HOUR = int(os.getenv("CAPACITY_CHECK_HOUR", "2"))
@@ -1555,6 +1740,412 @@ async def cmd_docsync(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = r.json()
     report = data.get("report") or "ℹ️ No report."
     await update.message.reply_text(report[:4000], parse_mode="HTML")
+
+
+# --- Docker Image Hygiene ---
+DOCKER_HYGIENE_ENABLED = os.getenv("DOCKER_HYGIENE_ENABLED", "true").lower() in ("1", "true", "yes")
+DOCKER_HYGIENE_HOUR = int(os.getenv("DOCKER_HYGIENE_HOUR", "2"))
+DOCKER_HYGIENE_MINUTE = int(os.getenv("DOCKER_HYGIENE_MINUTE", "15"))
+DOCKER_HYGIENE_RECLAIMABLE_WARN_GB = float(os.getenv("DOCKER_HYGIENE_RECLAIMABLE_WARN_GB", "5"))
+DOCKER_HYGIENE_AUTO_PRUNE = os.getenv("DOCKER_HYGIENE_AUTO_PRUNE", "true").lower() in ("1", "true", "yes")
+
+
+def _parse_docker_df(output: str) -> dict[str, dict[str, float]]:
+    parsed: dict[str, dict[str, float]] = {}
+    for line in output.strip().splitlines():
+        line = line.strip()
+        if not line or line.startswith("TYPE"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 5:
+            continue
+        type_name = parts[0].strip()
+        try:
+            total = int(parts[1].strip())
+        except ValueError:
+            total = 0
+        size_str = parts[3].strip()
+        reclaim_str = parts[4].split("(")[0].strip()
+        parsed[type_name] = {
+            "total": total,
+            "size_gb": _docker_size_to_gb(size_str),
+            "reclaimable_gb": _docker_size_to_gb(reclaim_str),
+        }
+    return parsed
+
+
+def _docker_size_to_gb(size_str: str) -> float:
+    if not size_str:
+        return 0.0
+    s = size_str.strip().upper().replace("B", "").strip()
+    try:
+        if s.endswith("K"):
+            return float(s[:-1]) / (1024 * 1024)
+        if s.endswith("M"):
+            return float(s[:-1]) / 1024
+        if s.endswith("G"):
+            return float(s[:-1])
+        if s.endswith("T"):
+            return float(s[:-1]) * 1024
+        return float(s) / (1024 * 1024 * 1024)
+    except ValueError:
+        return 0.0
+
+
+async def _docker_df_local() -> dict[str, dict[str, float]] | None:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "system", "df", "--format",
+            "{{.Type}}\t{{.TotalCount}}\t{{.Active}}\t{{.Size}}\t{{.Reclaimable}}",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    return _parse_docker_df(stdout.decode())
+
+
+async def _docker_df_remote(vps_name: str) -> dict[str, dict[str, float]] | None:
+    ok, output = await _ssh_exec(
+        vps_name,
+        "docker system df --format '{{.Type}}\t{{.TotalCount}}\t{{.Active}}\t{{.Size}}\t{{.Reclaimable}}'",
+    )
+    if not ok or not output:
+        return None
+    return _parse_docker_df(output)
+
+
+async def _docker_prune_local() -> tuple[bool, str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "image", "prune", "-f",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except Exception as e:
+        return False, str(e)
+    if proc.returncode != 0:
+        return False, (stderr or b"").decode().strip()[:200]
+    return True, stdout.decode().strip().split("\n")[-1][:120]
+
+
+async def _docker_prune_remote(vps_name: str) -> tuple[bool, str]:
+    ok, output = await _ssh_exec(vps_name, "docker image prune -f")
+    if not ok:
+        return False, output[:200]
+    last_line = output.strip().split("\n")[-1] if output else ""
+    return True, last_line[:120]
+
+
+def _format_hygiene_section(label: str, df: dict[str, dict[str, float]]) -> tuple[list[str], float]:
+    lines: list[str] = []
+    total_reclaimable = 0.0
+    for type_name in ("Images", "Containers", "Local Volumes", "Build Cache"):
+        info = df.get(type_name)
+        if not info:
+            continue
+        size = info["size_gb"]
+        reclaim = info["reclaimable_gb"]
+        total_reclaimable += reclaim
+        lines.append(
+            f"   • {type_name}: {size:.2f} GB total, {reclaim:.2f} GB reclaimable ({int(info['total'])})"
+        )
+    return lines, total_reclaimable
+
+
+async def _run_docker_hygiene(auto_prune: bool = False) -> tuple[str, bool]:
+    sections: list[str] = ["🧹 <b>Docker Image Hygiene</b>", ""]
+    has_warning = False
+    targets: list[tuple[str, str]] = [("pro-secretary", "local")]
+    for vps_name in _get_ssh_targets():
+        targets.append((vps_name, "remote"))
+
+    for name, kind in targets:
+        df = await (_docker_df_local() if kind == "local" else _docker_df_remote(name))
+        if df is None:
+            sections.append(f"❌ <b>{name}</b> — cannot read docker system df")
+            has_warning = True
+            sections.append("")
+            continue
+
+        body, reclaimable = _format_hygiene_section(name, df)
+        threshold_breached = reclaimable >= DOCKER_HYGIENE_RECLAIMABLE_WARN_GB
+        badge = "⚠️" if threshold_breached else "✅"
+        sections.append(f"{badge} <b>{name}</b> — {reclaimable:.2f} GB reclaimable")
+        sections.extend(body)
+
+        if auto_prune and threshold_breached and DOCKER_HYGIENE_AUTO_PRUNE:
+            ok, msg = await (_docker_prune_local() if kind == "local" else _docker_prune_remote(name))
+            if ok:
+                sections.append(f"   🔧 Pruned dangling images: {msg}")
+            else:
+                sections.append(f"   ❌ Prune failed: {msg}")
+
+        if threshold_breached:
+            has_warning = True
+        sections.append("")
+
+    now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    sections.append(f"<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
+    return "\n".join(sections).rstrip(), has_warning
+
+
+async def _docker_hygiene_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+    if not chat_id:
+        return
+    try:
+        report, has_warning = await _run_docker_hygiene(auto_prune=True)
+        if has_warning:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=report[:4000],
+                parse_mode="HTML",
+            )
+            logger.info("Docker hygiene: warnings reported")
+        else:
+            logger.info("Docker hygiene: clean")
+    except Exception as e:
+        logger.error(f"Docker hygiene job failed: {e}")
+
+
+@authorized
+async def cmd_hygiene(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🧹 Running Docker hygiene check...")
+    try:
+        report, _ = await _run_docker_hygiene(auto_prune=False)
+        await update.message.reply_text(report[:4000], parse_mode="HTML")
+    except Exception as exc:
+        await update.message.reply_text(f"⚠️ Hygiene check failed: {exc}")
+
+
+# --- Firewall Audit Agent ---
+FIREWALL_AUDIT_ENABLED = os.getenv("FIREWALL_AUDIT_ENABLED", "true").lower() in ("1", "true", "yes")
+FIREWALL_AUDIT_HOUR = int(os.getenv("FIREWALL_AUDIT_HOUR", "3"))
+FIREWALL_AUDIT_MINUTE = int(os.getenv("FIREWALL_AUDIT_MINUTE", "30"))
+_FIREWALL_DEFAULT_WHITELIST = {22, 80, 443}
+_FIREWALL_PROBE_CMD = (
+    "ss -H -tlnp 2>/dev/null || ss -H -tln 2>/dev/null || "
+    "netstat -tln 2>/dev/null | tail -n +3"
+)
+
+
+def _get_firewall_whitelist(vps_name: str) -> set[int]:
+    raw = _config_get("firewall_whitelist", {}) or {}
+    ports = raw.get(vps_name)
+    if ports is None:
+        return set(_FIREWALL_DEFAULT_WHITELIST)
+    return {int(p) for p in ports}
+
+
+def _set_firewall_whitelist(vps_name: str, ports: set[int]) -> None:
+    raw = _config_get("firewall_whitelist", {}) or {}
+    raw[vps_name] = sorted(ports)
+    _config_set("firewall_whitelist", raw)
+
+
+def _add_firewall_port(vps_name: str, port: int) -> bool:
+    ports = _get_firewall_whitelist(vps_name)
+    if port in ports:
+        return False
+    ports.add(port)
+    _set_firewall_whitelist(vps_name, ports)
+    return True
+
+
+def _del_firewall_port(vps_name: str, port: int) -> bool:
+    ports = _get_firewall_whitelist(vps_name)
+    if port not in ports:
+        return False
+    ports.discard(port)
+    _set_firewall_whitelist(vps_name, ports)
+    return True
+
+
+def _parse_listening_ports(ss_output: str) -> list[dict[str, str]]:
+    listeners: list[dict[str, str]] = []
+    for raw in ss_output.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        local = parts[3] if "tcp" not in parts[0].lower() else parts[3]
+        if ":" not in local:
+            continue
+        addr, _, port_str = local.rpartition(":")
+        try:
+            port = int(port_str)
+        except ValueError:
+            continue
+        bind = addr.strip("[]") or "0.0.0.0"
+        public = bind in ("0.0.0.0", "::", "*")
+        proc_info = ""
+        for tok in parts[4:]:
+            if tok.startswith("users:"):
+                proc_info = tok
+                break
+        listeners.append({
+            "port": str(port),
+            "bind": bind,
+            "public": "yes" if public else "no",
+            "process": proc_info,
+        })
+    return listeners
+
+
+async def _audit_vps_firewall(vps_name: str) -> dict:
+    ok, output = await _ssh_exec(vps_name, _FIREWALL_PROBE_CMD)
+    if not ok:
+        return {"vps": vps_name, "error": output or "ssh failed", "findings": []}
+    listeners = _parse_listening_ports(output)
+    whitelist = _get_firewall_whitelist(vps_name)
+    findings: list[dict[str, str]] = []
+    for entry in listeners:
+        if entry["public"] != "yes":
+            continue
+        port_int = int(entry["port"])
+        if port_int in whitelist:
+            continue
+        findings.append(entry)
+    return {
+        "vps": vps_name,
+        "error": None,
+        "listeners": listeners,
+        "findings": findings,
+        "whitelist": sorted(whitelist),
+    }
+
+
+async def _run_firewall_audit() -> tuple[str, bool]:
+    targets = _get_ssh_targets()
+    if not targets:
+        return ("ℹ️ No VPS targets configured. Use <code>/monitor add ...</code>", False)
+
+    sections: list[str] = ["🛡️ <b>Firewall Audit</b>", ""]
+    has_warning = False
+    for vps_name in targets:
+        result = await _audit_vps_firewall(vps_name)
+        if result["error"]:
+            sections.append(f"❌ <b>{vps_name}</b> — {result['error']}")
+            has_warning = True
+            sections.append("")
+            continue
+
+        wl = ", ".join(str(p) for p in result["whitelist"]) or "(empty)"
+        if not result["findings"]:
+            sections.append(f"✅ <b>{vps_name}</b> — no unauthorized public ports (whitelist: {wl})")
+        else:
+            has_warning = True
+            sections.append(
+                f"🔴 <b>{vps_name}</b> — {len(result['findings'])} unauthorized public port(s)"
+            )
+            sections.append(f"   whitelist: {wl}")
+            for entry in result["findings"][:10]:
+                proc = f" {entry['process']}" if entry["process"] else ""
+                sections.append(
+                    f"   • port <code>{entry['port']}</code> bound to <code>{entry['bind']}</code>{proc}"
+                )
+        sections.append("")
+
+    now = datetime.now(ZoneInfo("Asia/Jakarta"))
+    sections.append(f"<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
+    return "\n".join(sections).rstrip(), has_warning
+
+
+async def _firewall_audit_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+    if not chat_id or not _get_ssh_targets():
+        return
+    try:
+        report, has_warning = await _run_firewall_audit()
+        if has_warning:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=report[:4000],
+                parse_mode="HTML",
+            )
+            logger.info("Firewall audit: findings reported")
+        else:
+            logger.info("Firewall audit: clean")
+    except Exception as e:
+        logger.error(f"Firewall audit job failed: {e}")
+
+
+@authorized
+async def cmd_firewall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("🛡️ Running firewall audit...")
+        try:
+            report, _ = await _run_firewall_audit()
+            await update.message.reply_text(report[:4000], parse_mode="HTML")
+        except Exception as exc:
+            await update.message.reply_text(f"⚠️ Firewall audit failed: {exc}")
+        return
+
+    action = args[0].lower()
+    if action == "list":
+        targets = _get_ssh_targets()
+        if not targets:
+            await update.message.reply_text("📋 No VPS targets configured.")
+            return
+        lines = ["🛡️ <b>Firewall Whitelist</b>", ""]
+        for vps_name in targets:
+            ports = sorted(_get_firewall_whitelist(vps_name))
+            lines.append(f"• <b>{vps_name}</b>: {', '.join(str(p) for p in ports) or '(empty)'}")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    if action == "add" and len(args) >= 3:
+        vps_name = args[1]
+        try:
+            port = int(args[2])
+        except ValueError:
+            await update.message.reply_text("⚠️ Port must be a number.")
+            return
+        if vps_name not in _get_ssh_targets():
+            await update.message.reply_text(f"⚠️ Unknown VPS <code>{vps_name}</code>.", parse_mode="HTML")
+            return
+        if _add_firewall_port(vps_name, port):
+            await update.message.reply_text(
+                f"✅ Added port <code>{port}</code> to <b>{vps_name}</b> whitelist.",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(
+                f"ℹ️ Port <code>{port}</code> already in <b>{vps_name}</b> whitelist.",
+                parse_mode="HTML",
+            )
+        return
+
+    if action in ("del", "remove") and len(args) >= 3:
+        vps_name = args[1]
+        try:
+            port = int(args[2])
+        except ValueError:
+            await update.message.reply_text("⚠️ Port must be a number.")
+            return
+        if _del_firewall_port(vps_name, port):
+            await update.message.reply_text(
+                f"✅ Removed port <code>{port}</code> from <b>{vps_name}</b> whitelist.",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(
+                f"ℹ️ Port <code>{port}</code> not in <b>{vps_name}</b> whitelist.",
+                parse_mode="HTML",
+            )
+        return
+
+    await update.message.reply_text(
+        "Usage:\n/firewall — audit all VPS\n/firewall list — show whitelist per VPS\n"
+        "/firewall add <vps> <port> — allow public port\n"
+        "/firewall del <vps> <port> — remove from whitelist"
+    )
 
 
 # --- Config Drift Detector ---
@@ -2761,6 +3352,9 @@ async def post_init(application: Application):
         BotCommand("docsync", "Check if docs need updating for PR"),
         BotCommand("deps", "Dependency vulnerability scan"),
         BotCommand("ssl", "SSL cert check"),
+        BotCommand("dns", "DNS health check"),
+        BotCommand("hygiene", "Docker image hygiene"),
+        BotCommand("firewall", "Firewall audit"),
         BotCommand("drift", "Config drift check"),
     ]
     await application.bot.set_my_commands(commands)
@@ -2840,6 +3434,41 @@ async def post_init(application: Application):
         )
         logger.info(f"Deps check scheduled daily at {DEPS_CHECK_HOUR:02d}:{DEPS_CHECK_MINUTE:02d} WIB.")
 
+    if DOCKER_HYGIENE_ENABLED:
+        hygiene_time = _time(
+            hour=DOCKER_HYGIENE_HOUR,
+            minute=DOCKER_HYGIENE_MINUTE,
+            tzinfo=ZoneInfo("Asia/Jakarta"),
+        )
+        application.job_queue.run_daily(
+            _docker_hygiene_job,
+            time=hygiene_time,
+            name="docker_hygiene",
+        )
+        logger.info(f"Docker hygiene scheduled daily at {DOCKER_HYGIENE_HOUR:02d}:{DOCKER_HYGIENE_MINUTE:02d} WIB.")
+
+    if FIREWALL_AUDIT_ENABLED:
+        firewall_time = _time(
+            hour=FIREWALL_AUDIT_HOUR,
+            minute=FIREWALL_AUDIT_MINUTE,
+            tzinfo=ZoneInfo("Asia/Jakarta"),
+        )
+        application.job_queue.run_daily(
+            _firewall_audit_job,
+            time=firewall_time,
+            name="firewall_audit",
+        )
+        logger.info(f"Firewall audit scheduled daily at {FIREWALL_AUDIT_HOUR:02d}:{FIREWALL_AUDIT_MINUTE:02d} WIB.")
+
+    if DNS_CHECK_ENABLED and _get_dns_domains():
+        application.job_queue.run_repeating(
+            _dns_check_job,
+            interval=DNS_CHECK_INTERVAL_SEC,
+            first=120,
+            name="dns_check",
+        )
+        logger.info(f"DNS check scheduled every {DNS_CHECK_INTERVAL_SEC}s for {len(_get_dns_domains())} domain(s).")
+
 
 def main():
     if not BOT_TOKEN:
@@ -2875,6 +3504,9 @@ def main():
     app.add_handler(CommandHandler("meeting", cmd_meeting))
     app.add_handler(CommandHandler("deps", cmd_deps))
     app.add_handler(CommandHandler("docsync", cmd_docsync))
+    app.add_handler(CommandHandler("hygiene", cmd_hygiene))
+    app.add_handler(CommandHandler("firewall", cmd_firewall))
+    app.add_handler(CommandHandler("dns", cmd_dns))
     app.add_handler(CallbackQueryHandler(handle_skill_callback, pattern="^autoskill$"))
     app.add_handler(CallbackQueryHandler(handle_menu_callback, pattern="^menu:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))

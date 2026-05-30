@@ -4,7 +4,7 @@ import hmac
 import logging
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -512,7 +512,7 @@ async def _build_summary(mode: str) -> str:
 
 
 @app.post("/api/webhook/github")
-async def github_webhook(request: Request) -> dict[str, Any]:
+async def github_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256", "")
 
@@ -525,12 +525,12 @@ async def github_webhook(request: Request) -> dict[str, Any]:
 
     import json
     payload = json.loads(body)
-    result = await pr_review.handle_pr_event(payload)
-    return result
+    background_tasks.add_task(pr_review.handle_pr_event, payload)
+    return {"queued": True, "event": event}
 
 
 @app.post("/api/webhook/gitlab")
-async def gitlab_webhook(request: Request) -> dict[str, Any]:
+async def gitlab_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     token = request.headers.get("X-Gitlab-Token", "")
 
     if not gitlab_review.verify_webhook_token(token):
@@ -543,8 +543,8 @@ async def gitlab_webhook(request: Request) -> dict[str, Any]:
     import json
     body = await request.body()
     payload = json.loads(body)
-    result = await gitlab_review.handle_mr_event(payload)
-    return result
+    background_tasks.add_task(gitlab_review.handle_mr_event, payload)
+    return {"queued": True, "event": event}
 
 
 class ReviewPRRequest(BaseModel):

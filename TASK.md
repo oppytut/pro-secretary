@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-28 23:51 UTC  
+**Last Updated:** 2026-05-30 00:21 UTC  
 **Project:** AI Personal Secretary Stack  
 **Status:** ✅ 7 features shipped + deployed: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab).
 
@@ -10,140 +10,82 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-28 — shipped 7 AI Agent 24/7 features from roadmap.
+**Where we left off:** Sesi 2026-05-30 — hardened Auto PR Review + deploy.yml secrets audit.
 
 ### What happened (this session)
 
-1. **Morning Standup Brief** — daily 07:00 WIB aggregated message (schedule+tasks from agent, VPS status+alerts from Prometheus, open PRs+commits+CI from GitHub API). `/briefing` on-demand.
-2. **Incident Auto-Responder** — extends health check with auto-restart containers (skips restart loops) + auto-prune disk >90%. Verification re-check after each fix. Telegram audit trail.
-3. **Config Drift Detector** — daily 02:00 WIB check: running images vs docker-compose.yml, container set, cron entries, remote VPS liveness. `/drift` on-demand.
-4. **SSL/Domain Watchdog** — daily 02:05 WIB cert expiry check. Alert 30 days before. `/ssl` on-demand.
-5. **Dynamic Config via Telegram** — `/ssl add/del/list` + `/monitor add/del/list`. JSON config store persisted in `bot_data` volume. Env vars as seed/fallback.
-6. **Capacity Planning** — daily 02:10 WIB predict_linear forecast for disk and RAM exhaustion (7d lookback, 14d horizon). `/capacity` on-demand. Silent when OK, alerts when predicted exhaustion within CAPACITY_WARN_DAYS.
-7. **Auto PR Review** — GitHub webhook → LangGraph agent fetches diff → LLM analyzes (bugs, security, performance) → posts review on PR (APPROVE/COMMENT/REQUEST_CHANGES) → Telegram notification.
+1. **Auto PR Review hardening** — 4 fixes:
+   - `parse_mode=HTML` for Telegram notifications (was showing raw `<b>` tags)
+   - Whitelist sync error handling (log + notify user instead of silent `pass`)
+   - Diff truncation notice appended to review body when >12K chars
+   - Single retry with 2s backoff on diff fetch failure (skip on 403/404/422)
+2. **Webhook setup helper** — `/review add` now replies with `gh`/`glab` CLI command to create webhook + link to manual settings page. Requires `AGENT_HOST` env.
+3. **deploy.yml secrets audit & fix** — added `AGENT_HOST`, `GH_WEBHOOK_SECRET`, `GITLAB_WEBHOOK_SECRET` to CI deploy pipeline. Removed deprecated `OPENFANG_SECRET`.
+4. **`.env.example` updated** — documented `GITLAB_PAT` scope (`api`), `GH_PAT` PR write permission, webhook secret descriptions.
 
 ### Key decisions
 
-- **Bot-side aggregation** for morning brief (not agent) — bot already has Prometheus + SSH access.
-- **JSON file config store** (not Qdrant) — simpler for key-value config, no agent dependency.
-- **Docker CLI static binary** added to bot container for local drift check (socket mounted ro).
-- **Env vars remain as seed** — dynamic config takes precedence but env is fallback.
-- **Silent notifications** — drift/SSL/capacity only alert when issues found, not when clean.
-- **Agent-side webhook** for PR review — agent has LLM access, bot syncs whitelist to agent.
-- **Multi-platform PR review** — GitHub (post review) + GitLab (post comment). Same LLM analysis.
-- **Whitelist sync** — bot owns config, pushes to agent via `/api/review/repos`. Empty = review all.
-- **Caddy handle blocks** — only `/api/webhook/*` exposed publicly, everything else 404.
+- **Webhook setup helper (Option A)** over auto-create webhook — avoids PAT scope escalation (`admin:repo_hook`). Bot generates CLI snippet instead.
+- **`parse_mode` default None** (not HTML) — backward compat for plain-text callers (resource alerts, notify, journal). HTML callers pass explicitly.
+- **Retry only on transient failures** — 403/404/422 are permanent, no retry. 5xx/network errors get 1 retry with 2s backoff.
 
 ### Session files changed
 
-- `telegram-bot/bot.py` — capacity planning + /review command with config store
-- `langgraph-agent/app/main.py` — GitHub/GitLab webhook endpoints + /api/review_pr + /api/review/repos
-- `langgraph-agent/app/pr_review.py` — NEW: PR diff fetch, LLM analysis, review posting, whitelist
-- `langgraph-agent/app/gitlab_review.py` — NEW: GitLab MR diff fetch, comment posting
-- `langgraph-agent/app/config.py` — added GH_WEBHOOK_SECRET, GITLAB_WEBHOOK_SECRET
-- `docker-compose.yml` — capacity + webhook env vars
-- `caddy/Caddyfile` — agent webhook routes (GitHub + GitLab)
-- `.env.example` — GH_WEBHOOK_SECRET, GITLAB_WEBHOOK_SECRET, AGENT_HOST
+- `langgraph-agent/app/telegram.py` — added `parse_mode` parameter
+- `langgraph-agent/app/pr_review.py` — parse_mode=HTML, truncation notice, retry logic
+- `langgraph-agent/app/gitlab_review.py` — parse_mode=HTML, retry logic
+- `telegram-bot/bot.py` — webhook setup helper, sync error handling, AGENT_HOST/secrets env
+- `docker-compose.yml` — AGENT_HOST + webhook secrets for bot container
+- `.env.example` — PAT scope docs, webhook secret descriptions
+- `.github/workflows/deploy.yml` — 3 new secrets, removed OPENFANG_SECRET
 
-### New env vars (all have defaults, optional)
+### New env vars added to bot container
 
 | Var | Default | Purpose |
 |---|---|---|
-| `GH_PAT` | (empty) | GitHub API for morning brief |
-| `MORNING_BRIEF_ENABLED` | true | Enable/disable morning brief |
-| `MORNING_BRIEF_HOUR` | 7 | Hour (WIB) |
-| `MORNING_BRIEF_MINUTE` | 0 | Minute |
-| `AUTO_FIX_ENABLED` | true | Enable/disable auto-fix |
-| `DISK_AUTOFIX_THRESHOLD_PCT` | 90 | Disk % trigger for prune |
-| `DRIFT_CHECK_ENABLED` | true | Enable/disable drift check |
-| `DRIFT_CHECK_HOUR` | 2 | Hour (WIB) |
-| `DRIFT_CHECK_MINUTE` | 0 | Minute |
-| `SSL_CHECK_ENABLED` | true | Enable/disable SSL check |
-| `SSL_CHECK_DOMAINS` | (empty) | Comma-separated seed domains |
-| `SSL_WARN_DAYS` | 30 | Days before expiry to warn |
+| `AGENT_HOST` | (empty) | Public hostname for webhook URL in setup hints |
+| `GH_WEBHOOK_SECRET` | (empty) | Passed to bot for secret prefix display in hints |
+| `GITLAB_WEBHOOK_SECRET` | (empty) | Passed to bot for token prefix display in hints |
 
-| `CAPACITY_CHECK_ENABLED` | true | Enable/disable capacity forecast |
-| `CAPACITY_CHECK_HOUR` | 2 | Hour (WIB) |
-| `CAPACITY_CHECK_MINUTE` | 10 | Minute |
-| `CAPACITY_WARN_DAYS` | 14 | Days ahead to predict exhaustion |
-| `GH_WEBHOOK_SECRET` | (empty) | GitHub webhook HMAC secret for PR review |
-| `GITLAB_WEBHOOK_SECRET` | (empty) | GitLab webhook token for MR review |
-| `AGENT_HOST` | agent.localhost | Public hostname for agent webhook endpoint |
+### GitHub Secrets audit result
 
-### New commands
+**Added by user (this session):**
+- `AGENT_HOST` — domain pointing to VPS for webhook endpoint
+- `GH_WEBHOOK_SECRET` — HMAC secret for GitHub webhook verification
+- `GITLAB_WEBHOOK_SECRET` — token for GitLab webhook verification
 
-| Command | Purpose |
-|---|---|
-| `/briefing` | Full morning brief on-demand |
-| `/drift` | Config drift check on-demand |
-| `/ssl` | SSL cert check on-demand |
-| `/ssl add/del/list` | Manage SSL watchlist via Telegram |
-| `/monitor add/del/list` | Manage VPS targets via Telegram |
-| `/capacity` | Disk/RAM exhaustion forecast on-demand |
-| `/review add/del/list` | Manage auto-review repo whitelist |
-| `/review owner/repo#123` | On-demand PR/MR review |
+**Still missing (non-blocking):**
+- `DOMAIN` — base domain (deploy script has fallback)
+- `CALCOM_API_KEY` — needed for Cal.com API calls (from Cal.com dashboard)
+- `N8N_USER` / `N8N_PASSWORD` — deploy uses defaults `admin`/`changeme`
 
-### Session deliverables (5 commits across 2 repos)
+### Deferred (wait 1-2 minggu data)
 
-| # | Commit | Repo | Outcome |
-|---|---|---|---|
-| 1 | `34aa240 fix(healthcheck): use /up endpoint` | erp-l11 stg | First fix — surfaced Inspector APM bug |
-| 2 | `cbb00a8 fix(healthcheck): probe / instead of /up` | erp-l11 stg | Final healthcheck fix — `Up (healthy)` |
-| 3 | `da39cfd docs: TASK.md handoff erpstg resolved` | pro-secretary main | Investigation context |
-| 4 | `5bdf3c8 fix(agent): improve Q&A path-term extraction` | pro-secretary main | _ID_TO_EN map, y→ies plurals, Facade/Traits priority |
-| 5 | `999f0a7 fix(agent): prioritize exact create_<entity>_table` | pro-secretary main | Distinguish main entity migration from related-entity |
-
-### Q&A retrieval — dogfood verdict (3/3 resolved)
-
-| Case | Original verdict | After session | Citation source |
-|---|---|---|---|
-| D1: tabel material kolom | ⚠️ PARTIAL — main migration miss | ✅ FULL — 6 columns + types + FK | `create_materials_table.php:1-30` |
-| D3: alur transaksi receipt stok | ⚠️ PARTIAL — POS confusion | ✅ FULL — material_transactions flow | `create_material_transactions_table.php:1-41` |
-| D4: scope business_id di inventory | ⚠️ PARTIAL — interface only | ✅ FULL — Facade impl + middleware | `app/Facades/Inventory/Inventory.php:1-140` |
-
-### Q&A retrieval changes (technical detail for next agent)
-
-1. **`_ID_TO_EN` Indonesian→English entity mapping (24 mappings):** `stok→stock`, `transaksi→transaction`, `pegawai→employee`, etc. Both forms searched in path retrieval.
-2. **`_pluralize_variants` proper English morphology:** `y→ies` (inventory→inventories), `ies→y` (reverse), `ss` exception, default add/strip s.
-3. **`_PATH_PRIORITY` expanded:** +Services/, Repositories/, Facades/, Traits/, Concerns/, Scopes/, Providers/ (covers dokfin Facade pattern).
-4. **Exact `create_<entity>_table` priority (rank -3):** Distinguishes main entity migration from related-entity migrations (stocks, issues, units, etc.).
-5. **`_PATH_IRRELEVANT` expanded:** +`saja`, `siapa`, `scope`, `relasi`, `relation`, `harus`.
-
-### Inspector APM bug (erpstg, dev team scope)
-
-- `inspector-apm/inspector-laravel: ^4.19` incompatible with Laravel 12 view engine
-- `/up` returns 500 on fresh view cache: `Property Inspector\Laravel\Views\ViewEngineDecorator::$lastCompiled does not exist`
-- Workaround active: healthcheck pakai `/` (homepage)
-- **Permanent fix options for dev team:**
-  - (a) Upgrade Inspector APM to Laravel 12 compatible version
-  - (b) Remove from composer.json (config currently `inspector=off`)
-  - (c) Conditionally register service provider only when `INSPECTOR_ENABLE=true`
+- Grafana (tunggu actual trend visualization need)
+- Embedding model upgrade / Hybrid search BM25
+- Skills Phase 2C (executable skills)
+- py3.14 migration (wait wheels)
+- `/repo add/del/list` — dynamic project management via Telegram
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **Dogfood 7 new features** (3-5 hari, passive):
+1. **Dogfood Auto PR Review** — configure webhook on a real repo, test with real PR. Verify:
+   - Webhook arrives → review posted → Telegram notified
+   - `/review owner/repo#123` on-demand works
+   - Truncation notice appears on large PRs
+2. **Dogfood other 6 features** (passive, ongoing):
    - `/briefing` — is the morning brief informative enough?
    - Auto-fix — any false positives?
    - `/drift` — noisy or useful?
    - `/ssl add` + `/monitor add` — test dynamic config
-   - `/capacity` — needs 7d Prometheus history to produce meaningful predictions
-   - `/review` — configure webhooks on repos, test with real PRs/MRs
-   - Tune if needed
-
-2. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):
-   - User punya 10-15 VPS total. Saat ini ter-scrape: `pro-secretary` + `erpstg`.
-   - **STANDARD: port 19100, bukan 9100.** See "Why port 19100" in KEY KNOWLEDGE #11.
-   - Per-VPS: install `prometheus-node-exporter`, UFW allow pro-secretary IP only, append target.
+   - `/capacity` — needs 7d Prometheus history for meaningful predictions
+3. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion):
    - Butuh dari user: list IP/hostname + provider + SSH access.
-   - **NEW:** Bisa juga `/monitor add <name> <host> <port> <user>` via Telegram.
-3. **`/repo add/del/list`** — dynamic project management via Telegram (needs agent endpoint for re-indexing).
-
-6. **Jangan lakukan sebelum 1-2 minggu data:**
-   - Grafana (tunggu actual trend visualization need)
-   - Embedding model upgrade
-   - Hybrid search BM25
-   - Skills Phase 2C (executable skills)
-   - py3.14 migration (wait wheels)
+   - `/monitor add <name> <host> <port> <user>` via Telegram.
+4. **Next roadmap items** (AI-suitable, recommended order):
+   - Meeting Notes → Action Items (0.5 hari) — quick win, all building blocks exist
+   - Dependency Watchdog (1-2 hari) — fully automatable, no user judgment needed
+   - Spec-to-Implementation (2-3 hari) — highest leverage multiplier
 
 ### Critical patterns (read before onboarding next VPS)
 
@@ -241,6 +183,16 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 - VPS list from user (blocks Prometheus onboarding)
 
 ### Recently Completed
+
+- ✅ [2026-05-30 00:22 UTC] Auto PR Review hardening + deploy.yml audit
+  - `parse_mode=HTML` fix for Telegram notifications
+  - Whitelist sync error handling (log + notify instead of silent pass)
+  - Diff truncation notice in review body when >12K chars
+  - Single retry with 2s backoff on diff fetch failure
+  - Webhook setup helper: `/review add` shows `gh`/`glab` CLI snippet
+  - deploy.yml: added AGENT_HOST, GH_WEBHOOK_SECRET, GITLAB_WEBHOOK_SECRET
+  - deploy.yml: removed deprecated OPENFANG_SECRET
+  - `.env.example`: documented PAT scopes + webhook secrets
 
 - ✅ [2026-05-28 14:36 UTC] Auto PR Review deployed
   - GitHub webhook → agent `/api/webhook/github` endpoint

@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-30 10:50 UTC
+**Last Updated:** 2026-05-30 15:03 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 10 features shipped + 1 silent-failure bug fixed (Auto PR/MR Review surfaces post failures): Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab), Meeting Notes → Action Items, Dependency Watchdog, Documentation Sync.
+**Status:** ✅ 10 features shipped + Auto PR Review fully fixed (5 bugs surfaced + fixed in single dogfood loop): Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab), Meeting Notes → Action Items, Dependency Watchdog, Documentation Sync.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -43,10 +43,54 @@
    - `/docsync owner/repo#123` (GitHub) or `/docsync gitlab:project_id!iid` (GitLab)
    - Reuses `pr_review.fetch_pr_diff()` and `gitlab_review.fetch_mr_diff()`
 
-### Bug fixed mid-session
+5. **Auto PR Review — full dogfood loop, 5 bugs surfaced + fixed** ⭐ MAJOR DEBUGGING WIN
+   - User reported: bot kirim Telegram with verdict but PR never got review comment (silent failure on `oppytut/jeevatix#10/11/12`)
+   - Diagnosed via SSH to VPS, webhook delivery telemetry, container exec — found 5 distinct bugs in single feature
+
+   **Bug 1: Silent post failure** (commit `535cfdf`)
+   - `post_review()` returned `None` on HTTP error, caller ignored
+   - Telegram always sent fake-success notification
+   - Fix: return `{ok, status, data, error}` dict; surface `✅ Posted` / `⚠️ NOT posted (HTTP X)` in Telegram
+
+   **Bug 2: Webhook timeout** (commit `717a1cc`, in PR #10)
+   - Handler `await handle_pr_event()` blocks 30-60s for fetch+LLM+post
+   - GitHub webhook timeout limit = 10s → "timed out 504"
+   - Fix: FastAPI `BackgroundTasks` — return `{queued: true}` in <3s, pipeline runs async
+   - Telemetry verified: 504 (10s) → 200 (1.02-2.55s)
+
+   **Bug 3: PAT scope insufficient** (user-side fix)
+   - Telegram surfaced after Bug 1 fix: `HTTP 403 — Resource not accessible by personal access token`
+   - User updated GH_PAT with `pull_requests: write` scope, manually triggered redeploy
+
+   **Bug 4: Empty diff silent skip** (commit on PR #12)
+   - PR #11 (empty commits) caused `fetch_pr_diff` return empty string
+   - `if not diff: return {"error": ...}` early-exit silently — no Telegram notif
+   - Fix: send explicit `⚠️ Skipped: empty or unfetchable diff` Telegram message
+
+   **Bug 5: send_message can raise from background** (caught by Auto PR Review on PR #12)
+   - Bot reviewed my Bug 4 fix, found `await telegram.send_message` can raise httpx.RequestError → crash background pipeline
+   - Fix: defensive `telegram.py` — wrap client setup + per-recipient POST in try/except, never raise, always return dict
+   - Per-recipient errors captured in `results[i].error`
+
+   **Verification flow:**
+   - PR #10 merged → CI deploy fix #1+2 → 504→200 telemetry confirmed
+   - PR #11 (empty commits) → exposed bug #4
+   - PR #12 → real diff → bot self-reviewed, posted GitHub comment ✅, caught bug #5
+   - Bot re-reviewed after bug #5 fix → suggested caller-level wrapper (defense-in-depth, optional, deferred)
+   - PR #12 merged → CI deploy → 6 webhook deliveries 200 OK in 1-3s
+
+### Bug fixed mid-session (earlier)
 
 - ⚠️ **Bot.py orphan-references** — Earlier deps watchdog code injection had silent oldString mismatch. Bot referenced `cmd_deps`, `_deps_check_job`, `_run_deps_check` without defining them → would NameError on startup. Fixed by injecting full Dependency Watchdog block before "Config Drift Detector" section.
 - **Lesson:** `py_compile` catches syntax but NOT undefined module-level references. After multi-step edits, also run AST check: `python3 -c "import ast; ast.parse(open('file.py').read())"` then verify required functions exist.
+
+### Key debugging techniques (Auto PR Review session)
+
+1. **Webhook delivery telemetry** — `gh api repos/X/hooks/HOOK_ID/deliveries` shows status_code + duration per delivery. Pre/post-deploy comparison ironclad evidence (504/10s vs 200/1.4s).
+2. **SSH to VPS for log inspection** — `docker logs --since Xm langgraph-agent | grep ...` reveals what BackgroundTask actually did. **Critical for any silent failure.**
+3. **`docker exec ... python3 -c "..."` for live diagnosis** — verified `fetch_pr_diff` returns `0 bytes for empty commit` vs `95KB for real diff`. Eliminated guesswork.
+4. **Self-test with the feature itself** — bot reviews its own PR. Catches real bugs (twice in this session). Best dogfood pattern available.
+5. **Trust webhook ack ≠ pipeline success** — GitHub returns 200 if webhook accepted; doesn't tell you if BackgroundTask completed. Always require terminal observability (Telegram notif, GitHub review, log line).
 
 ### Key decisions
 
@@ -65,12 +109,25 @@
 - `langgraph-agent/app/docs_sync.py` (~250 lines)
 
 **Modified:**
-- `langgraph-agent/app/main.py` — 3 imports + 3 request models + 3 endpoints (`/api/meeting_notes`, `/api/deps/scan`, `/api/docs/suggest`)
+- `langgraph-agent/app/main.py` — 3 imports + 3 request models + 3 endpoints (`/api/meeting_notes`, `/api/deps/scan`, `/api/docs/suggest`) + BackgroundTasks for webhook handlers
+- `langgraph-agent/app/pr_review.py` — `post_review` returns dict, surface posting status, empty-diff Telegram notif
+- `langgraph-agent/app/gitlab_review.py` — `post_mr_comment` returns dict, surface posting status, empty-diff Telegram notif
+- `langgraph-agent/app/telegram.py` — defensive `send_message` (never raises, always returns dict)
 - `telegram-bot/bot.py` — `cmd_meeting`, `cmd_deps`, `cmd_docsync` + `_run_deps_check`, `_deps_check_job`, `_looks_like_meeting`, `_process_meeting_transcript` + voice routing + scheduler block + 3 BotCommand entries + menu/help text
 - `README.md` — Status banner, AI Agent Engine section, Roadmap (table + Horizon), Hardware breakdown, container counts
 - `DEPLOYMENT_LOW_RESOURCE.md` — Banner refocused, openfang refs replaced (mkdir, restart, resource table)
 - `AI_AGENT_ROADMAP.md` — Tier 1.3 + 3.3 + 3.4 marked done, Shipped Features table updated
 - `TASK.md` — this update
+
+### Commits/PRs landed (in order)
+
+- `535cfdf` fix(review): surface GitHub/GitLab post failures in Telegram
+- `32291a3` feat: meeting notes + dependency watchdog + docs sync (Phase 1)
+- `4db67b7` docs: refresh README, deployment guide, roadmap, TASK handoff
+- `717a1cc` fix(webhook): return 202 immediately to avoid GitHub 10s timeout
+- PR #10 → merged (squashed to `05a7ecc`) → CI deploy success 1m57s
+- Manual workflow_dispatch redeploy after user updated GH_PAT scope → 1m35s
+- `6dfe61c` PR #12 squash: empty-diff surface + defensive telegram.send_message → CI deploy 2m1s
 
 ### Verification done
 
@@ -81,6 +138,9 @@
 - ✅ Deps parsers smoke test: npm/pip/composer/go.mod with synthetic manifests
 - ✅ OSV.dev integration test: lodash@4.17.20 returned 5 real CVEs with severity
 - ✅ Docs_sync diff parser + classifier + LLM response parser tested with multi-file diff
+- ✅ **Auto PR Review end-to-end** (PR #12): bot reviewed itself, posted GitHub comment, caught real bug in own fix
+- ✅ Webhook telemetry: 504 (10s) → 200 (1.0-2.5s) across 6 deliveries post-deploy
+- ✅ Live diagnosis via `docker exec ... python3` — verified `fetch_pr_diff` empty for empty commits, 95KB for real diffs
 
 ### NOT verified (need real-world dogfood)
 

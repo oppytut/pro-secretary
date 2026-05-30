@@ -157,6 +157,8 @@ jobs:
             echo "=== post-deploy health probes ==="
             docker exec langgraph-agent curl -fsS --max-time 5 http://localhost:8090/health
             docker exec n8n wget -qO- --timeout 5 http://localhost:5678/healthz
+            echo "=== telegram-bot startup log (scheduler registration) ==="
+            docker logs telegram-bot --tail 80 2>&1 | grep -E "scheduled|check sched|Application started|JobQueue|ERROR|Traceback" || echo "no relevant bot log lines"
             echo "=== prometheus active targets (job=node) ==="
             docker exec prometheus wget -qO- --timeout 5 'http://localhost:9090/api/v1/targets?state=active' 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(t["labels"].get("instance_name","?"), t["scrapeUrl"], "health="+t["health"], "err="+t.get("lastError","")[:120], "lastScrape="+t.get("lastScrape","?")) for t in d["data"]["activeTargets"] if t["labels"].get("job")=="node"]' || echo "targets dump failed"
             sleep 35

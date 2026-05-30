@@ -103,7 +103,15 @@ async def handle_mr_event(payload: dict[str, Any]) -> dict[str, Any]:
 
     diff = await fetch_mr_diff(project_id, mr_iid)
     if not diff:
-        return {"error": "failed to fetch MR diff"}
+        notify_text = (
+            f"🔍 <b>Auto MR Review</b>\n\n"
+            f"📦 {full_name}!{mr_iid}\n"
+            f"📝 {mr_title}\n"
+            f"⚠️ <b>Skipped</b>: empty or unfetchable diff "
+            f"(empty commit, large binary-only MR, or fetch failure)"
+        )
+        await telegram.send_message(notify_text, parse_mode="HTML")
+        return {"error": "failed to fetch MR diff", "repo": full_name, "mr": mr_iid}
 
     analysis = await pr_review.analyze_diff(diff, mr_title, mr_body)
 

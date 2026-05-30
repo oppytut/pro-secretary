@@ -1,17 +1,15 @@
 # 🚀 Low-Resource Deployment Guide
 
-> ⚠️ **STATUS: OUTDATED — DO NOT FOLLOW STEP-BY-STEP**
+> ⚠️ **STATUS: REFERENCE ONLY — DO NOT FOLLOW STEP-BY-STEP**
 >
-> This guide was written when the AI engine was planned to be **OpenFang**. The project has since switched to a self-built **LangGraph agent** container, and the `telegram-bot/bot.py` in the repo is production-ready (not a skeleton to recreate).
->
-> **If you follow the manual bot-creation steps below, you will overwrite a working bot.** Service names, resource tables, and restart commands that reference `openfang` will fail.
+> Live deploy adalah **CI-driven** via [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), bukan manual. AI engine adalah custom **LangGraph agent** dan `telegram-bot/bot.py` di repo sudah production-ready (jangan ditimpa dengan langkah-langkah skeleton di bawah).
 >
 > **Current authoritative sources:**
 > - [`TASK.md`](TASK.md) — current stack, operational state, what was deployed
 > - [`docker-compose.yml`](docker-compose.yml) — the real service definitions
 > - [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) — the actual deploy flow (CI-driven, not manual)
 >
-> This file is kept only because some sections (swap setup, VPS sizing, cost estimates) are still useful reference. A rewrite is planned.
+> Sections yang masih relevan sebagai referensi: swap setup, VPS sizing, cost estimates.
 
 ---
 
@@ -23,7 +21,7 @@ This guide helps you deploy AI Personal Secretary Stack on budget VPS. All heavy
 
 **What runs locally (7 containers):**
 1. n8n (workflow orchestrator)
-2. langgraph-agent (AI agent — replaces unavailable OpenFang)
+2. langgraph-agent (custom LangGraph AI agent — FastAPI + StateGraph)
 3. Cal.com (calendar app)
 4. Telegram Bot (interface)
 5. Prometheus (multi-VPS metrics)
@@ -168,7 +166,7 @@ CALCOM_HOST=cal.yourdomain.com
 ```bash
 # Create directories for volumes
 mkdir -p n8n/workflows
-mkdir -p openfang
+mkdir -p langgraph-agent
 mkdir -p caddy
 mkdir -p telegram-bot
 
@@ -271,14 +269,16 @@ docker stats
 
 **Expected Resource Usage:**
 ```
-CONTAINER     CPU %    MEM USAGE / LIMIT     MEM %
-n8n           5-15%    1.2GB / 2GB          60%
-openfang      5-10%    800MB / 2GB          40%
-calcom        3-8%     900MB / 1.5GB        60%
-telegram-bot  1-2%     200MB / 512MB        39%
-caddy         1-2%     100MB / 256MB        39%
-─────────────────────────────────────────────────
-TOTAL         15-37%   3.2GB / 6.25GB       51%
+CONTAINER         CPU %    MEM USAGE / LIMIT     MEM %
+n8n               5-15%    1.2GB / 2GB          60%
+langgraph-agent   5-10%    800MB / 1GB          80%
+calcom            3-8%     900MB / 1.5GB        60%
+telegram-bot      1-2%     200MB / 512MB        39%
+prometheus        2-5%     300MB / 1GB          30%
+alertmanager      <1%      50MB / 256MB         20%
+caddy             1-2%     100MB / 256MB        39%
+─────────────────────────────────────────────────────
+TOTAL             15-43%   3.5GB / 6.5GB        54%
 ```
 
 **With OS overhead: ~4-5 GB total usage (fits in 8GB with swap)**
@@ -414,8 +414,8 @@ curl -X GET "$QDRANT_URL/collections" \
 # 3. Check firewall (Qdrant uses port 6333)
 # Ensure your VPS can reach external HTTPS
 
-# 4. Restart OpenFang
-docker compose restart openfang
+# 4. Restart langgraph-agent
+docker compose restart langgraph-agent
 ```
 
 ---

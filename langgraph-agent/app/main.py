@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from . import code_repos, config, gitlab_review, journal, llm, pr_review, resource_alerts, skills, system_status, telegram, tools, vps_status, workflow
+from . import code_repos, config, deps_watchdog, docs_sync, gitlab_review, journal, llm, meeting_notes, pr_review, resource_alerts, skills, system_status, telegram, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -113,6 +113,27 @@ class NotifyRequest(BaseModel):
     chat_id: str | int | None = None
 
 
+class MeetingNotesRequest(BaseModel):
+    transcript: str = Field(..., min_length=1, max_length=20000)
+    user_id: str | int | None = None
+    auto_create_tasks: bool = True
+
+
+class DepsScanRequest(BaseModel):
+    repo_id: str | None = None
+
+
+class DocsSyncRequest(BaseModel):
+    platform: str = Field(..., pattern="^(github|gitlab)$")
+    owner: str | None = None
+    repo: str | None = None
+    pr_number: int | None = None
+    project_id: str | None = None
+    mr_iid: int | None = None
+    title: str = ""
+    body: str | None = None
+
+
 JOURNAL_PROMPT_MARKER = "📓 Personal Journal"
 
 JOURNAL_PROMPT_TEXT = (
@@ -195,6 +216,56 @@ async def task_delete(req: TaskDeleteRequest) -> dict[str, Any]:
 async def note_create(req: NoteRequest) -> dict[str, Any]:
     note_id = tools.store_note(req.content, source=req.source, user_id=req.user_id)
     return {"id": note_id, "content": req.content}
+
+
+@app.post("/api/meeting_notes", dependencies=[Depends(verify_secret)])
+@limiter.limit("6/minute")
+async def meeting_notes_extract(request: Request, req: MeetingNotesRequest) -> dict[str, Any]:
+    try:
+        result = await meeting_notes.process_meeting(
+            transcript=req.transcript,
+            user_id=req.user_id,
+            auto_create_tasks=req.auto_create_tasks,
+        )
+    except Exception:
+        logger.exception("meeting_notes extraction failed")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="extraction failed")
+    return result
+
+
+@app.post("/api/deps/scan", dependencies=[Depends(verify_secret)])
+@limiter.limit("4/minute")
+async def deps_scan(request: Request, req: DepsScanRequest) -> dict[str, Any]:
+    try:
+        if req.repo_id:
+            result = await deps_watchdog.scan_repo(req.repo_id)
+            return {"results": [result], "report": deps_watchdog.format_report([result])}
+        results = await deps_watchdog.scan_all_repos()
+        return {"results": results, "report": deps_watchdog.format_report(results)}
+    except Exception:
+        logger.exception("deps scan failed")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="scan failed")
+
+
+@app.post("/api/docs/suggest", dependencies=[Depends(verify_secret)])
+@limiter.limit("6/minute")
+async def docs_suggest(request: Request, req: DocsSyncRequest) -> dict[str, Any]:
+    try:
+        if req.platform == "github":
+            if not req.owner or not req.repo or not req.pr_number:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="github requires owner, repo, pr_number")
+            result = await docs_sync.analyze_github_pr(req.owner, req.repo, req.pr_number, req.title, req.body)
+        else:
+            if not req.project_id or not req.mr_iid:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="gitlab requires project_id, mr_iid")
+            result = await docs_sync.analyze_gitlab_mr(req.project_id, req.mr_iid, req.title, req.body)
+        result["report"] = docs_sync.format_for_telegram(result)
+        return result
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("docs suggest failed")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="docs suggest failed")
 
 
 @app.post("/api/schedule", dependencies=[Depends(verify_secret)])

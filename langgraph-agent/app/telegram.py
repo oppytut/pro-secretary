@@ -28,22 +28,28 @@ async def send_message(
         return {"ok": False, "error": "no recipients"}
 
     results = []
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        for recipient in targets:
-            payload: dict[str, Any] = {
-                "chat_id": recipient,
-                "text": text,
-                "disable_web_page_preview": True,
-            }
-            if parse_mode:
-                payload["parse_mode"] = parse_mode
-            if reply_markup is not None:
-                payload["reply_markup"] = reply_markup
-            r = await client.post(
-                f"{_TELEGRAM_API}/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                json=payload,
-            )
-            results.append({"chat_id": recipient, "status_code": r.status_code})
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for recipient in targets:
+                payload: dict[str, Any] = {
+                    "chat_id": recipient,
+                    "text": text,
+                    "disable_web_page_preview": True,
+                }
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+                if reply_markup is not None:
+                    payload["reply_markup"] = reply_markup
+                try:
+                    r = await client.post(
+                        f"{_TELEGRAM_API}/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                        json=payload,
+                    )
+                    results.append({"chat_id": recipient, "status_code": r.status_code})
+                except httpx.RequestError as exc:
+                    results.append({"chat_id": recipient, "status_code": 0, "error": str(exc)})
+    except Exception as exc:
+        return {"ok": False, "error": f"client setup failed: {exc}", "delivered": 0}
 
-    ok = all(x["status_code"] == 200 for x in results)
+    ok = bool(results) and all(x.get("status_code") == 200 for x in results)
     return {"ok": ok, "delivered": len(targets), "results": results}

@@ -203,7 +203,15 @@ async def handle_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
 
     diff = await fetch_pr_diff(owner, repo, pr_number)
     if not diff:
-        return {"error": "failed to fetch diff"}
+        notify_text = (
+            f"🔍 <b>Auto PR Review</b>\n\n"
+            f"📦 {full_name}#{pr_number}\n"
+            f"📝 {pr_title}\n"
+            f"⚠️ <b>Skipped</b>: empty or unfetchable diff "
+            f"(empty commit, large binary-only PR, or fetch failure)"
+        )
+        await telegram.send_message(notify_text, parse_mode="HTML")
+        return {"error": "failed to fetch diff", "repo": full_name, "pr": pr_number}
 
     analysis = await analyze_diff(diff, pr_title, pr_body)
 

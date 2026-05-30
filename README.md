@@ -2,7 +2,7 @@
 
 > Sistem asisten pribadi AI self-hosted yang tahu semua pekerjaan Anda — berjalan 24/7, privasi terjaga, kontrol penuh di tangan Anda.
 
-> **Status dokumen:** Stack telah pivot dari OpenFang (image unavailable) ke **custom LangGraph agent** yang dibangun sendiri di `langgraph-agent/`. Beberapa bagian panjang di README ini (khususnya seksi perbandingan "OpenFang vs LangGraph" dan contoh konfigurasi TOML OpenFang) bersifat historical — sistem live **tidak lagi menggunakan OpenFang**. Sumber terpercaya untuk state aktual: [`docker-compose.yml`](docker-compose.yml), [`TASK.md`](TASK.md), [`langgraph-agent/`](langgraph-agent/).
+> **Status (2026-05-30):** Production stack — 9 features shipped. AI engine adalah **custom LangGraph agent** di [`langgraph-agent/`](langgraph-agent/). Sumber otoritatif untuk state aktual: [`docker-compose.yml`](docker-compose.yml), [`TASK.md`](TASK.md), [`AI_AGENT_ROADMAP.md`](AI_AGENT_ROADMAP.md).
 
 ## 📐 Architecture
 
@@ -1252,7 +1252,7 @@ Alertmanager tidak support `${ENV_VAR}` substitution di config natively. Solusi:
 
 ### Hardware Requirements
 
-> **Important:** PostgreSQL, Qdrant, dan Cloudflare R2 adalah external services yang TIDAK berjalan di server Anda. Resource requirements di bawah hanya untuk 5 containers lokal: n8n, langgraph-agent, Cal.com, Telegram Bot, dan Caddy.
+> **Important:** PostgreSQL, Qdrant, dan Cloudflare R2 adalah external services yang TIDAK berjalan di server Anda. Resource requirements di bawah hanya untuk 7 containers lokal: n8n, langgraph-agent, Cal.com, Telegram Bot, Prometheus, Alertmanager, dan Caddy.
 
 #### Minimum (Personal Use - Single User)
 - **CPU:** 4 cores (x86_64)
@@ -1286,11 +1286,13 @@ Alertmanager tidak support `${ENV_VAR}` substitution di config natively. Solusi:
 
 #### Resource Breakdown (Minimum Tier)
 
-**What runs on YOUR server (5 containers):**
+**What runs on YOUR server (7 containers):**
 - n8n: ~1.5-2 GB RAM, 1 core
 - Cal.com: ~1-1.5 GB RAM, 0.5-1 core (app only, database is external)
 - langgraph-agent: ~1-2 GB RAM, 1 core
 - Telegram Bot: ~0.3-0.5 GB RAM, negligible CPU
+- Prometheus: ~0.3-1 GB RAM, 0.2 core (multi-VPS scrape, 30d retention)
+- Alertmanager: ~50-100 MB RAM, negligible CPU
 - Caddy: ~0.2-0.3 GB RAM, negligible CPU
 - OS + Docker: ~2-3 GB RAM, 0.5-1 core
 
@@ -1659,9 +1661,7 @@ sudo ufw status
 
 Stack menggunakan **custom LangGraph agent** yang dibangun di [`langgraph-agent/`](langgraph-agent/). Implementasinya adalah FastAPI + LangGraph StateGraph + fastembed ONNX (384-dim, model `sentence-transformers/all-MiniLM-L6-v2`), di-containerize dan di-deploy via docker-compose.
 
-**Kenapa custom, bukan OpenFang?** Image OpenFang (`ghcr.io/rightnow-ai/openfang:latest`) tidak tersedia publik saat deployment. Daripada blocked, kami build agent sendiri dengan pattern yang setara: workflow berbasis graph (understand → retrieve context → generate response), plus endpoint HTTP yang sama-sama bisa dipanggil dari n8n (`/api/chat`, `/api/search`, `/api/task`, `/api/notify`, `/api/briefing`, `/api/sync_vault`, dll).
-
-**Kenapa bukan murni LangChain atau framework lain?** LangGraph memberi state machine eksplisit yang mudah di-extend (tambah node untuk intent baru), sementara sisi produksinya tetap ringan (satu container, memory limit 1 GB, cold start <10 detik).
+**Kenapa LangGraph?** State machine eksplisit yang mudah di-extend (tambah node untuk intent baru), sementara sisi produksinya tetap ringan (satu container, memory limit 1 GB, cold start <10 detik). Workflow: `understand → retrieve context → generate response`. HTTP endpoint dipanggil dari n8n dan Telegram bot (`/api/chat`, `/api/search`, `/api/task`, `/api/notify`, `/api/briefing`, `/api/meeting_notes`, `/api/deps/scan`, `/api/sync_vault`, dll).
 
 Detail teknis lihat [`langgraph-agent/app/workflow.py`](langgraph-agent/app/workflow.py) dan [`langgraph-agent/app/main.py`](langgraph-agent/app/main.py).
 
@@ -1801,7 +1801,7 @@ LLM_MODEL="llama3.1:8b"
 
 ### Setup (4 cores / 8GB RAM minimum)
 
-All heavy services (Qdrant, PostgreSQL) run externally. Your server only runs 5 lightweight containers.
+Stack terdiri dari 7 container lokal (n8n, langgraph-agent, calcom, telegram-bot, prometheus, alertmanager, caddy). Heavy services (Qdrant, PostgreSQL) run externally untuk menghemat resource.
 
 ```bash
 # 1. Clone repository
@@ -3159,23 +3159,39 @@ docker exec calcom npm run db:migrate
 
 ## 🗺️ Roadmap
 
-- Basic setup dan deployment (done)
-- Telegram bot interface (done)
-- Knowledge base sync (done)
-- Voice message support (done) — Whisper transcription via Groq + smart routing
-- Multi-repo code Q&A (done) — 3-pass hybrid retrieval with citation
-- Self-improving skills (done) — passive skill logging + semantic recall
-- Resource alerts (done) — VPS/PostgreSQL/Qdrant threshold monitoring
-- Multi-VPS monitoring (done) — Prometheus + Alertmanager + node_exporter, alerts via Telegram, `/monitor` command
-- Proactive reminders dan suggestions
-- Email auto-categorization dan drafting
-- Meeting notes auto-generation
-- Multi-language support
-- Mobile app (React Native)
-- Browser extension for web capture
-- Integration dengan WhatsApp Business API
-- Fine-tuned local model untuk personal style
-- Grafana dashboard (deferred — Prometheus retain 30d, attach saat butuh trend visualization)
+### Shipped Features
+
+| # | Feature | Trigger | Command |
+|---|---|---|---|
+| 1 | Multi-VPS Monitoring | Push (Prometheus) + 5 min health check | `/monitor`, `/vps` |
+| 2 | Knowledge Base Sync | Auto every 30 min | `/sync`, `/cari` |
+| 3 | Voice Message Support | On voice message | (auto via Whisper) |
+| 4 | Multi-Repo Code Q&A | On demand | `/tanya`, `/index` |
+| 5 | Self-Improving Skills | Passive logging | `/skill` |
+| 6 | Resource Alerts | Threshold trigger | (auto Telegram) |
+| 7 | Morning Standup Brief | 07:00 WIB daily | `/briefing` |
+| 8 | Incident Auto-Responder | Every 5 min | (auto-fix) |
+| 9 | Config Drift Detector | 02:00 WIB daily | `/drift` |
+| 10 | SSL/Domain Watchdog | 02:05 WIB daily | `/ssl add/del/list` |
+| 11 | Capacity Planning | 02:10 WIB daily | `/capacity` |
+| 12 | Auto PR/MR Review (GitHub + GitLab) | Webhook event | `/review owner/repo#123` |
+| 13 | Meeting Notes → Action Items | Voice ≥500 chars OR `/meeting` | `/meeting <transkrip>` |
+| 14 | Dependency Watchdog | 03:00 WIB daily | `/deps [repo_id]` |
+| 15 | Documentation Sync | On demand | `/docsync owner/repo#123` |
+
+Detail per fitur + roadmap lanjutan: [`AI_AGENT_ROADMAP.md`](AI_AGENT_ROADMAP.md).
+
+### On the Horizon
+
+- **Documentation Sync** — auto-update API docs/README/changelog from PR diff
+- **Spec-to-Implementation** — kirim spec, agent breakdown + implement + PR
+- **Dependency Watchdog Phase 2** — auto-PR untuk patch versions setelah dogfood Phase 1 validate noise level
+- **Email auto-categorization + drafting** — IMAP integration, agent triage inbox
+- **Mobile app (React Native)** — companion app untuk on-the-go interactions
+- **Browser extension** — quick capture web content ke knowledge base
+- **WhatsApp Business API integration** — second messaging channel
+- **Fine-tuned local model** — personal style + on-device privacy
+- **Grafana dashboard** (deferred — Prometheus retain 30d, attach saat butuh trend visualization)
 
 ---
 

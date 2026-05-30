@@ -202,7 +202,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     cmd_name = query.data.replace("menu:", "")
 
-    if cmd_name in ("task", "catat", "journal", "cari", "tanya", "index", "skill"):
+    if cmd_name in ("task", "catat", "journal", "cari", "tanya", "index", "skill", "meeting"):
         await query.message.reply_text(f"Ketik: /{cmd_name} <isi>")
         return
 
@@ -245,6 +245,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "📝 <b>Catatan</b>\n"
             "• /catat &lt;note&gt; — Simpan catatan cepat\n"
             "• /journal &lt;isi&gt; — Tulis journal harian\n"
+            "• /meeting &lt;transkrip&gt; — Extract action items dari catatan rapat\n"
             "• /cari &lt;query&gt; — Cari di knowledge base\n\n"
             "💻 <b>Developer</b>\n"
             "• /tanya &lt;pertanyaan&gt; — Tanya tentang code di repo\n"
@@ -364,6 +365,140 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Task ditambahkan: {task_text}")
     else:
         await update.message.reply_text(f"⚠️ Gagal membuat task (HTTP {r.status_code}).")
+
+
+MEETING_KEYWORDS = (
+    "action item", "actionable", "deadline", "tugas", "pic ",
+    "keputusan", "kita sepakat", "follow up", "follow-up",
+    "next step", "diskusi", "minutes of meeting", "mom ",
+    "rapat", "meeting notes",
+)
+MEETING_TRANSCRIPT_MIN_CHARS = 500
+
+
+def _looks_like_meeting(text: str) -> bool:
+    if not text:
+        return False
+    if len(text) >= MEETING_TRANSCRIPT_MIN_CHARS:
+        return True
+    lower = text.lower()
+    hits = sum(1 for kw in MEETING_KEYWORDS if kw in lower)
+    return hits >= 2
+
+
+async def _process_meeting_transcript(
+    update: Update,
+    transcript: str,
+    user_id: int,
+    auto_create_tasks: bool = True,
+) -> None:
+    try:
+        r = await _agent_post(
+            "/api/meeting_notes",
+            {
+                "transcript": transcript,
+                "user_id": str(user_id),
+                "auto_create_tasks": auto_create_tasks,
+            },
+            timeout=120.0,
+        )
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code != 200:
+        await update.message.reply_text(
+            f"⚠️ Gagal extract action items (HTTP {r.status_code})."
+        )
+        return
+
+    data = r.json()
+    text = _format_meeting_result(data)
+    await update.message.reply_text(text[:4000], parse_mode="HTML")
+
+
+def _format_meeting_result(data: dict) -> str:
+    lines: list[str] = []
+    summary = data.get("summary") or ""
+    if summary:
+        lines.append("📝 <b>Meeting Summary</b>")
+        lines.append(summary)
+        lines.append("")
+
+    action_items = data.get("action_items") or []
+    if action_items:
+        lines.append(f"✅ <b>Action Items ({len(action_items)})</b>")
+        for item in action_items:
+            extras = []
+            if item.get("owner"):
+                extras.append(f"PIC: {item['owner']}")
+            if item.get("deadline"):
+                extras.append(f"Due: {item['deadline']}")
+            tail = f" — {' · '.join(extras)}" if extras else ""
+            prio = item.get("priority", "medium")
+            title = item.get("title", "")
+            lines.append(f"• [{prio}] {title}{tail}")
+        lines.append("")
+
+    decisions = data.get("decisions") or []
+    if decisions:
+        lines.append("🎯 <b>Decisions</b>")
+        for d in decisions:
+            lines.append(f"• {d}")
+        lines.append("")
+
+    next_steps = data.get("next_steps") or []
+    if next_steps:
+        lines.append("➡️ <b>Next Steps</b>")
+        for s in next_steps:
+            lines.append(f"• {s}")
+        lines.append("")
+
+    tasks_created = data.get("tasks_created", 0)
+    if tasks_created:
+        lines.append(f"💾 {tasks_created} task otomatis dibuat di pending list.")
+    elif action_items:
+        lines.append("ℹ️ Tasks tidak dibuat otomatis.")
+
+    if data.get("truncated"):
+        lines.append("")
+        lines.append("⚠️ <i>Transkrip terlalu panjang, sebagian dipotong.</i>")
+
+    if not lines:
+        return "ℹ️ Tidak ada action item / keputusan terdeteksi dari transkrip."
+    return "\n".join(lines).strip()
+
+
+@authorized
+async def cmd_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    transcript = " ".join(context.args).strip() if context.args else ""
+
+    if not transcript and update.message.reply_to_message:
+        transcript = (update.message.reply_to_message.text or "").strip()
+
+    if not transcript:
+        await update.message.reply_text(
+            "Gunakan: /meeting <transkrip meeting>\n"
+            "Atau reply ke pesan transkrip dengan /meeting.\n"
+            "Atau kirim voice note panjang berisi catatan rapat — "
+            "akan otomatis di-extract kalau >500 karakter."
+        )
+        return
+
+    if len(transcript) > 20000:
+        await update.message.reply_text(
+            f"⚠️ Transkrip terlalu panjang ({len(transcript)} chars). Maks 20000."
+        )
+        return
+
+    await update.message.reply_chat_action("typing")
+    await update.message.reply_text("⏳ Extracting action items dari transkrip...")
+    await _process_meeting_transcript(
+        update,
+        transcript,
+        update.effective_user.id,
+        auto_create_tasks=True,
+    )
 
 
 @authorized
@@ -1309,6 +1444,117 @@ async def _capacity_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info("Capacity check: all OK, no notification sent")
     except Exception as e:
         logger.error(f"Capacity check job failed: {e}")
+
+
+# --- Dependency Watchdog ---
+DEPS_CHECK_ENABLED = os.getenv("DEPS_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
+DEPS_CHECK_HOUR = int(os.getenv("DEPS_CHECK_HOUR", "3"))
+DEPS_CHECK_MINUTE = int(os.getenv("DEPS_CHECK_MINUTE", "0"))
+
+
+async def _run_deps_check(repo_id: str | None = None) -> str:
+    payload: dict = {}
+    if repo_id:
+        payload["repo_id"] = repo_id
+    try:
+        r = await _agent_post("/api/deps/scan", payload, timeout=300.0)
+    except httpx.RequestError as exc:
+        return f"⚠️ Gagal menghubungi agent: {exc}"
+    if r.status_code != 200:
+        return f"⚠️ Deps scan failed (HTTP {r.status_code})."
+    data = r.json()
+    return data.get("report") or "ℹ️ No report."
+
+
+async def _deps_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
+    if not chat_id:
+        return
+    try:
+        report = await _run_deps_check()
+        has_vulns = "🔴" in report or "🟠" in report or "🟡" in report
+        if has_vulns:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=report[:4000],
+                parse_mode="HTML",
+            )
+            logger.info("Deps check: vulnerabilities reported")
+        else:
+            logger.info("Deps check: no vulnerabilities, no notification sent")
+    except Exception as e:
+        logger.error(f"Deps check job failed: {e}")
+
+
+@authorized
+async def cmd_deps(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    repo_id = context.args[0] if context.args else None
+    target = repo_id or "semua repo"
+    await update.message.reply_text(
+        f"🛡️ Scanning dependencies untuk {target}... (bisa 1-3 menit)"
+    )
+    try:
+        report = await _run_deps_check(repo_id)
+        await update.message.reply_text(report[:4000], parse_mode="HTML")
+    except Exception as exc:
+        await update.message.reply_text(f"⚠️ Deps check failed: {exc}")
+
+
+@authorized
+async def cmd_docsync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/docsync owner/repo#123 — analyze GitHub PR\n"
+            "/docsync gitlab:project_id!iid — analyze GitLab MR"
+        )
+        return
+
+    arg = context.args[0].strip()
+    payload: dict = {}
+
+    if arg.startswith("gitlab:") and "!" in arg:
+        ref = arg.removeprefix("gitlab:")
+        try:
+            project_id, iid_str = ref.split("!", 1)
+            mr_iid = int(iid_str)
+        except ValueError:
+            await update.message.reply_text("⚠️ Invalid GitLab ref. Use: /docsync gitlab:123!45")
+            return
+        payload = {"platform": "gitlab", "project_id": project_id.strip(), "mr_iid": mr_iid}
+    elif "#" in arg:
+        repo_part, pr_str = arg.rsplit("#", 1)
+        repo_part = repo_part.removeprefix("github:")
+        if "/" not in repo_part:
+            await update.message.reply_text("⚠️ Invalid repo. Use: /docsync owner/repo#123")
+            return
+        owner, repo = repo_part.split("/", 1)
+        try:
+            pr_number = int(pr_str)
+        except ValueError:
+            await update.message.reply_text("⚠️ Invalid PR number. Use: /docsync owner/repo#123")
+            return
+        payload = {"platform": "github", "owner": owner.strip(), "repo": repo.strip(), "pr_number": pr_number}
+    else:
+        await update.message.reply_text(
+            "⚠️ Format tidak dikenal. Use: /docsync owner/repo#123 atau /docsync gitlab:project_id!iid"
+        )
+        return
+
+    await update.message.reply_text(f"📝 Checking docs sync untuk {arg}...")
+    try:
+        r = await _agent_post("/api/docs/suggest", payload, timeout=120.0)
+    except httpx.RequestError as exc:
+        await update.message.reply_text(f"⚠️ Gagal menghubungi agent: {exc}")
+        return
+
+    if r.status_code != 200:
+        await update.message.reply_text(f"⚠️ Docs suggest failed (HTTP {r.status_code}).")
+        return
+
+    data = r.json()
+    report = data.get("report") or "ℹ️ No report."
+    await update.message.reply_text(report[:4000], parse_mode="HTML")
 
 
 # --- Config Drift Detector ---
@@ -2324,6 +2570,22 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Tidak dapat mentranskrip voice (kosong).")
             return
 
+        if _looks_like_meeting(transcript):
+            preview = transcript[:120] + ("…" if len(transcript) > 120 else "")
+            await update.message.reply_text(
+                f"🎙️ \"{preview}\"\n\n"
+                f"📋 Transkrip terdeteksi sebagai catatan meeting "
+                f"({len(transcript)} chars). Extracting action items..."
+            )
+            _record_history(context, "user", transcript)
+            await _process_meeting_transcript(
+                update,
+                transcript,
+                update.effective_user.id,
+                auto_create_tasks=True,
+            )
+            return
+
         repo, question = _detect_repo_intent(transcript)
 
         if repo and question:
@@ -2491,10 +2753,13 @@ async def post_init(application: Application):
         BotCommand("monitor", "Monitor VPS + containers"),
         BotCommand("tanya", "Tanya tentang code di repo"),
         BotCommand("task", "Buat task baru"),
+        BotCommand("meeting", "Extract action items dari transkrip"),
         BotCommand("journal", "Catat journal harian"),
         BotCommand("briefing", "Daily briefing"),
         BotCommand("capacity", "Capacity forecast disk/RAM"),
         BotCommand("review", "Auto PR/MR review"),
+        BotCommand("docsync", "Check if docs need updating for PR"),
+        BotCommand("deps", "Dependency vulnerability scan"),
         BotCommand("ssl", "SSL cert check"),
         BotCommand("drift", "Config drift check"),
     ]
@@ -2562,6 +2827,19 @@ async def post_init(application: Application):
         )
         logger.info(f"Capacity check scheduled daily at {CAPACITY_CHECK_HOUR:02d}:{CAPACITY_CHECK_MINUTE:02d} WIB.")
 
+    if DEPS_CHECK_ENABLED:
+        deps_time = _time(
+            hour=DEPS_CHECK_HOUR,
+            minute=DEPS_CHECK_MINUTE,
+            tzinfo=ZoneInfo("Asia/Jakarta"),
+        )
+        application.job_queue.run_daily(
+            _deps_check_job,
+            time=deps_time,
+            name="deps_check",
+        )
+        logger.info(f"Deps check scheduled daily at {DEPS_CHECK_HOUR:02d}:{DEPS_CHECK_MINUTE:02d} WIB.")
+
 
 def main():
     if not BOT_TOKEN:
@@ -2594,6 +2872,9 @@ def main():
     app.add_handler(CommandHandler("index", cmd_index))
     app.add_handler(CommandHandler("tanya", cmd_tanya))
     app.add_handler(CommandHandler("skill", cmd_skill))
+    app.add_handler(CommandHandler("meeting", cmd_meeting))
+    app.add_handler(CommandHandler("deps", cmd_deps))
+    app.add_handler(CommandHandler("docsync", cmd_docsync))
     app.add_handler(CallbackQueryHandler(handle_skill_callback, pattern="^autoskill$"))
     app.add_handler(CallbackQueryHandler(handle_menu_callback, pattern="^menu:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))

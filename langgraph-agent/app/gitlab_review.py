@@ -56,7 +56,7 @@ async def fetch_mr_diff(project_id: int, mr_iid: int) -> str | None:
     return None
 
 
-async def post_mr_comment(project_id: int, mr_iid: int, body: str) -> dict[str, Any] | None:
+async def post_mr_comment(project_id: int, mr_iid: int, body: str) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(
@@ -65,11 +65,13 @@ async def post_mr_comment(project_id: int, mr_iid: int, body: str) -> dict[str, 
                 json={"body": body},
             )
         if r.status_code in (200, 201):
-            return r.json()
-        logger.error("Post MR comment failed %d: %s", r.status_code, r.text[:300])
+            return {"ok": True, "data": r.json()}
+        err_msg = r.text[:300]
+        logger.error("Post MR comment failed %d: %s", r.status_code, err_msg)
+        return {"ok": False, "status": r.status_code, "error": err_msg}
     except httpx.RequestError as exc:
         logger.error("Post MR comment request error: %s", exc)
-    return None
+        return {"ok": False, "status": 0, "error": f"request error: {exc}"}
 
 
 async def handle_mr_event(payload: dict[str, Any]) -> dict[str, Any]:
@@ -107,13 +109,19 @@ async def handle_mr_event(payload: dict[str, Any]) -> dict[str, Any]:
 
     result = await post_mr_comment(project_id, mr_iid, analysis["body"])
 
+    post_status = "✅ Posted to GitLab" if result["ok"] else f"⚠️ <b>NOT posted</b> (HTTP {result.get('status', '?')})"
     notify_text = (
         f"🔍 <b>Auto MR Review</b>\n\n"
         f"📦 {full_name}!{mr_iid}\n"
         f"📝 {mr_title}\n"
         f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
-        f"💬 {analysis['summary']}"
+        f"💬 {analysis['summary']}\n"
+        f"{post_status}"
     )
+    if not result["ok"]:
+        err = result.get("error", "")[:200]
+        if err:
+            notify_text += f"\n<code>{err}</code>"
     await telegram.send_message(notify_text, parse_mode="HTML")
 
     return {
@@ -121,7 +129,8 @@ async def handle_mr_event(payload: dict[str, Any]) -> dict[str, Any]:
         "repo": full_name,
         "mr": mr_iid,
         "verdict": analysis["verdict"],
-        "note_id": result.get("id") if result else None,
+        "review_posted": result["ok"],
+        "note_id": result["data"].get("id") if result["ok"] else None,
     }
 
 
@@ -152,13 +161,19 @@ async def review_mr_on_demand(full_name: str, mr_iid: int) -> dict[str, Any]:
 
     result = await post_mr_comment(project_id, mr_iid, analysis["body"])
 
+    post_status = "✅ Posted to GitLab" if result["ok"] else f"⚠️ <b>NOT posted</b> (HTTP {result.get('status', '?')})"
     notify_text = (
         f"🔍 <b>Auto MR Review (on-demand)</b>\n\n"
         f"📦 {full_name}!{mr_iid}\n"
         f"📝 {mr_title}\n"
         f"🏷️ Verdict: <b>{analysis['verdict']}</b>\n"
-        f"💬 {analysis['summary']}"
+        f"💬 {analysis['summary']}\n"
+        f"{post_status}"
     )
+    if not result["ok"]:
+        err = result.get("error", "")[:200]
+        if err:
+            notify_text += f"\n<code>{err}</code>"
     await telegram.send_message(notify_text, parse_mode="HTML")
 
     return {
@@ -166,5 +181,6 @@ async def review_mr_on_demand(full_name: str, mr_iid: int) -> dict[str, Any]:
         "repo": full_name,
         "mr": mr_iid,
         "verdict": analysis["verdict"],
-        "note_id": result.get("id") if result else None,
+        "review_posted": result["ok"],
+        "note_id": result["data"].get("id") if result["ok"] else None,
     }

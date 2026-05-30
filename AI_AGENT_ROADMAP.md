@@ -29,6 +29,9 @@
 | Dynamic Config | — | `/ssl add/del/list`, `/monitor add/del/list`, `/review add/del/list` |
 | Capacity Planning | 02:10 WIB daily | `/capacity` |
 | Auto PR Review (GitHub + GitLab) | On webhook event | `/review owner/repo#123` |
+| Meeting Notes → Action Items | On voice/text trigger | `/meeting <transkrip>` |
+| Dependency Watchdog | 03:00 WIB daily | `/deps [repo_id]` |
+| Documentation Sync | On demand | `/docsync owner/repo#123` |
 
 ---
 
@@ -41,7 +44,8 @@
 | 3 | Config Drift Detector | Infra | 1 hari | Prevent erpstg-style incidents | ✅ Done |
 | 4 | Auto PR Review | Code | 1-2 hari | Catch bugs sebelum merge | ✅ Done (GitHub + GitLab) |
 | 5 | Capacity Planning | Infra | 1 hari | Proactive vs reactive scaling | ✅ Done |
-| 6 | Spec-to-Implementation | Productivity | 2-3 hari | Multiply developer output | ⏳ Next |
+| 6 | Meeting Notes → Action Items | Productivity | 0.5 hari | Auto-extract dari voice/transkrip | ✅ Done |
+| 7 | Spec-to-Implementation | Productivity | 2-3 hari | Multiply developer output | ⏳ Next |
 
 ---
 
@@ -94,23 +98,31 @@
 
 ### 1.3 Dependency Watchdog
 
-**Deskripsi:** Monitor CVE database + outdated dependencies. Auto-create upgrade PR + run tests. Auto-merge kalau tests pass.
+**Status:** ✅ Phase 1 Done (2026-05-30) — detection-only. Phase 2 (auto-PR) deferred until dogfood.
 
-**Cara Kerja:**
-1. Daily cron: scan semua repo `package.json` / `requirements.txt` / `composer.json`
-2. Check against CVE databases (GitHub Advisory, NVD)
-3. Check outdated versions (npm outdated, pip list --outdated)
-4. Per vulnerable/outdated dep: create branch, bump version, run CI
-5. Kalau CI pass + patch version → auto-merge
-6. Kalau CI fail atau major version → notify user via Telegram
+**Deskripsi:** Daily scan semua repo terdaftar di `repos.yml`. Detect vulnerable dependencies via OSV.dev. Notify hanya kalau ada vuln. Phase 2 ke depan: auto-create upgrade PR.
 
-**Komponen:**
-- Dependency scanner (per ecosystem: npm, pip, composer)
-- CVE database integration (GitHub Advisory API)
-- Auto-PR creation with version bump
-- CI status monitoring + auto-merge logic
+**Cara Kerja (implemented):**
+1. Daily cron 03:00 WIB → `/api/deps/scan` ke agent
+2. Per enabled repo di `repos.yml`: clone via `code_repos._sync_repo()` (reuse PAT auth)
+3. Walk repo, parse manifests:
+   - npm: `package-lock.json` (preferred, v1/v2/v3) atau `package.json` (fallback)
+   - PyPI: `requirements.txt` (==pin only) + `pyproject.toml` (Poetry)
+   - Packagist: `composer.lock`
+   - Go: `go.mod`
+4. Batch query OSV.dev (100 packages/batch, gratis no API key)
+5. Enrich severity untuk top 30 vuln (CRITICAL/HIGH/MODERATE/LOW)
+6. Sort by severity + format report (HTML, max 4000 chars per repo)
+7. Telegram notify hanya kalau ada vuln (silent kalau clean)
 
-**Estimasi:** 1-2 hari
+**Komponen (shipped):**
+- `langgraph-agent/app/deps_watchdog.py` (~340 lines) — parsers + OSV client + report formatter
+- `/api/deps/scan` endpoint di `main.py` (rate-limited 4/min)
+- `/deps [repo_id]` command + `_deps_check_job` daily scheduler di `bot.py`
+
+**Phase 2 (deferred):** Auto-PR untuk patch versions, CI gate, auto-merge. Wait dogfood data dari Phase 1.
+
+**Estimasi:** 1-2 hari (Phase 1 actual: ~1 hari)
 
 ---
 
@@ -324,46 +336,51 @@
 
 ### 3.3 Meeting Notes -> Action Items
 
+**Status:** ✅ Done (2026-05-30)
+
 **Deskripsi:** Upload meeting recording/transcript ke bot. Agent extract action items, auto-create tasks, assign owner.
 
-**Cara Kerja:**
-1. User kirim audio file atau transcript ke bot
-2. Bot transcribe (existing Whisper integration)
-3. Agent analyze: identify decisions, action items, deadlines, owners
-4. Per action item: create task via existing /task flow
-5. Notify summary: "5 action items extracted, 3 assigned to you, 2 to team"
+**Cara Kerja (implemented):**
+1. Trigger options:
+   - `/meeting <transkrip>` — paste transkrip langsung
+   - `/meeting` reply ke pesan transkrip — extract dari pesan yang di-reply
+   - Voice note panjang (>500 chars atau ≥2 keyword meeting) — auto-route ke meeting extraction
+2. Bot transcribe via existing Whisper integration
+3. Agent endpoint `/api/meeting_notes` analyze: action items, decisions, next steps, summary
+4. Per action item: create task via existing `tools.create_task()` (priority + owner + deadline)
+5. Notify summary via Telegram HTML format
 
 **Komponen:**
-- Audio upload handler (existing)
-- Whisper transcription (existing)
-- Action item extraction prompt
-- Task creation integration
+- `langgraph-agent/app/meeting_notes.py` — extraction prompt + parser + task creation
+- `/api/meeting_notes` endpoint di `main.py` (rate-limited 6/min)
+- `cmd_meeting` + `_looks_like_meeting()` heuristic + `_process_meeting_transcript()` di `bot.py`
+- Voice handler auto-routes long transcripts ke meeting flow
 
-**Estimasi:** 0.5 hari
+**Estimasi:** 0.5 hari (actual)
 
 ---
 
 ### 3.4 Documentation Sync
 
-**Deskripsi:** Code berubah -> agent auto-update API docs, README, changelog. Detect stale docs.
+**Status:** ✅ Phase 1 Done (2026-05-30) — detection-only via `/docsync`. Phase 2 (auto-PR with doc updates) deferred until dogfood.
 
-**Cara Kerja:**
-1. PR merge trigger -> agent compare diff
-2. Identify changes that affect docs:
-   - New API endpoint -> update OpenAPI spec
-   - Function signature change -> update docstrings
-   - New feature -> update README usage section
-   - Version bump -> update CHANGELOG
-3. Create follow-up PR with doc updates
-4. Detect stale: docs reference functions yang sudah dihapus/renamed
+**Deskripsi:** Analyze PR/MR diff → LLM identify if docs need updating → suggest concrete edits.
 
-**Komponen:**
-- Diff analyzer (what changed semantically)
-- Doc location mapping (which docs cover which code)
-- LLM doc generator (context-aware)
-- Stale detection (cross-reference docs vs current code)
+**Cara Kerja (implemented):**
+1. `/docsync owner/repo#123` (GitHub) atau `/docsync gitlab:project_id!iid` (GitLab)
+2. Reuse `pr_review.fetch_pr_diff()` / `gitlab_review.fetch_mr_diff()` untuk fetch diff
+3. Pre-classify diff (regex): API changes (`@app.get`, `router.post`), env vars (`os.getenv`), command handlers (`CommandHandler`)
+4. Send to LLM dengan signal hints; structured output: VERDICT, AFFECTED_AREAS, SUGGESTIONS, SUMMARY
+5. Format report dengan Telegram HTML, max 8 suggestions
 
-**Estimasi:** 1-2 hari
+**Komponen (shipped):**
+- `langgraph-agent/app/docs_sync.py` (~250 lines) — diff classifier + LLM analyzer + Telegram formatter
+- `/api/docs/suggest` endpoint di `main.py` (rate-limited 6/min)
+- `/docsync owner/repo#123` command di `bot.py`
+
+**Phase 2 (deferred):** Auto-create follow-up PR dengan suggested edits applied. Wait dogfood data dari Phase 1.
+
+**Estimasi:** 1-2 hari (Phase 1 actual: ~1 hari)
 
 ---
 

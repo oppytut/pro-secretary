@@ -1849,6 +1849,89 @@ free -h
 
 ---
 
+## 🛠️ Local Development
+
+Setup minimum untuk reproduce CI gates lokal sebelum push.
+
+### Prerequisites
+
+- Python 3.11 (CI authoritative; py3.12 jalan tapi versi resmi 3.11)
+- `pip`, `git`, `gh` CLI
+
+### One-time setup
+
+```bash
+git clone <repo>
+cd pro-secretary
+
+# Install runtime + test deps
+pip install -r telegram-bot/requirements.txt
+pip install -r langgraph-agent/requirements.txt
+pip install pytest pytest-cov ruff mypy pre-commit
+
+# Optional: enable pre-commit hooks (mirror CI lint locally)
+pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+### Run all CI gates locally
+
+```bash
+# 1. Compile (catches syntax errors)
+python3 -m compileall -q telegram-bot langgraph-agent
+
+# 2. Pyflakes-class lint (catches undefined names, unused imports)
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+
+# 3. Type check (lenient, whole package)
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+
+# 4. Type check (strict, whitelisted modules only)
+python3 -m mypy --strict \
+  langgraph-agent/app/embedding.py \
+  langgraph-agent/app/journal.py \
+  langgraph-agent/app/telegram.py
+
+# 5. Orphan-reference checks (handler/scheduler refs resolved)
+python3 scripts/lint_orphan_refs.py
+
+# 6. Tests + coverage floor
+python3 -m pytest -q
+```
+
+Or run the same set via pre-commit:
+
+```bash
+pre-commit run --all-files                            # ruff + actionlint + compileall + orphan-refs
+pre-commit run --all-files --hook-stage pre-push      # adds mypy lenient + strict
+```
+
+### Local feedback loop
+
+```bash
+# Fast iterate (single test file)
+python3 -m pytest tests/test_journal.py -v
+
+# Coverage report (per-module)
+python3 -m pytest --cov=bot --cov=app --cov-report=term-missing -q
+
+# Skip a hook for one commit
+SKIP=mypy git commit -m "..."
+```
+
+### Coverage floor
+
+`pytest.ini` enforces a project-wide coverage floor (`--cov-fail-under=23` as of 2026-05-31). Tests fail if coverage drops below the floor; bump only after adding new tests.
+
+### Tightening type safety
+
+Lenient mypy is the baseline (whole package). The strict gate covers a whitelist of well-typed modules in `.github/workflows/deploy.yml` (mypy strict step). To add a new module to the strict whitelist:
+
+1. Run `mypy --strict path/to/module.py` until it passes
+2. Add the path to the strict step in `.github/workflows/deploy.yml`
+3. Add the path to the `mypy-strict` hook in `.pre-commit-config.yaml`
+
+---
+
 ## 🐳 Docker Compose
 
 Definisi service yang authoritative ada di [`docker-compose.yml`](docker-compose.yml) di root repo. Stack terdiri dari 7 container lokal:

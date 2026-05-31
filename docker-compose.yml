@@ -285,7 +285,7 @@ services:
   # MONITORING - Prometheus
   # ============================================
   prometheus:
-    image: prom/prometheus:v3.4.0
+    image: prom/prometheus:v3.4.0@sha256:78ed1f9050eb9eaf766af6e580230b1c4965728650e332cd1ee918c0c4699775
     container_name: prometheus
     restart: unless-stopped
     extra_hosts:
@@ -320,7 +320,7 @@ services:
   # MONITORING - Alertmanager
   # ============================================
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
     container_name: alertmanager
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]

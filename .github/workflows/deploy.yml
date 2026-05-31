@@ -54,8 +54,15 @@ jobs:
       - name: Type check (mypy strict on whitelisted modules)
         run: |
           mypy --strict \
+            langgraph-agent/app/config.py \
+            langgraph-agent/app/docs_sync.py \
             langgraph-agent/app/embedding.py \
+            langgraph-agent/app/gitlab_review.py \
             langgraph-agent/app/journal.py \
+            langgraph-agent/app/llm.py \
+            langgraph-agent/app/meeting_notes.py \
+            langgraph-agent/app/pr_review.py \
+            langgraph-agent/app/skills.py \
             langgraph-agent/app/telegram.py \
             langgraph-agent/app/tools.py
 
@@ -77,7 +84,7 @@ jobs:
           docker run --rm \
             --entrypoint promtool \
             -v "${{ github.workspace }}/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v3.4.0 \
+            prom/prometheus:v3.4.0@sha256:78ed1f9050eb9eaf766af6e580230b1c4965728650e332cd1ee918c0c4699775 \
             check config /etc/prometheus/prometheus.yml
 
       - name: Validate Alertmanager config
@@ -90,7 +97,7 @@ jobs:
           docker run --rm \
             --entrypoint amtool \
             -v /tmp/alertmanager-validate:/etc/alertmanager:ro \
-            prom/alertmanager:v0.28.1 \
+            prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba \
             check-config /etc/alertmanager/alertmanager.yml
 
   test:

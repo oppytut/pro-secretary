@@ -6,33 +6,34 @@ Importing bot.py is safe (no side effects beyond reading env vars at module leve
 from __future__ import annotations
 
 import bot
+from watchdogs import hygiene
 
 
 class TestDockerSizeToGb:
     def test_megabytes(self):
-        assert abs(bot._docker_size_to_gb("100MB") - 100 / 1024) < 0.001
+        assert abs(hygiene._docker_size_to_gb("100MB") - 100 / 1024) < 0.001
 
     def test_gigabytes(self):
-        assert bot._docker_size_to_gb("5GB") == 5.0
-        assert bot._docker_size_to_gb("1.5GB") == 1.5
+        assert hygiene._docker_size_to_gb("5GB") == 5.0
+        assert hygiene._docker_size_to_gb("1.5GB") == 1.5
 
     def test_kilobytes(self):
-        assert abs(bot._docker_size_to_gb("512KB") - 512 / (1024 * 1024)) < 1e-6
+        assert abs(hygiene._docker_size_to_gb("512KB") - 512 / (1024 * 1024)) < 1e-6
 
     def test_terabytes(self):
-        assert bot._docker_size_to_gb("2TB") == 2048.0
+        assert hygiene._docker_size_to_gb("2TB") == 2048.0
 
     def test_zero_bytes(self):
-        assert bot._docker_size_to_gb("0B") == 0.0
+        assert hygiene._docker_size_to_gb("0B") == 0.0
 
     def test_empty_string(self):
-        assert bot._docker_size_to_gb("") == 0.0
+        assert hygiene._docker_size_to_gb("") == 0.0
 
     def test_lowercase_handled(self):
-        assert bot._docker_size_to_gb("5gb") == 5.0
+        assert hygiene._docker_size_to_gb("5gb") == 5.0
 
     def test_invalid_returns_zero(self):
-        assert bot._docker_size_to_gb("not-a-size") == 0.0
+        assert hygiene._docker_size_to_gb("not-a-size") == 0.0
 
 
 class TestParseDockerDf:
@@ -44,21 +45,21 @@ class TestParseDockerDf:
             "Local Volumes\t5\t3\t800MB\t300MB (37%)\n"
             "Build Cache\t40\t0\t6GB\t6GB (100%)"
         )
-        parsed = bot._parse_docker_df(sample)
+        parsed = hygiene.parse_docker_df(sample)
         assert set(parsed.keys()) == {"Images", "Containers", "Local Volumes", "Build Cache"}
         assert parsed["Images"]["total"] == 12
         assert parsed["Images"]["size_gb"] == 3.5
         assert abs(parsed["Build Cache"]["reclaimable_gb"] - 6.0) < 0.01
 
     def test_empty_input(self):
-        assert bot._parse_docker_df("") == {}
+        assert hygiene.parse_docker_df("") == {}
 
     def test_skips_header_only(self):
-        assert bot._parse_docker_df("TYPE\tTOTAL\tACTIVE\tSIZE\tRECLAIMABLE") == {}
+        assert hygiene.parse_docker_df("TYPE\tTOTAL\tACTIVE\tSIZE\tRECLAIMABLE") == {}
 
     def test_malformed_line_skipped(self):
         sample = "Images\t12\t8\t3.5GB\t1.2GB"
-        parsed = bot._parse_docker_df(sample)
+        parsed = hygiene.parse_docker_df(sample)
         assert "Images" in parsed
 
 
@@ -68,13 +69,13 @@ class TestFormatHygieneSection:
             "Images": {"total": 12, "size_gb": 3.5, "reclaimable_gb": 1.2},
             "Build Cache": {"total": 40, "size_gb": 6.0, "reclaimable_gb": 6.0},
         }
-        lines, total = bot._format_hygiene_section("test", parsed)
+        lines, total = hygiene._format_hygiene_section("test", parsed)
         assert abs(total - 7.2) < 0.01
         assert any("Images" in line for line in lines)
         assert any("Build Cache" in line for line in lines)
 
     def test_empty_input(self):
-        lines, total = bot._format_hygiene_section("test", {})
+        lines, total = hygiene._format_hygiene_section("test", {})
         assert lines == []
         assert total == 0.0
 

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-import types
 
 import httpx
 
@@ -18,20 +16,18 @@ class _FakeResponse:
         return self._payload
 
 
-def _stub_bot_with_agent_post(monkeypatch, fake_response):
+def _patch_agent_post(monkeypatch, fake_response):
     async def fake_agent_post(path, payload, timeout=60.0):
         if isinstance(fake_response, Exception):
             raise fake_response
         return fake_response
 
-    fake_bot = types.ModuleType("bot")
-    fake_bot._agent_post = fake_agent_post
-    monkeypatch.setitem(sys.modules, "bot", fake_bot)
+    monkeypatch.setattr(deps, "agent_post", fake_agent_post)
 
 
 class TestRunDepsCheck:
     def test_returns_report_on_success(self, monkeypatch):
-        _stub_bot_with_agent_post(
+        _patch_agent_post(
             monkeypatch,
             _FakeResponse(200, {"report": "🟢 No vulnerabilities found"}),
         )
@@ -39,7 +35,7 @@ class TestRunDepsCheck:
         assert "No vulnerabilities" in report
 
     def test_returns_no_report_message_when_empty(self, monkeypatch):
-        _stub_bot_with_agent_post(
+        _patch_agent_post(
             monkeypatch,
             _FakeResponse(200, {}),
         )
@@ -47,7 +43,7 @@ class TestRunDepsCheck:
         assert report == "ℹ️ No report."
 
     def test_handles_non_200(self, monkeypatch):
-        _stub_bot_with_agent_post(
+        _patch_agent_post(
             monkeypatch,
             _FakeResponse(503, {}),
         )
@@ -55,7 +51,7 @@ class TestRunDepsCheck:
         assert "HTTP 503" in report
 
     def test_handles_request_error(self, monkeypatch):
-        _stub_bot_with_agent_post(
+        _patch_agent_post(
             monkeypatch,
             httpx.RequestError("connection refused"),
         )
@@ -71,9 +67,7 @@ class TestRunDepsCheck:
             captured["path"] = path
             return _FakeResponse(200, {"report": "ok"})
 
-        fake_bot = types.ModuleType("bot")
-        fake_bot._agent_post = fake_agent_post
-        monkeypatch.setitem(sys.modules, "bot", fake_bot)
+        monkeypatch.setattr(deps, "agent_post", fake_agent_post)
 
         asyncio.run(deps.run_deps_check(repo_id="myrepo"))
         assert captured["path"] == "/api/deps/scan"
@@ -86,9 +80,7 @@ class TestRunDepsCheck:
             captured["payload"] = payload
             return _FakeResponse(200, {"report": "ok"})
 
-        fake_bot = types.ModuleType("bot")
-        fake_bot._agent_post = fake_agent_post
-        monkeypatch.setitem(sys.modules, "bot", fake_bot)
+        monkeypatch.setattr(deps, "agent_post", fake_agent_post)
 
         asyncio.run(deps.run_deps_check())
         assert captured["payload"] == {}

@@ -8,6 +8,7 @@ import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from infra.agent import agent_post
 from infra.auth import ALLOWED_USERS, authorized
 
 logger = logging.getLogger(__name__)
@@ -18,13 +19,11 @@ DEPS_CHECK_MINUTE = int(os.getenv("DEPS_CHECK_MINUTE", "0"))
 
 
 async def run_deps_check(repo_id: str | None = None) -> str:
-    from bot import _agent_post
-
     payload: dict[str, Any] = {}
     if repo_id:
         payload["repo_id"] = repo_id
     try:
-        r = await _agent_post("/api/deps/scan", payload, timeout=300.0)
+        r = await agent_post("/api/deps/scan", payload, timeout=300.0)
     except httpx.RequestError as exc:
         return f"⚠️ Gagal menghubungi agent: {exc}"
     if r.status_code != 200:

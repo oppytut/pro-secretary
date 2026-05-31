@@ -228,3 +228,361 @@ class TestCollectManifests:
         (sub / "package.json").write_text("{}")
         results = dw._collect_manifests(tmp_path)
         assert any(path.name == "package.json" for _, path in results)
+
+    def test_skip_dirs_excluded(self, tmp_path):
+        ignored = tmp_path / "node_modules"
+        ignored.mkdir()
+        (ignored / "package.json").write_text("{}")
+        kept = tmp_path / "src"
+        kept.mkdir()
+        (kept / "package.json").write_text("{}")
+        results = dw._collect_manifests(tmp_path)
+        paths = [path for _, path in results]
+        assert all("node_modules" not in p.parts for p in paths)
+        assert any(p.parent == kept for p in paths)
+
+    def test_lockfile_replaces_sibling_package_json(self, tmp_path):
+        (tmp_path / "package.json").write_text("{}")
+        (tmp_path / "package-lock.json").write_text("{}")
+        results = dw._collect_manifests(tmp_path)
+        names = [n for n, _ in results]
+        assert "package-lock.json" in names
+        assert "package.json" not in names
+
+    def test_package_json_kept_if_lock_in_different_dir(self, tmp_path):
+        (tmp_path / "package.json").write_text("{}")
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "package-lock.json").write_text("{}")
+        results = dw._collect_manifests(tmp_path)
+        kept_pkg = any(n == "package.json" and p.parent == tmp_path for n, p in results)
+        kept_lock = any(n == "package-lock.json" for n, _ in results)
+        assert kept_pkg
+        assert kept_lock
+
+
+class TestParsePackageLock:
+    def test_v2_v3_packages_format(self, tmp_path):
+        path = tmp_path / "package-lock.json"
+        path.write_text(json.dumps({
+            "lockfileVersion": 3,
+            "packages": {
+                "": {"name": "root"},
+                "node_modules/react": {"version": "18.2.0"},
+                "node_modules/lodash": {"version": "4.17.21"},
+            },
+        }))
+        pkgs = dw._parse_package_lock(path)
+        names = {p["name"]: p["version"] for p in pkgs}
+        assert names["react"] == "18.2.0"
+        assert names["lodash"] == "4.17.21"
+        assert all(p["ecosystem"] == "npm" for p in pkgs)
+
+    def test_v1_dependencies_format(self, tmp_path):
+        path = tmp_path / "package-lock.json"
+        path.write_text(json.dumps({
+            "lockfileVersion": 1,
+            "dependencies": {
+                "react": {"version": "17.0.2"},
+                "lodash": {"version": "4.17.21"},
+            },
+        }))
+        pkgs = dw._parse_package_lock(path)
+        names = {p["name"]: p["version"] for p in pkgs}
+        assert names["react"] == "17.0.2"
+        assert names["lodash"] == "4.17.21"
+
+    def test_explicit_name_field_preferred(self, tmp_path):
+        path = tmp_path / "package-lock.json"
+        path.write_text(json.dumps({
+            "packages": {
+                "": {"name": "root"},
+                "some/path": {"name": "explicit-name", "version": "1.2.3"},
+            },
+        }))
+        pkgs = dw._parse_package_lock(path)
+        assert {"name": "explicit-name", "version": "1.2.3", "ecosystem": "npm"} in pkgs
+
+    def test_invalid_json_returns_empty(self, tmp_path):
+        path = tmp_path / "package-lock.json"
+        path.write_text("not json {")
+        assert dw._parse_package_lock(path) == []
+
+    def test_empty_returns_empty(self, tmp_path):
+        path = tmp_path / "package-lock.json"
+        path.write_text("{}")
+        assert dw._parse_package_lock(path) == []
+
+
+class TestParseComposerLock:
+    def test_packages_extracted(self, tmp_path):
+        path = tmp_path / "composer.lock"
+        path.write_text(json.dumps({
+            "packages": [
+                {"name": "symfony/console", "version": "v6.4.0"},
+                {"name": "monolog/monolog", "version": "3.5.0"},
+            ],
+            "packages-dev": [
+                {"name": "phpunit/phpunit", "version": "v10.5.0"},
+            ],
+        }))
+        pkgs = dw._parse_composer_lock(path)
+        names = {p["name"]: p["version"] for p in pkgs}
+        assert names["symfony/console"] == "6.4.0"
+        assert names["monolog/monolog"] == "3.5.0"
+        assert names["phpunit/phpunit"] == "10.5.0"
+        assert all(p["ecosystem"] == "Packagist" for p in pkgs)
+
+    def test_v_prefix_stripped(self, tmp_path):
+        path = tmp_path / "composer.lock"
+        path.write_text(json.dumps({"packages": [{"name": "x", "version": "v1.2.3"}]}))
+        pkgs = dw._parse_composer_lock(path)
+        assert pkgs[0]["version"] == "1.2.3"
+
+    def test_invalid_json_returns_empty(self, tmp_path):
+        path = tmp_path / "composer.lock"
+        path.write_text("not valid")
+        assert dw._parse_composer_lock(path) == []
+
+    def test_skips_malformed_entries(self, tmp_path):
+        path = tmp_path / "composer.lock"
+        path.write_text(json.dumps({
+            "packages": [
+                {"name": "ok", "version": "1.0.0"},
+                {"name": "no-version"},
+                "not-a-dict",
+                {"version": "no-name"},
+            ],
+        }))
+        pkgs = dw._parse_composer_lock(path)
+        assert len(pkgs) == 1
+        assert pkgs[0]["name"] == "ok"
+
+
+class TestParseGoModEdgeCases:
+    def test_skips_comments_in_require_block(self, tmp_path):
+        path = tmp_path / "go.mod"
+        path.write_text(
+            "module example.com/foo\n"
+            "go 1.21\n"
+            "require (\n"
+            "\t// commented out\n"
+            "\tgithub.com/x/y v1.0.0\n"
+            ")\n"
+        )
+        pkgs = dw._parse_go_mod(path)
+        assert len(pkgs) == 1
+        assert pkgs[0]["name"] == "github.com/x/y"
+
+    def test_single_line_require(self, tmp_path):
+        path = tmp_path / "go.mod"
+        path.write_text(
+            "module example.com/foo\n"
+            "go 1.21\n"
+            "require github.com/single v2.0.0\n"
+        )
+        pkgs = dw._parse_go_mod(path)
+        assert pkgs[0]["name"] == "github.com/single"
+        assert pkgs[0]["version"] == "2.0.0"
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert dw._parse_go_mod(tmp_path / "missing.mod") == []
+
+
+class TestParseRequirementsEdge:
+    def test_quoted_versions(self, tmp_path):
+        path = tmp_path / "requirements.txt"
+        path.write_text("PACKAGE-Name_v2 == 1.2.3+local.tag\n")
+        pkgs = dw._parse_requirements_txt(path)
+        assert pkgs[0]["name"] == "PACKAGE-Name_v2"
+        assert pkgs[0]["version"] == "1.2.3+local.tag"
+
+    def test_blank_lines_skipped(self, tmp_path):
+        path = tmp_path / "requirements.txt"
+        path.write_text("\nfastapi==0.1.0\n\n\nrequests==2.31.0\n\n")
+        pkgs = dw._parse_requirements_txt(path)
+        assert len(pkgs) == 2
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert dw._parse_requirements_txt(tmp_path / "missing.txt") == []
+
+
+class TestParsePyprojectEdge:
+    def test_pep621_dependencies_not_parsed(self, tmp_path):
+        path = tmp_path / "pyproject.toml"
+        path.write_text(
+            '[project]\n'
+            'name = "test"\n'
+            'dependencies = ["fastapi==0.1.0", "httpx>=0.27"]\n'
+        )
+        pkgs = dw._parse_pyproject(path)
+        assert pkgs == []
+
+    def test_dev_dependencies_section(self, tmp_path):
+        path = tmp_path / "pyproject.toml"
+        path.write_text(
+            '[tool.poetry]\nname = "test"\n\n'
+            '[tool.poetry.dev-dependencies]\n'
+            'pytest = "^7.0"\n'
+        )
+        pkgs = dw._parse_pyproject(path)
+        names = {p["name"] for p in pkgs}
+        assert "pytest" in names
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert dw._parse_pyproject(tmp_path / "missing.toml") == []
+
+
+class TestSeverityFromDetailEdge:
+    def test_high_normalized_uppercase(self):
+        assert dw._severity_from_detail({"database_specific": {"severity": "high"}}) == "HIGH"
+
+    def test_severity_list_skips_non_dict(self):
+        detail = {"severity": [None, {"score": "LOW"}]}
+        assert dw._severity_from_detail(detail) == "LOW"
+
+    def test_first_score_used(self):
+        detail = {"severity": [{"score": "MEDIUM"}, {"score": "HIGH"}]}
+        assert dw._severity_from_detail(detail) == "MEDIUM"
+
+
+class TestCollectPackagesFromRepo:
+    def test_assembles_from_multiple_manifests(self, tmp_path):
+        (tmp_path / "package.json").write_text(json.dumps({
+            "dependencies": {"a": "1.0.0"},
+        }))
+        (tmp_path / "requirements.txt").write_text("b==2.0.0\n")
+        pkgs = dw.collect_packages_from_repo(tmp_path)
+        names = {p["name"] for p in pkgs}
+        assert names >= {"a", "b"}
+
+    def test_dedupes_across_manifests(self, tmp_path):
+        (tmp_path / "package.json").write_text(json.dumps({
+            "dependencies": {"shared": "1.0.0"},
+        }))
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "package.json").write_text(json.dumps({
+            "dependencies": {"shared": "1.0.0"},
+        }))
+        pkgs = dw.collect_packages_from_repo(tmp_path)
+        shared_count = sum(1 for p in pkgs if p["name"] == "shared")
+        assert shared_count == 1
+
+    def test_caps_at_max_packages(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(dw, "_MAX_PACKAGES_PER_REPO", 5)
+        deps = {f"pkg{i}": f"{i}.0.0" for i in range(20)}
+        (tmp_path / "package.json").write_text(json.dumps({"dependencies": deps}))
+        pkgs = dw.collect_packages_from_repo(tmp_path)
+        assert len(pkgs) <= 5
+
+    def test_parser_failure_does_not_abort(self, tmp_path, monkeypatch):
+        (tmp_path / "package.json").write_text(json.dumps({
+            "dependencies": {"a": "1.0.0"},
+        }))
+        (tmp_path / "requirements.txt").write_text("b==2.0.0\n")
+
+        original = dw._parse_package_json
+
+        def boom(_path):
+            raise RuntimeError("parser broke")
+
+        monkeypatch.setattr(dw, "_parse_package_json", boom)
+        monkeypatch.setitem(dw._PARSERS, "package.json", boom)
+        try:
+            pkgs = dw.collect_packages_from_repo(tmp_path)
+        finally:
+            monkeypatch.setattr(dw, "_parse_package_json", original)
+            monkeypatch.setitem(dw._PARSERS, "package.json", original)
+        assert any(p["name"] == "b" for p in pkgs)
+
+
+class TestScanPackages:
+    def _run(self, coro):
+        import asyncio
+        return asyncio.run(coro)
+
+    def test_empty_input_returns_empty(self):
+        result = self._run(dw.scan_packages([]))
+        assert result == []
+
+    def test_aggregates_findings_from_batch(self, monkeypatch):
+        async def fake_batch(packages):
+            return [
+                [{"id": "GHSA-aaaa"}],
+                [{"id": "GHSA-bbbb"}, {"id": "GHSA-cccc"}],
+            ]
+
+        async def fake_detail(vid):
+            return {
+                "summary": f"summary for {vid}",
+                "database_specific": {"severity": "HIGH"},
+            }
+
+        monkeypatch.setattr(dw, "_query_osv_batch", fake_batch)
+        monkeypatch.setattr(dw, "_fetch_vuln_detail", fake_detail)
+        pkgs = [
+            {"name": "react", "version": "18.0.0", "ecosystem": "npm"},
+            {"name": "lodash", "version": "4.0.0", "ecosystem": "npm"},
+        ]
+        findings = self._run(dw.scan_packages(pkgs))
+        assert len(findings) == 3
+        ids = {f["vuln_id"] for f in findings}
+        assert ids == {"GHSA-aaaa", "GHSA-bbbb", "GHSA-cccc"}
+
+    def test_dedupes_vuln_ids_across_packages(self, monkeypatch):
+        async def fake_batch(packages):
+            return [[{"id": "GHSA-shared"}]] * len(packages)
+
+        async def fake_detail(vid):
+            return {}
+
+        monkeypatch.setattr(dw, "_query_osv_batch", fake_batch)
+        monkeypatch.setattr(dw, "_fetch_vuln_detail", fake_detail)
+        pkgs = [
+            {"name": "a", "version": "1", "ecosystem": "npm"},
+            {"name": "b", "version": "2", "ecosystem": "npm"},
+        ]
+        findings = self._run(dw.scan_packages(pkgs))
+        assert len(findings) == 1
+
+    def test_batch_failure_does_not_abort(self, monkeypatch):
+        calls = {"count": 0}
+
+        async def fake_batch(packages):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("network down")
+            return [[{"id": "GHSA-good"}]] * len(packages)
+
+        async def fake_detail(vid):
+            return {}
+
+        monkeypatch.setattr(dw, "_query_osv_batch", fake_batch)
+        monkeypatch.setattr(dw, "_fetch_vuln_detail", fake_detail)
+        monkeypatch.setattr(dw, "_BATCH_SIZE", 1)
+        pkgs = [
+            {"name": "a", "version": "1", "ecosystem": "npm"},
+            {"name": "b", "version": "2", "ecosystem": "npm"},
+        ]
+        findings = self._run(dw.scan_packages(pkgs))
+        assert len(findings) == 1
+        assert findings[0]["package"] == "b"
+
+    def test_sort_by_severity_desc(self, monkeypatch):
+        async def fake_batch(packages):
+            return [[{"id": "GHSA-low"}], [{"id": "GHSA-crit"}]]
+
+        async def fake_detail(vid):
+            sev = "CRITICAL" if "crit" in vid else "LOW"
+            return {"database_specific": {"severity": sev}}
+
+        monkeypatch.setattr(dw, "_query_osv_batch", fake_batch)
+        monkeypatch.setattr(dw, "_fetch_vuln_detail", fake_detail)
+        pkgs = [
+            {"name": "low-pkg", "version": "1", "ecosystem": "npm"},
+            {"name": "crit-pkg", "version": "1", "ecosystem": "npm"},
+        ]
+        findings = self._run(dw.scan_packages(pkgs))
+        assert findings[0]["severity"] == "CRITICAL"
+        assert findings[-1]["severity"] == "LOW"

@@ -38,3 +38,11 @@ repos:
         pass_filenames: false
         stages: [pre-push]
         files: ^(telegram-bot|langgraph-agent)/.*\.py$
+
+      - id: mypy-strict
+        name: mypy strict (whitelisted modules, pre-push)
+        language: system
+        entry: python3 -m mypy --strict langgraph-agent/app/embedding.py langgraph-agent/app/journal.py langgraph-agent/app/telegram.py
+        pass_filenames: false
+        stages: [pre-push]
+        files: ^langgraph-agent/app/(embedding|journal|telegram)\.py$

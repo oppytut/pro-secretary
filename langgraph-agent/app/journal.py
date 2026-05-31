@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from . import config
@@ -30,7 +31,7 @@ def _ensure_header(path: Path, now_local: datetime) -> None:
     path.write_text(title, encoding="utf-8")
 
 
-def append_entry(text: str, now: datetime | None = None) -> dict:
+def append_entry(text: str, now: datetime | None = None) -> dict[str, Any]:
     text = (text or "").strip()
     if not text:
         return {"status_code": 400, "error": "empty entry"}

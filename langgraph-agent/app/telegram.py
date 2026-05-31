@@ -14,7 +14,7 @@ async def send_message(
     chat_id: str | int | None = None,
     reply_markup: dict[str, Any] | None = None,
     parse_mode: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     if not config.TELEGRAM_BOT_TOKEN:
         return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not set"}
 

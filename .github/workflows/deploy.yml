@@ -51,6 +51,13 @@ jobs:
           pip install --quiet -r langgraph-agent/requirements.txt
           mypy --config-file=mypy.ini telegram-bot langgraph-agent
 
+      - name: Type check (mypy strict on whitelisted modules)
+        run: |
+          mypy --strict \
+            langgraph-agent/app/embedding.py \
+            langgraph-agent/app/journal.py \
+            langgraph-agent/app/telegram.py
+
       - name: Orphan-reference checks (bot.py + agent main.py)
         run: python scripts/lint_orphan_refs.py
 

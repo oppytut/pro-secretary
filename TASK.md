@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 16:19 UTC
+**Last Updated:** 2026-05-31 17:22 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + bot.py refactor batch 4 complete (5 watchdogs + 6 infra modules extracted, 498 tests, ~36% coverage, mypy strict 22 modules). Sesi 2026-05-31 closed dengan 32 commits autonomous (~10h30m).
+**Status:** ✅ 13 features shipped + bot.py refactor batch 5 (polish) complete (5 watchdogs + 6 infra modules, 520 tests, 6 infra modules at 100% coverage, ARCHITECTURE.md). Sesi 2026-05-31 closed dengan 35 commits autonomous (~11h30m).
 
 > ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
 
@@ -10,21 +10,21 @@
 
 ---
 
-## 📦 SESSION HANDOFF (2026-05-31 16:19 UTC) — for fresh opencode session
+## 📦 SESSION HANDOFF (2026-05-31 17:22 UTC) — for fresh opencode session
 
-**Last activity:** Sesi 2026-05-31 closed at 16:19 UTC after run `26717796050` deployed successfully.
+**Last activity:** Sesi 2026-05-31 closed at 17:22 UTC after run `26719238911` deployed successfully.
 
 **Latest commits (last 5):**
 ```
-ad57edb test+ci: cover infra/agent + infra/gh, expand mypy strict to 22 modules
-ce1e0e1 refactor(watchdogs): drop deferred import in deps watchdog
-b614c12 refactor(bot): extract agent_post + gh_api to infra/
-[handoff]  docs(TASK): handoff for sesi 2026-05-31 15:46 (refactor batch 3)
-fc04dba    fix(tests): remove unused pytest imports (CI ruff F401)
+5c4cb37 docs: add ARCHITECTURE.md documenting telegram-bot package structure
+e8b50fb test: coverage gap fill for infra/* + watchdogs/deps
+[handoff]  docs(TASK): handoff for sesi 2026-05-31 16:19 (refactor batch 4)
+ad57edb    test+ci: cover infra/agent + infra/gh, expand mypy strict to 22 modules
+ce1e0e1    refactor(watchdogs): drop deferred import in deps watchdog
 ```
 
 **Latest deploy verified:**
-- Run `26717796050` — lint+test+deploy 1m40s — all green
+- Run `26719238911` — lint+test+deploy 1m39s — all green
 - All 7 schedulers registered: health 300s, morning brief 07:00, drift 02:00, capacity 02:10, deps 03:00, hygiene 02:15, firewall 03:30 WIB
 - DNS+SSL schedulers idle (SSL list empty — expected)
 - All 7 containers healthy (verified via post-deploy probes)
@@ -34,22 +34,23 @@ fc04dba    fix(tests): remove unused pytest imports (CI ruff F401)
 git status                                    # expect: clean, on main
 git log --oneline -5                          # expect: matches above
 gh run list --workflow=deploy.yml --limit 2   # expect: last 2 'ok'
-python3 -m pytest -q                          # expect: 498 passed, ~36% cov
+python3 -m pytest -q                          # expect: 520 passed
 python3 scripts/lint_orphan_refs.py           # expect: 14 files, 130 functions clean
 ```
 
 **What's safe to start without asking:**
-- Diminishing returns. Remaining refactor candidates all medium-risk.
+- See `ARCHITECTURE.md` (NEW) for package structure + extraction decision tree.
+- Refactor at extended pause. Coverage at 100% for all 6 infra/* modules.
 - See `## 🚀 FRESH SESSION ENTRYPOINT` → "Pick your work" table for considered alternatives.
-- **My honest assessment:** stop the refactor here. Pivot to Test Coverage Agent (Tier 1.5) or wait dogfood signal.
 
 **What's blocked on user:**
 - Spec-to-Implementation (PRD)
 - Onboard 8-13 VPS (IP/SSH list)
 - Activate DNS+SSL (`/ssl add yourdomain.com` via Telegram)
+- **TEST FEATURES IN TELEGRAM** (high-value: dogfood window 43h elapsed)
 
-**Cumulative metrics from sesi 2026-05-31 (~10h30m, 32 commits):**
-- Tests: 71 → 498 (+427, 7.0x)
+**Cumulative metrics from sesi 2026-05-31 (~11h30m, 35 commits):**
+- Tests: 71 → 520 (+449, 7.3x)
 - Coverage: 12.75% → ~36% (+23pp)
 - Coverage floor: 12% → 27%
 - CI lint gates: 4 → 8
@@ -57,11 +58,207 @@ python3 scripts/lint_orphan_refs.py           # expect: 14 files, 130 functions 
 - Mypy strict modules: 0 → 22 (~95% of "leaf" modules)
 - SHA-pinned images: 1 → 5 (all production)
 - **bot.py LOC: 3524 → 2769 (-755, -21.4%)**
-- **New packages: telegram-bot/{infra,watchdogs}/** — 5 watchdogs + 6 infra modules
+- **Top-level docs: README.md + TASK.md + ARCHITECTURE.md (new)**
+- **All 6 infra/* modules now at 100% coverage**
 
-**Production state at handoff:** 7 containers up + healthy (verified via run 26717796050). Dogfood window ~42h elapsed of 1-2 week target.
+**Production state at handoff:** 7 containers up + healthy (verified via run 26719238911). Dogfood window ~43h elapsed of 1-2 week target.
 
 ---
+
+## 🏗️ Bot.py Refactor — Status (see also ARCHITECTURE.md)
+
+**Pattern proven across 5 watchdog extractions + 6 infra modules. Polish session done.**
+
+```
+telegram-bot/
+├── bot.py                  (2769 lines — orchestrator + 3 watchdogs still inline + handlers)
+├── infra/                  (all 100% covered, all mypy strict)
+│   ├── agent.py            (24 LOC — agent_post + agent_headers)
+│   ├── auth.py             (32 LOC — ALLOWED_USERS + @authorized; bumped 62%→100%)
+│   ├── config_store.py     (33 LOC — config_get/set)
+│   ├── gh.py               (29 LOC — gh_api GitHub REST client)
+│   ├── prom.py             (22 LOC — prom_query)
+│   └── ssh.py              (66 LOC — SSH targets registry + ssh_exec; bumped 67%→100%)
+└── watchdogs/              (all mypy strict)
+    ├── capacity.py         (152 LOC — 80% covered)
+    ├── deps.py             (66 LOC — 83% covered, bumped 58%→83%)
+    ├── dns.py              (200 LOC — 59% covered)
+    ├── drift.py            (158 LOC — 50% covered)
+    └── ssl.py              (165 LOC — 54% covered)
+```
+
+**Refactor history table (see ARCHITECTURE.md for full):**
+
+| Batch | Modules extracted | bot.py LOC delta |
+|---|---|---|
+| 1 (DNS pilot) | `infra/{auth,config_store}` + `watchdogs/dns` | -174 |
+| 2 | `infra/ssh` + `watchdogs/ssl` | -200 |
+| 3 | `infra/prom` + `watchdogs/{capacity,deps,drift}` | -354 |
+| 4 | `infra/{agent,gh}` | -27 |
+| 5 (polish) | tests + ARCHITECTURE.md | 0 |
+
+**Cumulative: -755 LOC (-21.4%). Refactor at extended pause.**
+
+---
+
+## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
+
+**Last session ended 2026-05-31 17:22 UTC. Continuing in a new opencode session.**
+
+### Repo state right now
+
+```
+Branch: main, working tree clean
+Last 5 commits:
+  5c4cb37    docs: add ARCHITECTURE.md
+  e8b50fb    test: coverage gap fill (infra/* 100%, deps 83%)
+  [handoff]  docs(TASK): handoff for sesi 2026-05-31 16:19
+  ad57edb    test+ci: cover infra/agent + gh, mypy strict 22 modules
+  ce1e0e1    refactor(watchdogs): drop deferred import in deps
+
+Production: 7 containers up + healthy (last verified run 26719238911)
+Dogfood: ~43h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+telegram-bot/: bot.py (2769) + infra/ (206 LOC, 100% covered) + watchdogs/ (741 LOC)
+tests/: 520 passing, ~36% coverage
+mypy strict: 22 modules whitelisted
+Top-level docs: README, TASK, ARCHITECTURE
+```
+
+### Verify state in <2 minutes
+
+```bash
+git status                                    # clean
+git log --oneline -5                          # matches above
+gh run list --workflow=deploy.yml --limit 3   # last 3 green
+python3 -m pytest -q                          # 520 passed, ~36% coverage
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+python3 -m mypy --strict langgraph-agent/app/{config,docs_sync,embedding,gitlab_review,journal,llm,meeting_notes,pr_review,skills,telegram,tools}.py telegram-bot/infra/*.py telegram-bot/watchdogs/*.py
+python3 -m compileall -q telegram-bot langgraph-agent
+python3 scripts/lint_orphan_refs.py           # 14 files, 130 functions
+pre-commit run --all-files                    # 4 hooks pass
+pre-commit run --all-files --hook-stage pre-push  # +mypy lenient + strict
+```
+
+If anything fails: do not proceed. Diagnose first.
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.**
+
+**TIME TO DECIDE: refactor more, polish more, or pivot?**
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A1. Hygiene watchdog extraction** | 1h | 🟡 Med | Uses `infra.ssh`. Pattern proven 5x. |
+| **A2. Morning Brief watchdog extraction** | 1h | 🟡 Med | Uses `infra.gh` + `infra.prom`. |
+| **A3. Triple A1+A2+Firewall** | 3-4h | 🟡 Med | Drops bot.py to ~2200 LOC. Diminishing returns. |
+| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | **RECOMMENDED PIVOT.** Feature work. |
+| **C. Coverage gap fill: watchdogs/{dns,drift,ssl}** | 1-1.5h | 🟢 Low | DNS 59%→85%+, Drift 50%→80%+, SSL 54%→80%+. Pure test work. |
+| **G. Wait for dogfood signal** | — | — | Phase 2 work blocked. ~5-12 days remaining. |
+
+**Blocked on user input (HIGH-VALUE):**
+- Test 7 features in Telegram (`/morning_brief`, `/drift`, `/capacity`, `/deps`, `/hygiene`, `/firewall`)
+- Spec-to-Implementation (needs PRD)
+- Onboard VPS to Prometheus (needs IP/SSH list)
+- Activate DNS+SSL schedulers (needs `/ssl add yourdomain.com`)
+
+### Safety net you can rely on
+
+- **8 CI lint gates** — actionlint, ruff F, mypy lenient, mypy strict (22 modules), orphan-refs (14 files), compileall, caddy, promtool, amtool
+- **5 pre-commit hooks** + 2 pre-push hooks
+- **520 pytest tests** (141 new this session, ~28% of total test suite)
+- **Coverage floor 27%** — actual ~36%
+- **All 6 infra/* modules at 100% coverage**
+- **All production images SHA-pinned**
+- **README.md** (user-facing, 100K)
+- **ARCHITECTURE.md** (package structure + extraction decision tree, NEW)
+- **Multi-file orphan-ref walker** proven across 5 batches, 14 files
+
+### What this session DID NOT do
+
+- Did not extract Hygiene/Firewall/Morning Brief watchdogs (next batch — medium-risk)
+- Did not write Test Coverage Agent (recommended pivot)
+- Did not touch Phase 2 logic — wait dogfood signal
+- Did not migrate to Python 3.14
+- Did not add module docstrings to extracted modules (kept code self-documenting per opencode anti-AI-slop guideline; ARCHITECTURE.md covers package contracts)
+
+### Sesi recap (high-level)
+
+Sesi 2026-05-31 17:22 = **bot.py refactor batch 5 (polish)** (continued from batch 4 at 16:19).
+
+1. **Coverage gap fill** (commit `e8b50fb`):
+   - 22 new tests across 3 files: `test_infra_auth.py` (NEW, 11 tests), `test_infra_ssh.py` (+5 ssh_exec tests), `test_deps_watchdog_bot.py` (+6 deps_check_job tests)
+   - `infra/auth.py` 62% → 100% (+38pp)
+   - `infra/ssh.py` 67% → 100% (+33pp)
+   - `watchdogs/deps.py` 58% → 83% (+25pp)
+   - **All 6 infra/* modules now at 100% coverage**
+   - Total: 498 → 520 tests (+22)
+
+2. **ARCHITECTURE.md** (commit `5c4cb37`):
+   - Documents telegram-bot package structure (infra/ + watchdogs/)
+   - Module conventions (no underscore in infra public API, alias re-import in bot.py)
+   - Inline-in-bot.py table with extraction rationale
+   - CI/CD gates summary (8 lint + 6 pre-commit + 2 pre-push + 1 test)
+   - Refactor history table (5 batches with LOC delta)
+   - "When to extract" decision tree
+   - Testing patterns (4 reusable fixtures)
+
+3. **Production deploy verified** (run `26719238911`):
+   - lint + test + deploy 1m39s — all green
+   - 7 schedulers registered cleanly
+   - All 7 containers healthy
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-05-31 17:22 — refactor batch 5 (polish) complete. infra/* all at 100% coverage, ARCHITECTURE.md added. 520 tests passing. Production stable.
+
+### Files changed this session (2 commits)
+
+**e8b50fb — Coverage gap fill:**
+- `+ tests/test_infra_auth.py` (11 tests, NEW)
+- `~ tests/test_infra_ssh.py` (+5 ssh_exec tests)
+- `~ tests/test_deps_watchdog_bot.py` (+6 deps_check_job tests)
+
+**5c4cb37 — ARCHITECTURE.md:**
+- `+ ARCHITECTURE.md` (173 lines)
+
+### Active Tasks (for next session)
+
+- [ ] **DOGFOOD WINDOW (active, ~43h elapsed)** — observe 7 features for 1-2 weeks total. Test in Telegram.
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com`
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs IP/SSH list
+- [ ] **DECIDE: refactor batch 6 (Hygiene/Firewall/Morning Brief medium-risk) OR pivot to Test Coverage Agent OR coverage gap fill (Path C)** ← user choice
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Recently Completed (chronological)
+
+- ✅ [2026-05-31 17:22 UTC] **Refactor batch 5 (polish)** — coverage gap fill, ARCHITECTURE.md, infra/* 100%
+- ✅ [2026-05-31 16:19 UTC] **Refactor batch 4** — agent_post + gh_api extracted, deferred import cleaned
+- ✅ [2026-05-31 15:46 UTC] **Refactor batch 3** — Deps+Capacity+Drift+prom extracted
+- ✅ [2026-05-31 15:18 UTC] **Refactor batch 2** — SSL+SSH primitives extracted
+- ✅ [2026-05-31 14:49 UTC] **DNS watchdog refactor pilot**
+- ✅ [2026-05-31 13:45 UTC] **Mypy strict expansion 4 → 11**
+- ✅ [2026-05-31 13:35 UTC] **SHA-pin prom images**
+- ✅ [2026-05-31 13:05 UTC] **Caddy + promtool + amtool CI gates**
+
+### Lessons from this session
+
+1. **100% coverage on extracted modules is reachable** — small infra/* modules become trivially 100% coverable with 5-10 tests each. The same code stuck in a 3500-line bot.py would have been mock-heavy and partial. Refactor + tests are mutually reinforcing.
+
+2. **Anti-AI-slop guidelines apply to docstrings** — opencode's pre-commit hook flagged the docstrings I tried to add to `infra/__init__.py` (and rightfully so). Module names like `auth.py`, `ssh.py`, `prom.py` are already self-documenting. Centralized doc (ARCHITECTURE.md) > scattered module-level docstrings. Keep code maximally clean.
+
+3. **ARCHITECTURE.md > module docstrings for cross-cutting docs** — when you have a multi-module package with conventions (alias re-imports, naming rules, mypy strict requirement, coverage requirement), document the contract once at top-level. Module-level docstrings would either repeat the contract (bloat) or be incomplete (confusing).
+
+4. **Coverage compounds with extraction** — extracting `infra/auth.py` + `infra/ssh.py` from bot.py made them trivially testable. Decorator + subprocess wrappers are testable when isolated, hard when buried in 3000-line monolith. The refactor effectively unlocked 100% coverage on 6 modules.
+
+5. **Polish session is a real "session unit"** — sesi 2026-05-31 ran 5 batches: refactor pilot → 3 refactor batches → 1 polish batch. Polish doesn't reduce LOC but improves quality (coverage 100%, ARCHITECTURE.md). Worth committing as its own batch with its own narrative.
+
+---
+
 
 ## 🏗️ Bot.py Refactor — Status
 

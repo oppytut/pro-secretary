@@ -11,7 +11,7 @@ import httpx
 
 from . import config, llm, telegram
 
-logger = logging.getLogger("agent.pr_review")
+logger = logging.getLogger(__name__)
 
 GH_API = "https://api.github.com"
 _WHITELIST_FILE = Path("/app/state/review_repos.json")

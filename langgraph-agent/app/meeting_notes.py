@@ -6,7 +6,7 @@ from typing import Any
 
 from . import llm, tools
 
-logger = logging.getLogger("agent.meeting_notes")
+logger = logging.getLogger(__name__)
 
 _EXTRACT_SYSTEM_PROMPT = (
     "Kamu asisten yang mengekstrak action items dari catatan meeting. "

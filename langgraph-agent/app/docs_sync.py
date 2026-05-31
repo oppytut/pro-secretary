@@ -6,7 +6,7 @@ from typing import Any
 
 from . import gitlab_review, llm, pr_review
 
-logger = logging.getLogger("agent.docs_sync")
+logger = logging.getLogger(__name__)
 
 _DOCS_SYSTEM_PROMPT = (
     "You are a documentation reviewer. Given a code diff, decide whether documentation "

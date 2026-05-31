@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from . import config
 
-logger = logging.getLogger("agent.journal")
+logger = logging.getLogger(__name__)
 
 VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "/vault"))
 JOURNAL_SUBDIR = "journal"

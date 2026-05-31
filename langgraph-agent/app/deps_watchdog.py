@@ -11,7 +11,7 @@ import httpx
 
 from . import code_repos
 
-logger = logging.getLogger("agent.deps_watchdog")
+logger = logging.getLogger(__name__)
 
 OSV_API_URL = "https://api.osv.dev/v1/querybatch"
 GHSA_DETAIL_URL = "https://api.osv.dev/v1/vulns"

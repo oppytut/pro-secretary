@@ -12,7 +12,7 @@ LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
 
 if LLM_BASE_URL and not LLM_BASE_URL.startswith(("https://", "http://localhost", "http://127.")):
-    logging.getLogger("agent").warning(
+    logging.getLogger(__name__).warning(
         "LLM_BASE_URL=%s is not HTTPS and not loopback; API key will transit in cleartext",
         LLM_BASE_URL,
     )

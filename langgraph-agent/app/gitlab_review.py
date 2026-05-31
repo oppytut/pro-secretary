@@ -9,7 +9,7 @@ import httpx
 
 from . import config, pr_review, telegram
 
-logger = logging.getLogger("agent.gitlab_review")
+logger = logging.getLogger(__name__)
 
 GL_API = "https://gitlab.com/api/v4"
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import httpx
-import pytest
 
 from infra import prom
 

@@ -4,7 +4,6 @@ import asyncio
 import sys
 import types
 
-import pytest
 
 from watchdogs import drift
 

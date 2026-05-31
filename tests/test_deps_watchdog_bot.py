@@ -5,7 +5,6 @@ import sys
 import types
 
 import httpx
-import pytest
 
 from watchdogs import deps
 

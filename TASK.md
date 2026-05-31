@@ -1,14 +1,307 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 14:49 UTC
+**Last Updated:** 2026-05-31 15:18 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + CI hardened + bot.py refactor pilot started. Sesi 2026-05-31 closed dengan 20 commits autonomous (~6h15m), DNS watchdog extracted ke watchdogs/dns.py.
+**Status:** ✅ 13 features shipped + bot.py refactor batch 2 complete (DNS + SSL extracted, infra/ssh.py shared, 463 tests, 32% coverage). Sesi 2026-05-31 closed dengan 23 commits autonomous (~7h45m).
 
 > ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
 ---
+
+## 📦 SESSION HANDOFF (2026-05-31 15:18 UTC) — for fresh opencode session
+
+**Last activity:** Sesi 2026-05-31 closed at 15:18 UTC after run `26716373477` deployed successfully.
+
+**Latest commits (last 5):**
+```
+c4ba770 test: unit tests for new infra/ + watchdogs/ packages
+7100d4c refactor(bot): extract SSH helpers to infra/ssh.py
+ec1e561 refactor(bot): extract SSL watchdog to watchdogs/ssl.py
+1a207ed docs(TASK): handoff for sesi 2026-05-31 14:49 (DNS refactor pilot)
+575e37f refactor(bot): extract DNS watchdog to watchdogs/dns.py + infra/
+```
+
+**Latest deploy verified:**
+- Run `26716373477` — lint+test+deploy all green (1m35s deploy)
+- All 7 schedulers registered: health 300s, morning brief 07:00, drift 02:00, capacity 02:10, deps 03:00, hygiene 02:15, firewall 03:30 WIB
+- DNS+SSL schedulers idle (SSL list empty — expected)
+- All 7 containers healthy (verified via post-deploy probes)
+
+**State to verify in new session (paste these):**
+```bash
+git status                                    # expect: clean, on main
+git log --oneline -5                          # expect: matches above
+gh run list --workflow=deploy.yml --limit 2   # expect: last 2 'ok'
+python3 -m pytest -q                          # expect: 463 passed, ~32% cov
+python3 scripts/lint_orphan_refs.py           # expect: 8 files, 130 functions clean
+```
+
+**What's safe to start without asking:**
+- **Recommended:** Continue refactor batch 3 — extract Capacity (uses `_prom_query`) or Deps (uses `_agent_post`) watchdog, both 🟢 low risk
+- See `## 🚀 FRESH SESSION ENTRYPOINT` → "Pick your work" table for alternatives
+
+**What's blocked on user:**
+- Spec-to-Implementation (PRD)
+- Onboard 8-13 VPS (IP/SSH list)
+- Activate DNS+SSL (`/ssl add yourdomain.com` via Telegram)
+
+**Cumulative metrics from sesi 2026-05-31 (~7h45m, 23 commits):**
+- Tests: 71 → 463 (+392, 6.5x)
+- Coverage: 12.75% → 32% (+19.25pp)
+- Coverage floor: 12% → 27%
+- CI lint gates: 4 → 8
+- Pre-commit hooks: 0 → 6
+- Mypy strict modules: 0 → 11 (50% of agent codebase)
+- SHA-pinned images: 1 → 5 (all production)
+- **bot.py LOC: 3524 → 3150 (-374, -10.6%)**
+- **New packages: telegram-bot/{infra,watchdogs}/** — 2 watchdogs + 3 infra modules extracted
+
+**Production state at handoff:** 7 containers up + healthy (verified via run 26716373477). Dogfood window ~40h elapsed of 1-2 week target.
+
+---
+
+## 🏗️ Bot.py Refactor — Status
+
+**Pattern proven across 2 watchdog extractions + 3 infra modules:**
+
+```
+telegram-bot/
+├── bot.py                  (3150 lines — orchestrator + 6 watchdogs still inline)
+├── Dockerfile              (COPY bot.py + watchdogs/ + infra/)
+├── infra/
+│   ├── __init__.py
+│   ├── auth.py             (32 LOC — ALLOWED_USERS + @authorized)
+│   ├── config_store.py     (32 LOC — CONFIG_DIR + config_get/set, 100% covered)
+│   └── ssh.py              (66 LOC — env-target parsing, get/add/del_ssh_target, ssh_exec, 67% covered)
+└── watchdogs/
+    ├── __init__.py
+    ├── dns.py              (200 LOC — full DNS watchdog, 58% covered)
+    └── ssl.py              (165 LOC — full SSL watchdog, 53% covered)
+```
+
+**Key learnings (consolidated across 3 batches):**
+
+1. **Multi-file orphan-ref walker works perfectly** — `scripts/lint_orphan_refs.py` resolves handler/scheduler refs across all `.py` files in `telegram-bot/`. No script changes needed for the refactor across 2+ extracted modules.
+
+2. **Cross-module imports flatten the dependency graph** — DNS pilot used deferred import for SSL seed; once SSL also extracted, the import becomes a normal top-level `from watchdogs.ssl import get_ssl_domains`. The deferred-import workaround is only needed when target is still inside bot.py.
+
+3. **Underscore convention shift** — internal-only functions keep leading underscore inside a single module. When a function crosses module boundaries (cmd_dns, dns_check_job, get_dns_domains), drop the underscore — these are now the module's public API.
+
+4. **Aliased re-import pattern preserves callsites** — for high-callsite primitives (e.g. `_ssh_exec` used 26 times), use `from infra.ssh import ssh_exec as _ssh_exec` in bot.py. This keeps every existing callsite working with zero edits while the underlying implementation moves to a new module.
+
+5. **Dockerfile gotcha** — must explicitly COPY new directories. `COPY bot.py .` only copies the single file. Adding `infra/` and `watchdogs/` dirs requires separate COPY directives.
+
+6. **Mypy lenient + `ignore_missing_imports=True` is forgiving** — don't preemptively add `# type: ignore` comments. Adding unused ignores fails strict mode in CI.
+
+7. **Pure extraction = behavior unchanged** — 409 tests still pass without modification across all 3 commits. No new tests needed for moved code; new tests added for previously-untested helpers (config_store, dns/ssl formatters, ssh merge logic).
+
+8. **Test patterns for the new modules:**
+   - `monkeypatch CONFIG_DIR/CONFIG_FILE` per-test for isolated config store
+   - `monkeypatch dig_record / check_*_expiry` for deterministic formatter tests
+   - `importlib.reload(infra.ssh)` to re-parse `MONITOR_SSH_TARGETS` env var with new value
+   - `asyncio.run()` for async helpers (consistent with `tests/test_journal.py` pattern)
+
+**Next watchdog candidates (ordered by ROI):**
+
+| Watchdog | Inline LOC (approx) | Dependencies | Effort | Risk |
+|---|---|---|---|---|
+| **Deps** | ~75 | `_agent_post` | 30 min | 🟢 Low |
+| **Capacity** | ~145 | `_prom_query` | 45 min | 🟢 Low |
+| **Drift** | ~145 | `infra.ssh` (already extracted) | 45 min | 🟢 Low |
+| **Hygiene** | ~205 | `infra.ssh` | 1h | 🟡 Med |
+| **Firewall** | ~280 | `infra.ssh` + `_config_get/set` | 1-1.5h | 🟡 Med |
+| **Morning brief** | ~125 | `_gh_api`, `_prom_query`, `_collect_*` | 1h | 🟡 Med |
+
+**Recommended next:** **Deps** (smallest, only 1 dependency) → **Capacity** (also small, 1 dep `_prom_query` → could extract to `infra/prom.py` first as shared dep for future) → **Drift** (deps fully extracted).
+
+After Deps + Capacity + Drift: bot.py drops below 3000 LOC for the first time.
+
+---
+
+## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
+
+**Last session ended 2026-05-31 15:18 UTC. Continuing in a new opencode session.**
+
+### Repo state right now
+
+```
+Branch: main, working tree clean
+Last 5 commits:
+  c4ba770    test: unit tests for new infra/ + watchdogs/ packages
+  7100d4c    refactor(bot): extract SSH helpers to infra/ssh.py
+  ec1e561    refactor(bot): extract SSL watchdog to watchdogs/ssl.py
+  1a207ed    docs(TASK): handoff for sesi 2026-05-31 14:49 (DNS refactor pilot)
+  575e37f    refactor(bot): extract DNS watchdog to watchdogs/dns.py + infra/
+
+Production: 7 containers up + healthy (last verified run 26716373477)
+Dogfood: ~40h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+telegram-bot/: bot.py (3150) + infra/ (130 LOC) + watchdogs/ (365 LOC)
+tests/: 463 passing, 32% coverage
+```
+
+### Verify state in <2 minutes
+
+```bash
+git status                                    # clean
+git log --oneline -5                          # matches above
+gh run list --workflow=deploy.yml --limit 3   # last 3 green
+python3 -m pytest -q                          # 463 passed, ~32% coverage
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+python3 -m mypy --strict langgraph-agent/app/{config,docs_sync,embedding,gitlab_review,journal,llm,meeting_notes,pr_review,skills,telegram,tools}.py
+python3 -m compileall -q telegram-bot langgraph-agent
+python3 scripts/lint_orphan_refs.py           # 8 files, 130 functions
+pre-commit run --all-files                    # 4 hooks pass
+pre-commit run --all-files --hook-stage pre-push  # +mypy lenient + strict
+```
+
+If anything fails: do not proceed. Diagnose first.
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.**
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A1. Deps watchdog extraction** (smallest next) | 30 min | 🟢 Low | Only `_agent_post` dep. UNBLOCKED. |
+| **A2. Capacity watchdog + extract `infra/prom.py`** | 1h | 🟢 Low | Sets up shared `_prom_query` for Morning brief later. |
+| **A3. Drift watchdog (uses infra.ssh)** | 45 min | 🟢 Low | Demonstrates infra.ssh reuse from a fresh module. |
+| **A4. Batch: Deps + Capacity + Drift** | 2-2.5h | 🟢 Low | 3 commits, 1 deploy. Drops bot.py below 3000 LOC. |
+| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | Defer until refactor done. |
+| **D. Pytest expansion batch 5** | 3-4h+ | 🟡 Med | ROI menurun (mock-heavy). Defer. |
+| **I. Mypy strict expansion** | 1-2h | 🟢 Low | 11/22 modules done. Bigger modules need substantive type fixes. |
+| **G. Wait for dogfood signal** | — | — | Phase 2 work blocked. ~5-12 days remaining. |
+
+**Blocked on user input:**
+- Spec-to-Implementation (needs PRD)
+- Onboard 8-13 VPS to Prometheus (needs IP/SSH list)
+- Activate DNS+SSL schedulers (needs `/ssl add yourdomain.com` via Telegram)
+
+### How to extract the next watchdog (Deps example)
+
+1. Read `telegram-bot/bot.py` — find Deps watchdog block (search for `cmd_deps`, `_run_deps_check`, `_deps_check_job`, `DEPS_CHECK_*`).
+2. Identify dependencies (likely just `_agent_post` and stdlib).
+3. Create `telegram-bot/watchdogs/deps.py` mirroring DNS/SSL pattern:
+   - Constants prefix: `DEPS_CHECK_*`
+   - Public exports: `cmd_deps`, `deps_check_job`, `DEPS_CHECK_ENABLED`
+   - Internal helpers: `run_deps_check`
+   - Import `_agent_post` from `bot` via deferred import OR extract `_agent_post` first to `infra/agent.py`.
+4. Update `bot.py`:
+   - Add `from watchdogs.deps import (...)` at top
+   - Delete inline Deps block
+   - Update scheduler registration in `post_init`
+   - Update handler registration in `main()`
+5. Run all CI gates locally before commit (see verify checklist above).
+6. Add unit tests in `tests/test_deps_watchdog.py` (the agent codebase already has `tests/test_deps_watchdog.py` covering the agent-side; new tests should cover the bot-side handler + formatter).
+7. Commit, push, verify CI green + scheduler registration in deploy log.
+
+### Safety net you can rely on
+
+- **8 CI lint gates** — actionlint, ruff F, mypy lenient (whole package), mypy strict (11-module whitelist), orphan-refs script (multi-file ready, verified working across 8 files), compileall, caddy validate, promtool, amtool
+- **5 pre-commit hooks** + 2 pre-push hooks
+- **463 pytest tests** — parser + module-unit + new infra/watchdogs unit tests
+- **Coverage floor 27%** — actual at 32%
+- **Mypy strict whitelist** (50% of agent modules)
+- **All production images SHA-pinned**
+- **README has Local Development section**
+- **Multi-file orphan-ref walker** proven across 2 extraction batches
+
+### What this session DID NOT do
+
+- Did not extract Capacity/Drift/Hygiene/Firewall/Deps/MorningBrief watchdogs (next batch)
+- Did not extract `_prom_query` to `infra/prom.py` (defer until 2nd Prometheus consumer)
+- Did not extract `_agent_post` / `_agent_headers` to `infra/agent.py` (defer until needed)
+- Did not write Test Coverage Agent
+- Did not touch Phase 2 logic — wait dogfood signal
+- Did not migrate to Python 3.14
+- Did not add cmd_* docstrings (defer to refactor)
+
+### Sesi recap (high-level)
+
+Sesi 2026-05-31 15:18 = **bot.py refactor batch 2** (continued from path A pilot at 14:49).
+
+1. **SSL watchdog extraction** (commit `ec1e561`):
+   - Created `telegram-bot/watchdogs/ssl.py` (165 LOC)
+   - Moved `cmd_ssl` + SSL logic block from bot.py
+   - Cleaned up DNS pilot's deferred import workaround (now top-level)
+   - bot.py: 3350 → 3200 lines
+
+2. **SSH primitives extraction** (commit `7100d4c`):
+   - Created `telegram-bot/infra/ssh.py` (66 LOC)
+   - Aliased re-imports preserve all 26 callsites unchanged
+   - Unblocks Firewall, Hygiene, Drift extraction
+   - bot.py: 3200 → 3150 lines
+
+3. **Unit tests for new modules** (commit `c4ba770`):
+   - 54 new tests across 4 files: config_store, dns, ssl, ssh
+   - Coverage 28.45% → 32% (+3.5pp)
+   - 463 total tests passing
+
+4. **Production deploy verified** (run `26716373477`):
+   - lint 56s, test 35s, deploy 1m35s — all green
+   - 7 schedulers registered cleanly
+   - All 7 containers healthy
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-05-31 15:18 — DNS+SSL watchdogs extracted, infra/ssh.py shared, 54 new unit tests. Refactor pattern proven across 2 watchdogs + 3 infra modules. Path A unblocked for next watchdog.
+
+### Files changed this session (3 commits)
+
+**ec1e561 — SSL extraction:**
+- `+ telegram-bot/watchdogs/ssl.py` (165 LOC)
+- `~ telegram-bot/watchdogs/dns.py` (-13 LOC, simplified seed import)
+- `~ telegram-bot/bot.py` (-150 LOC net)
+
+**7100d4c — SSH primitives:**
+- `+ telegram-bot/infra/ssh.py` (66 LOC)
+- `~ telegram-bot/bot.py` (-50 LOC net)
+
+**c4ba770 — Unit tests:**
+- `+ tests/test_config_store.py` (7 tests)
+- `+ tests/test_dns_watchdog.py` (24 tests)
+- `+ tests/test_ssl_watchdog.py` (12 tests)
+- `+ tests/test_infra_ssh.py` (11 tests)
+
+### Active Tasks (for next session)
+
+- [ ] **DOGFOOD WINDOW (active, ~40h elapsed)** — observe 7 features for 1-2 weeks total
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com`
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs IP/SSH list
+- [ ] **CONTINUE BOT.PY REFACTOR BATCH 3** — see "Bot.py Refactor — Status" section. Recommended: Deps → Capacity → Drift triple in 1 session (~2-2.5h).
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Recently Completed (chronological)
+
+- ✅ [2026-05-31 15:18 UTC] **Refactor batch 2** — SSL watchdog + SSH primitives extracted, 54 new unit tests, coverage 28.45→32%
+- ✅ [2026-05-31 14:49 UTC] **DNS watchdog refactor pilot** — `infra/` + `watchdogs/dns.py` packages created
+- ✅ [2026-05-31 13:51 UTC] **boto3 version alignment** — patch-level consistency fix
+- ✅ [2026-05-31 13:45 UTC] **Mypy strict expansion 4 → 11** — 7 new modules in whitelist
+- ✅ [2026-05-31 13:35 UTC] **SHA-pin prom images**
+- ✅ [2026-05-31 13:05 UTC] **Caddy + promtool + amtool CI gates**
+- ✅ [2026-05-31 13:00 UTC] **Mypy strict +tools.py**
+- ✅ [2026-05-31 12:50 UTC] **Pytest batch 4** — 129 new tests, floor 23→27
+- ✅ [2026-05-31 12:35 UTC] **README Local Development section**
+
+### Lessons from this session
+
+1. **Aliased re-imports save callsite churn** — for high-fanout primitives like `_ssh_exec` (26 callsites in bot.py), the simplest pattern is `from infra.ssh import ssh_exec as _ssh_exec`. Zero-callsite-edit refactor. The "real" public API uses the new name; bot.py's legacy underscore name is just a backwards-compat alias until later cleanup.
+
+2. **Once a primitive moves to a shared module, the next consumer is free** — DNS used deferred-import-from-bot to get SSL seed. After SSL itself moved to `watchdogs/ssl.py`, DNS's import became a normal top-level `from watchdogs.ssl import get_ssl_domains`. Each extraction unblocks future ones.
+
+3. **Test the formatter, mock the I/O** — `run_dns_check` and `run_ssl_check` mix subprocess/socket I/O with formatting logic. Tests monkeypatch the I/O helper (`dig_record`, `check_ssl_expiry`) and verify the formatter handles all branches deterministically. 36 formatter tests added without any network calls.
+
+4. **`importlib.reload` for env-dependent module state** — `infra/ssh.py` parses `MONITOR_SSH_TARGETS` at import time. To test multiple env values without polluting other tests, reload the module after `monkeypatch.setenv`. Pattern: `_reload_ssh(monkeypatch, raw_env)`.
+
+5. **Coverage compounds with extraction** — `infra/config_store.py` reached 100% with 7 tests. Small modules are trivially testable; the same code stuck in a 3500-line bot.py would have been mock-heavy. Refactor + tests are mutually reinforcing.
+
+---
+
 
 ## 📦 SESSION HANDOFF (2026-05-31 14:49 UTC) — for fresh opencode session
 

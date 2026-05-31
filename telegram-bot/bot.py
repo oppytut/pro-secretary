@@ -31,6 +31,12 @@ from watchdogs.ssl import (
     get_ssl_domains,
     ssl_check_job,
 )
+from infra.ssh import (
+    add_ssh_target as _add_ssh_target,
+    del_ssh_target as _del_ssh_target,
+    get_ssh_targets as _get_ssh_targets,
+    ssh_exec as _ssh_exec,
+)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
@@ -44,14 +50,6 @@ LLM_MODEL_DEFAULT = os.getenv("LLM_MODEL", "gpt-4")
 
 import asyncio
 import json as _json
-
-_ssh_targets: dict[str, dict[str, str]] = {}
-_raw_ssh = os.getenv("MONITOR_SSH_TARGETS", "")
-if _raw_ssh:
-    try:
-        _ssh_targets = _json.loads(_raw_ssh)
-    except Exception:
-        pass
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 MAX_COMMAND_TEXT_LEN = int(os.getenv("MAX_COMMAND_TEXT_LEN", "2000"))
@@ -1139,29 +1137,6 @@ def _config_set(key: str, value) -> None:
     _save_config(cfg)
 
 
-def _get_ssh_targets() -> dict[str, dict[str, str]]:
-    """Merge env-based SSH targets with config-stored ones. Config wins on conflict."""
-    merged = dict(_ssh_targets)
-    stored = _config_get("ssh_targets", {})
-    merged.update(stored)
-    return merged
-
-
-def _add_ssh_target(name: str, host: str, port: str = "22", user: str = "root") -> bool:
-    targets = _config_get("ssh_targets", {})
-    targets[name] = {"host": host, "port": port, "user": user}
-    _config_set("ssh_targets", targets)
-    return True
-
-
-def _del_ssh_target(name: str) -> bool:
-    targets = _config_get("ssh_targets", {})
-    if name not in targets:
-        return False
-    del targets[name]
-    _config_set("ssh_targets", targets)
-    return True
-
 
 # --- Capacity Planning ---
 CAPACITY_CHECK_ENABLED = os.getenv("CAPACITY_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
@@ -2166,31 +2141,6 @@ def _record_restart(key: str) -> int:
     _container_restarts[key] = [t for t in _container_restarts[key] if t > cutoff]
     return len(_container_restarts[key])
 
-
-async def _ssh_exec(vps_name: str, command: str) -> tuple[bool, str]:
-    """Run command on remote VPS via SSH. Returns (success, output)."""
-    target = _get_ssh_targets().get(vps_name)
-    if not target:
-        return False, f"No SSH target for {vps_name}"
-    host = target.get("host", "")
-    port = str(target.get("port", 22))
-    user = target.get("user", "root")
-    cmd = [
-        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-        "-o", "StrictHostKeyChecking=accept-new", "-p", port,
-        f"{user}@{host}", command,
-    ]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        output = (stdout or stderr).decode().strip()
-        return proc.returncode == 0, output
-    except asyncio.TimeoutError:
-        return False, "SSH command timed out"
-    except Exception as e:
-        return False, str(e)
 
 
 async def _autofix_restart_container(vps_name: str, container_name: str) -> tuple[bool, str]:

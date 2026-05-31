@@ -264,3 +264,251 @@ class TestRunDnsCheckFormatter:
         assert "bad.com" in report
         assert "✅" in report
         assert "🔴" in report
+
+
+class TestDigRecord:
+    def _patch_subprocess(self, monkeypatch, *, returncode=0, stdout=b"", stderr=b"", timeout_flag=False, file_not_found=False, generic_exc=None):
+        class FakeProc:
+            def __init__(self):
+                self.returncode = returncode
+
+            async def communicate(self):
+                return stdout, stderr
+
+        async def fake_create(*args, **kwargs):
+            if file_not_found:
+                raise FileNotFoundError("dig not found")
+            if generic_exc is not None:
+                raise generic_exc
+            return FakeProc()
+
+        async def fake_wait_for(coro, timeout=None):
+            if timeout_flag:
+                raise asyncio.TimeoutError()
+            return await coro
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
+        monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    def test_returns_records_on_success(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, returncode=0, stdout=b"1.2.3.4\n5.6.7.8\n")
+        records, err = asyncio.run(dns.dig_record("example.com", "1.1.1.1"))
+        assert records == ["1.2.3.4", "5.6.7.8"]
+        assert err is None
+
+    def test_filters_comment_lines(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, returncode=0, stdout=b";comment\n1.2.3.4\n; another\n")
+        records, err = asyncio.run(dns.dig_record("x.com", "8.8.8.8"))
+        assert records == ["1.2.3.4"]
+        assert err is None
+
+    def test_filters_blank_lines(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, returncode=0, stdout=b"1.2.3.4\n\n  \n5.6.7.8\n")
+        records, err = asyncio.run(dns.dig_record("x.com", "8.8.8.8"))
+        assert records == ["1.2.3.4", "5.6.7.8"]
+
+    def test_timeout(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, timeout_flag=True)
+        records, err = asyncio.run(dns.dig_record("x.com", "8.8.8.8"))
+        assert records == []
+        assert err == "timeout"
+
+    def test_file_not_found(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, file_not_found=True)
+        records, err = asyncio.run(dns.dig_record("x.com", "8.8.8.8"))
+        assert records == []
+        assert err == "dig binary not installed"
+
+    def test_generic_exception(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, generic_exc=PermissionError("denied"))
+        records, err = asyncio.run(dns.dig_record("x.com", "8.8.8.8"))
+        assert records == []
+        assert err == "PermissionError"
+
+    def test_nonzero_exit(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, returncode=2, stdout=b"", stderr=b"resolver error\n")
+        records, err = asyncio.run(dns.dig_record("x.com", "1.1.1.1"))
+        assert records == []
+        assert err == "resolver error"
+
+    def test_nonzero_exit_blank_stderr(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, returncode=5, stdout=b"", stderr=b"")
+        records, err = asyncio.run(dns.dig_record("x.com", "1.1.1.1"))
+        assert records == []
+        assert err == "exit 5"
+
+
+class TestDnsCheckJob:
+    def _make_context(self):
+        from unittest.mock import AsyncMock, MagicMock
+        ctx = MagicMock()
+        ctx.bot = MagicMock()
+        ctx.bot.send_message = AsyncMock()
+        return ctx
+
+    def test_skips_when_no_allowed_users(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [])
+        ctx = self._make_context()
+        asyncio.run(dns.dns_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_skips_when_no_domains(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        ctx = self._make_context()
+        asyncio.run(dns.dns_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_sends_when_warnings(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        config_store.config_set("dns_domains", ["bad.com"])
+
+        async def fake_run():
+            return "🔴 Divergent records detected"
+
+        monkeypatch.setattr(dns, "run_dns_check", fake_run)
+        ctx = self._make_context()
+        asyncio.run(dns.dns_check_job(ctx))
+        ctx.bot.send_message.assert_awaited_once()
+
+    def test_silent_when_clean(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        config_store.config_set("dns_domains", ["good.com"])
+
+        async def fake_run():
+            return "✅ All consistent"
+
+        monkeypatch.setattr(dns, "run_dns_check", fake_run)
+        ctx = self._make_context()
+        asyncio.run(dns.dns_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_swallows_exceptions(self, store, monkeypatch, caplog):
+        import logging
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        config_store.config_set("dns_domains", ["x.com"])
+
+        async def fake_run():
+            raise RuntimeError("dig down")
+
+        monkeypatch.setattr(dns, "run_dns_check", fake_run)
+        ctx = self._make_context()
+        with caplog.at_level(logging.ERROR):
+            asyncio.run(dns.dns_check_job(ctx))
+        assert "DNS check job failed" in caplog.text
+
+
+class TestCmdDns:
+    def _make_update(self):
+        from unittest.mock import AsyncMock, MagicMock
+        update = MagicMock()
+        update.effective_user = MagicMock()
+        update.effective_user.id = 42
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        return update
+
+    def _make_context(self, args):
+        from unittest.mock import MagicMock
+        ctx = MagicMock()
+        ctx.args = args
+        return ctx
+
+    def test_no_args_runs_check(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            return "✅ Check complete"
+
+        monkeypatch.setattr(dns, "run_dns_check", fake_run)
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context([])))
+        assert update.message.reply_text.await_count == 2
+
+    def test_check_failure_reports_error(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            raise RuntimeError("kaboom")
+
+        monkeypatch.setattr(dns, "run_dns_check", fake_run)
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context([])))
+        last_call = update.message.reply_text.await_args_list[-1]
+        assert "DNS check failed" in last_call.args[0]
+        assert "kaboom" in last_call.args[0]
+
+    def test_list_empty(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context(["list"])))
+        update.message.reply_text.assert_awaited_with("📋 No DNS domains configured.")
+
+    def test_list_shows_domains(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        config_store.config_set("dns_domains", ["a.com", "b.com"])
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context(["list"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "a.com" in text and "b.com" in text
+
+    def test_add_new_domain(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context(["add", "new.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "Added" in text
+        assert "new.com" in dns.get_dns_domains()
+
+    def test_add_duplicate(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        config_store.config_set("dns_domains", ["dup.com"])
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context(["add", "dup.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "already in watchlist" in text
+
+    def test_del_existing(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        config_store.config_set("dns_domains", ["gone.com"])
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context(["del", "gone.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "Removed" in text
+
+    def test_del_missing(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        monkeypatch.setattr(dns, "get_ssl_domains", lambda: [])
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context(["del", "absent.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "not in watchlist" in text
+
+    def test_unknown_action_shows_usage(self, store, monkeypatch):
+        monkeypatch.setattr(dns, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        update = self._make_update()
+        asyncio.run(dns.cmd_dns(update, self._make_context(["wat"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "Usage" in text

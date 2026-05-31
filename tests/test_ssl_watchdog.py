@@ -141,3 +141,194 @@ class TestRunSslCheckFormatter:
         report = asyncio.run(ssl_mod.run_ssl_check())
         assert "⚠️" not in report
         assert "✅" in report
+
+
+class TestCheckSslExpiry:
+    def test_returns_days_and_expiry_on_success(self, monkeypatch):
+        async def fake_to_thread(func, host):
+            return 60, "2026-07-30"
+
+        monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+        result = asyncio.run(ssl_mod.check_ssl_expiry("example.com"))
+        assert result == {
+            "domain": "example.com",
+            "days_left": 60,
+            "expiry": "2026-07-30",
+            "error": None,
+        }
+
+    def test_returns_error_on_exception(self, monkeypatch):
+        async def fake_to_thread(func, host):
+            raise ConnectionRefusedError("port 443 closed")
+
+        monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+        result = asyncio.run(ssl_mod.check_ssl_expiry("bad.com"))
+        assert result["days_left"] == -1
+        assert result["expiry"] is None
+        assert "port 443 closed" in result["error"]
+
+
+class TestSslCheckJob:
+    def _make_context(self):
+        from unittest.mock import AsyncMock, MagicMock
+        ctx = MagicMock()
+        ctx.bot = MagicMock()
+        ctx.bot.send_message = AsyncMock()
+        return ctx
+
+    def test_skips_when_no_allowed_users(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [])
+        ctx = self._make_context()
+        asyncio.run(ssl_mod.ssl_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_skips_when_no_domains(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        ctx = self._make_context()
+        asyncio.run(ssl_mod.ssl_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_sends_when_warnings(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        config_store.config_set("ssl_domains", ["expiring.com"])
+
+        async def fake_run():
+            return "⚠️ expiring.com expires in 5 days"
+
+        monkeypatch.setattr(ssl_mod, "run_ssl_check", fake_run)
+        ctx = self._make_context()
+        asyncio.run(ssl_mod.ssl_check_job(ctx))
+        ctx.bot.send_message.assert_awaited_once()
+
+    def test_silent_when_clean(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        config_store.config_set("ssl_domains", ["good.com"])
+
+        async def fake_run():
+            return "✅ All certs OK"
+
+        monkeypatch.setattr(ssl_mod, "run_ssl_check", fake_run)
+        ctx = self._make_context()
+        asyncio.run(ssl_mod.ssl_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_swallows_exceptions(self, store, monkeypatch, caplog):
+        import logging
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        config_store.config_set("ssl_domains", ["x.com"])
+
+        async def fake_run():
+            raise RuntimeError("openssl missing")
+
+        monkeypatch.setattr(ssl_mod, "run_ssl_check", fake_run)
+        ctx = self._make_context()
+        with caplog.at_level(logging.ERROR):
+            asyncio.run(ssl_mod.ssl_check_job(ctx))
+        assert "SSL check job failed" in caplog.text
+
+
+class TestCmdSsl:
+    def _make_update(self):
+        from unittest.mock import AsyncMock, MagicMock
+        update = MagicMock()
+        update.effective_user = MagicMock()
+        update.effective_user.id = 42
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        return update
+
+    def _make_context(self, args):
+        from unittest.mock import MagicMock
+        ctx = MagicMock()
+        ctx.args = args
+        return ctx
+
+    def test_no_args_runs_check(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            return "✅ All OK"
+
+        monkeypatch.setattr(ssl_mod, "run_ssl_check", fake_run)
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context([])))
+        assert update.message.reply_text.await_count == 2
+
+    def test_check_failure_reports_error(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            raise RuntimeError("openssl missing")
+
+        monkeypatch.setattr(ssl_mod, "run_ssl_check", fake_run)
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context([])))
+        last = update.message.reply_text.await_args_list[-1].args[0]
+        assert "SSL check failed" in last
+        assert "openssl missing" in last
+
+    def test_list_empty(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context(["list"])))
+        update.message.reply_text.assert_awaited_with("📋 No SSL domains configured.")
+
+    def test_list_shows_domains(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        config_store.config_set("ssl_domains", ["a.com", "b.com"])
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context(["list"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "a.com" in text and "b.com" in text
+
+    def test_add_new(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context(["add", "new.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "Added" in text
+        assert "new.com" in ssl_mod.get_ssl_domains()
+
+    def test_add_duplicate(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        config_store.config_set("ssl_domains", ["dup.com"])
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context(["add", "dup.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "already in watchlist" in text
+
+    def test_del_existing(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        config_store.config_set("ssl_domains", ["gone.com"])
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context(["del", "gone.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "Removed" in text
+
+    def test_del_missing(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context(["del", "absent.com"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "not in watchlist" in text
+
+    def test_unknown_action_shows_usage(self, store, monkeypatch):
+        monkeypatch.setattr(ssl_mod, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+        update = self._make_update()
+        asyncio.run(ssl_mod.cmd_ssl(update, self._make_context(["wat"])))
+        text = update.message.reply_text.await_args.args[0]
+        assert "Usage" in text

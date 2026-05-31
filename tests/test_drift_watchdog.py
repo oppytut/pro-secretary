@@ -135,3 +135,214 @@ class TestCheckRemoteDockerDrift:
             ],
         )
         assert asyncio.run(drift.check_remote_docker_drift("vps1")) == []
+
+
+class TestCheckDockerDrift:
+    def _patch_subprocess(self, monkeypatch, *, stdout=b"", returncode=0, raise_exc=None):
+        class FakeProc:
+            def __init__(self):
+                self.returncode = returncode
+
+            async def communicate(self):
+                return stdout, b""
+
+        async def fake_create(*args, **kwargs):
+            if raise_exc is not None:
+                raise raise_exc
+            return FakeProc()
+
+        async def fake_wait_for(coro, timeout=None):
+            return await coro
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
+        monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    def test_subprocess_failure_returns_error(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, raise_exc=OSError("docker not found"))
+        result = asyncio.run(drift.check_docker_drift())
+        assert result == ["❌ Cannot run docker ps locally"]
+
+    def test_all_expected_running_no_drift(self, monkeypatch):
+        lines = [
+            "n8n\tn8nio/n8n:2.20.7\tUp",
+            "langgraph-agent\tcustom\tUp",
+            "calcom\tcalcom/cal.com:latest\tUp",
+            "telegram-bot\tcustom\tUp",
+            "prometheus\tprom/prometheus:v3.4.0\tUp",
+            "alertmanager\tprom/alertmanager:v0.28.1\tUp",
+            "caddy\tcaddy:2-alpine\tUp",
+        ]
+        self._patch_subprocess(monkeypatch, stdout=("\n".join(lines)).encode())
+        result = asyncio.run(drift.check_docker_drift())
+        assert result == []
+
+    def test_missing_container_flagged(self, monkeypatch):
+        lines = ["n8n\tn8nio/n8n:2.20.7\tUp"]
+        self._patch_subprocess(monkeypatch, stdout=("\n".join(lines)).encode())
+        result = asyncio.run(drift.check_docker_drift())
+        assert any("calcom" in f and "NOT RUNNING" in f for f in result)
+        assert any("prometheus" in f and "NOT RUNNING" in f for f in result)
+
+    def test_image_drift_flagged(self, monkeypatch):
+        lines = [
+            "n8n\tn8nio/n8n:1.0.0\tUp",
+            "langgraph-agent\tcustom\tUp",
+            "calcom\tcalcom/cal.com:latest\tUp",
+            "telegram-bot\tcustom\tUp",
+            "prometheus\tprom/prometheus:v3.4.0\tUp",
+            "alertmanager\tprom/alertmanager:v0.28.1\tUp",
+            "caddy\tcaddy:2-alpine\tUp",
+        ]
+        self._patch_subprocess(monkeypatch, stdout=("\n".join(lines)).encode())
+        result = asyncio.run(drift.check_docker_drift())
+        assert any("n8n" in f and "image drift" in f for f in result)
+
+    def test_unexpected_container_flagged(self, monkeypatch):
+        lines = [
+            "n8n\tn8nio/n8n:2.20.7\tUp",
+            "langgraph-agent\tcustom\tUp",
+            "calcom\tcalcom/cal.com:latest\tUp",
+            "telegram-bot\tcustom\tUp",
+            "prometheus\tprom/prometheus:v3.4.0\tUp",
+            "alertmanager\tprom/alertmanager:v0.28.1\tUp",
+            "caddy\tcaddy:2-alpine\tUp",
+            "rogue\trogue:latest\tUp",
+        ]
+        self._patch_subprocess(monkeypatch, stdout=("\n".join(lines)).encode())
+        result = asyncio.run(drift.check_docker_drift())
+        assert any("rogue" in f and "unexpected" in f for f in result)
+
+
+class TestCheckCronDrift:
+    def _patch_subprocess(self, monkeypatch, *, stdout=b"", raise_exc=None):
+        class FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                return stdout, b""
+
+        async def fake_create(*args, **kwargs):
+            if raise_exc is not None:
+                raise raise_exc
+            return FakeProc()
+
+        async def fake_wait_for(coro, timeout=None):
+            return await coro
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
+        monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    def test_subprocess_failure(self, monkeypatch):
+        self._patch_subprocess(monkeypatch, raise_exc=OSError("crontab missing"))
+        result = asyncio.run(drift.check_cron_drift())
+        assert result == ["⚠️ Cannot read crontab"]
+
+    def test_all_present_no_drift(self, monkeypatch):
+        cron = b"0 * * * * /usr/bin/health_check\n0 2 * * * /usr/bin/backup\n0 4 * * * /usr/bin/sync_vault\n"
+        self._patch_subprocess(monkeypatch, stdout=cron)
+        result = asyncio.run(drift.check_cron_drift())
+        assert result == []
+
+    def test_missing_entry_flagged(self, monkeypatch):
+        cron = b"0 * * * * /usr/bin/health_check\n"
+        self._patch_subprocess(monkeypatch, stdout=cron)
+        result = asyncio.run(drift.check_cron_drift())
+        assert any("backup" in f for f in result)
+        assert any("sync_vault" in f for f in result)
+
+
+class TestDriftCheckJob:
+    def _make_context(self):
+        from unittest.mock import AsyncMock, MagicMock
+        ctx = MagicMock()
+        ctx.bot = MagicMock()
+        ctx.bot.send_message = AsyncMock()
+        return ctx
+
+    def test_skips_when_no_allowed_users(self, monkeypatch):
+        monkeypatch.setattr(drift, "ALLOWED_USERS", [])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [])
+        ctx = self._make_context()
+        asyncio.run(drift.drift_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_sends_when_findings(self, monkeypatch):
+        monkeypatch.setattr(drift, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            return "🔴 1 finding(s):\nbroken"
+
+        monkeypatch.setattr(drift, "run_drift_check", fake_run)
+        ctx = self._make_context()
+        asyncio.run(drift.drift_check_job(ctx))
+        ctx.bot.send_message.assert_awaited_once()
+
+    def test_silent_when_clean(self, monkeypatch):
+        monkeypatch.setattr(drift, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            return "✅ No drift detected"
+
+        monkeypatch.setattr(drift, "run_drift_check", fake_run)
+        ctx = self._make_context()
+        asyncio.run(drift.drift_check_job(ctx))
+        ctx.bot.send_message.assert_not_awaited()
+
+    def test_swallows_exceptions(self, monkeypatch, caplog):
+        import logging
+        monkeypatch.setattr(drift, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            raise RuntimeError("docker daemon down")
+
+        monkeypatch.setattr(drift, "run_drift_check", fake_run)
+        ctx = self._make_context()
+        with caplog.at_level(logging.ERROR):
+            asyncio.run(drift.drift_check_job(ctx))
+        assert "Drift check job failed" in caplog.text
+
+
+class TestCmdDrift:
+    def _make_update(self):
+        from unittest.mock import AsyncMock, MagicMock
+        update = MagicMock()
+        update.effective_user = MagicMock()
+        update.effective_user.id = 42
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock()
+        return update
+
+    def _make_context(self):
+        from unittest.mock import MagicMock
+        ctx = MagicMock()
+        ctx.args = []
+        return ctx
+
+    def test_runs_check_and_replies(self, monkeypatch):
+        monkeypatch.setattr(drift, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            return "✅ Clean"
+
+        monkeypatch.setattr(drift, "run_drift_check", fake_run)
+        update = self._make_update()
+        asyncio.run(drift.cmd_drift(update, self._make_context()))
+        assert update.message.reply_text.await_count == 2
+
+    def test_failure_reports_error(self, monkeypatch):
+        monkeypatch.setattr(drift, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run():
+            raise RuntimeError("docker dead")
+
+        monkeypatch.setattr(drift, "run_drift_check", fake_run)
+        update = self._make_update()
+        asyncio.run(drift.cmd_drift(update, self._make_context()))
+        last = update.message.reply_text.await_args_list[-1].args[0]
+        assert "Drift check failed" in last
+        assert "docker dead" in last

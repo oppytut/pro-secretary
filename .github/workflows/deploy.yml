@@ -56,10 +56,42 @@ jobs:
           mypy --strict \
             langgraph-agent/app/embedding.py \
             langgraph-agent/app/journal.py \
-            langgraph-agent/app/telegram.py
+            langgraph-agent/app/telegram.py \
+            langgraph-agent/app/tools.py
 
       - name: Orphan-reference checks (bot.py + agent main.py)
         run: python scripts/lint_orphan_refs.py
+
+      - name: Validate Caddyfile
+        run: |
+          docker run --rm \
+            -e N8N_HOST=n8n.example.com \
+            -e CALCOM_HOST=calcom.example.com \
+            -e AGENT_HOST=agent.example.com \
+            -v "${{ github.workspace }}/caddy:/etc/caddy:ro" \
+            caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Validate Prometheus config + alert rules
+        run: |
+          docker run --rm \
+            --entrypoint promtool \
+            -v "${{ github.workspace }}/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v3.4.0 \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: Validate Alertmanager config
+        run: |
+          mkdir -p /tmp/alertmanager-validate
+          sed \
+            -e 's/PLACEHOLDER_BOT_TOKEN/123456:DUMMY_TOKEN_FOR_VALIDATION/' \
+            -e 's/PLACEHOLDER_CHAT_ID/-1001234567890/' \
+            prometheus/alertmanager.yml > /tmp/alertmanager-validate/alertmanager.yml
+          docker run --rm \
+            --entrypoint amtool \
+            -v /tmp/alertmanager-validate:/etc/alertmanager:ro \
+            prom/alertmanager:v0.28.1 \
+            check-config /etc/alertmanager/alertmanager.yml
 
   test:
     runs-on: ubuntu-latest

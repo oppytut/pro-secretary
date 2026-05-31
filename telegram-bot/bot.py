@@ -18,6 +18,14 @@ from telegram.ext import (
     filters,
 )
 
+from watchdogs.dns import (
+    DNS_CHECK_ENABLED,
+    DNS_CHECK_INTERVAL_SEC,
+    cmd_dns,
+    dns_check_job,
+    get_dns_domains,
+)
+
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 AGENT_URL = os.getenv("AGENT_URL", "http://langgraph-agent:8090").rstrip("/")
@@ -1303,188 +1311,6 @@ async def _ssl_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info("SSL check: all certs OK")
     except Exception as e:
         logger.error(f"SSL check job failed: {e}")
-
-
-# --- DNS Health Monitor ---
-DNS_CHECK_ENABLED = os.getenv("DNS_CHECK_ENABLED", "true").lower() in ("1", "true", "yes")
-DNS_CHECK_INTERVAL_SEC = int(os.getenv("DNS_CHECK_INTERVAL_SEC", "14400"))  # 4h
-_DNS_RESOLVERS = [
-    ("Cloudflare", "1.1.1.1"),
-    ("Google", "8.8.8.8"),
-    ("Quad9", "9.9.9.9"),
-]
-
-
-def _get_dns_domains() -> list[str]:
-    """DNS watchlist. Falls back to SSL watchlist as default seed."""
-    stored = _config_get("dns_domains", None)
-    if stored is not None:
-        return list(stored)
-    return list(_get_ssl_domains())
-
-
-def _add_dns_domain(domain: str) -> bool:
-    domains = _config_get("dns_domains", None)
-    domains = list(domains) if domains is not None else list(_get_ssl_domains())
-    if domain in domains:
-        return False
-    domains.append(domain)
-    _config_set("dns_domains", domains)
-    return True
-
-
-def _del_dns_domain(domain: str) -> bool:
-    domains = _config_get("dns_domains", None)
-    domains = list(domains) if domains is not None else list(_get_ssl_domains())
-    if domain not in domains:
-        return False
-    domains.remove(domain)
-    _config_set("dns_domains", domains)
-    return True
-
-
-async def _dig_record(domain: str, resolver: str, rtype: str = "A") -> tuple[list[str], str | None]:
-    """Run `dig +short` against a specific resolver. Returns (sorted records, error)."""
-    cmd = [
-        "dig", f"@{resolver}", "+short", "+time=5", "+tries=1", "+retry=0",
-        domain, rtype,
-    ]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=12)
-    except asyncio.TimeoutError:
-        return [], "timeout"
-    except FileNotFoundError:
-        return [], "dig binary not installed"
-    except Exception as e:
-        return [], type(e).__name__
-    if proc.returncode != 0:
-        err = (stderr or b"").decode().strip()
-        return [], err.split("\n")[0][:80] or f"exit {proc.returncode}"
-    records = [
-        r.strip() for r in stdout.decode().splitlines()
-        if r.strip() and not r.startswith(";")
-    ]
-    return sorted(records), None
-
-
-async def _check_domain_consistency(domain: str) -> dict:
-    """Query domain across all resolvers, detect divergence."""
-    results: dict[str, dict] = {}
-    for label, resolver in _DNS_RESOLVERS:
-        records, err = await _dig_record(domain, resolver, "A")
-        results[label] = {"records": records, "error": err}
-    record_sets = {tuple(r["records"]) for r in results.values() if not r["error"] and r["records"]}
-    return {
-        "domain": domain,
-        "consistent": len(record_sets) <= 1,
-        "results": results,
-        "any_error": any(r["error"] for r in results.values()),
-        "any_empty": any(not r["records"] and not r["error"] for r in results.values()),
-        "record_sets": [list(rs) for rs in record_sets],
-    }
-
-
-async def _run_dns_check() -> str:
-    domains = _get_dns_domains()
-    if not domains:
-        return (
-            "⚠️ No DNS domains configured. Use <code>/dns add domain.com</code> "
-            "or set <code>SSL_CHECK_DOMAINS</code> (DNS reuses SSL list as seed)."
-        )
-    sections: list[str] = ["🌐 <b>DNS Health Monitor</b>", ""]
-    warnings: list[str] = []
-    ok_list: list[str] = []
-
-    for domain in domains:
-        result = await _check_domain_consistency(domain)
-        if result["any_error"]:
-            errs = [f"{label}={r['error']}" for label, r in result["results"].items() if r["error"]]
-            warnings.append(f"❌ <b>{domain}</b> — resolver error: {', '.join(errs)}")
-        elif result["any_empty"]:
-            empties = [label for label, r in result["results"].items() if not r["records"]]
-            warnings.append(f"⚠️ <b>{domain}</b> — empty response from: {', '.join(empties)}")
-        elif not result["consistent"]:
-            div_lines = []
-            for label, r in result["results"].items():
-                div_lines.append(f"      {label}: {', '.join(r['records']) or '(empty)'}")
-            warnings.append(
-                f"🔴 <b>{domain}</b> — divergent across resolvers:\n" + "\n".join(div_lines)
-            )
-        else:
-            sample = next(iter(result["results"].values()))
-            ips = ", ".join(sample["records"])
-            ok_list.append(f"✅ <b>{domain}</b> → <code>{ips}</code>")
-
-    if warnings:
-        sections.extend(warnings)
-        sections.append("")
-    sections.extend(ok_list)
-    now = datetime.now(ZoneInfo("Asia/Jakarta"))
-    sections.append(f"\n<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
-    return "\n".join(sections)
-
-
-async def _dns_check_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
-    if not chat_id or not _get_dns_domains():
-        return
-    try:
-        report = await _run_dns_check()
-        if "🔴" in report or "❌" in report or "⚠️" in report:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=report[:4000],
-                parse_mode="HTML",
-            )
-            logger.info("DNS check: warnings reported")
-        else:
-            logger.info("DNS check: all consistent")
-    except Exception as e:
-        logger.error(f"DNS check job failed: {e}")
-
-
-@authorized
-async def cmd_dns(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args or []
-    if not args:
-        await update.message.reply_text("🌐 Checking DNS health...")
-        try:
-            report = await _run_dns_check()
-            await update.message.reply_text(report[:4000], parse_mode="HTML")
-        except Exception as exc:
-            await update.message.reply_text(f"⚠️ DNS check failed: {exc}")
-        return
-
-    action = args[0].lower()
-    if action == "list":
-        domains = _get_dns_domains()
-        if not domains:
-            await update.message.reply_text("📋 No DNS domains configured.")
-        else:
-            lines = ["🌐 <b>DNS Domains</b>", ""]
-            for d in domains:
-                lines.append(f"• <code>{d}</code>")
-            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-    elif action == "add" and len(args) >= 2:
-        domain = args[1].lower().strip()
-        if _add_dns_domain(domain):
-            await update.message.reply_text(f"✅ Added <code>{domain}</code> to DNS watchlist.", parse_mode="HTML")
-        else:
-            await update.message.reply_text(f"ℹ️ <code>{domain}</code> already in watchlist.", parse_mode="HTML")
-    elif action in ("del", "remove") and len(args) >= 2:
-        domain = args[1].lower().strip()
-        if _del_dns_domain(domain):
-            await update.message.reply_text(f"✅ Removed <code>{domain}</code> from DNS watchlist.", parse_mode="HTML")
-        else:
-            await update.message.reply_text(f"ℹ️ <code>{domain}</code> not in watchlist.", parse_mode="HTML")
-    else:
-        await update.message.reply_text(
-            "Usage:\n/dns — check all domains\n/dns list — show domains\n"
-            "/dns add domain.com — add domain\n/dns del domain.com — remove domain"
-        )
 
 
 # --- Capacity Planning ---
@@ -3461,14 +3287,14 @@ async def post_init(application: Application):
         )
         logger.info(f"Firewall audit scheduled daily at {FIREWALL_AUDIT_HOUR:02d}:{FIREWALL_AUDIT_MINUTE:02d} WIB.")
 
-    if DNS_CHECK_ENABLED and _get_dns_domains():
+    if DNS_CHECK_ENABLED and get_dns_domains():
         application.job_queue.run_repeating(
-            _dns_check_job,
+            dns_check_job,
             interval=DNS_CHECK_INTERVAL_SEC,
             first=120,
             name="dns_check",
         )
-        logger.info(f"DNS check scheduled every {DNS_CHECK_INTERVAL_SEC}s for {len(_get_dns_domains())} domain(s).")
+        logger.info(f"DNS check scheduled every {DNS_CHECK_INTERVAL_SEC}s for {len(get_dns_domains())} domain(s).")
 
 
 def main():

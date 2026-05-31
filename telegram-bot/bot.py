@@ -59,6 +59,8 @@ from infra.ssh import (
     ssh_exec as _ssh_exec,
 )
 from infra.prom import prom_query as _prom_query
+from infra.agent import agent_post as _agent_post
+from infra.gh import gh_api as _gh_api
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
@@ -116,21 +118,6 @@ def authorized(func):
         return await func(update, context)
 
     return wrapper
-
-
-def _agent_headers() -> dict[str, str]:
-    if AGENT_SECRET:
-        return {"x-agent-secret": AGENT_SECRET}
-    return {}
-
-
-async def _agent_post(path: str, payload: dict, timeout: float = 60.0) -> httpx.Response:
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        return await client.post(
-            f"{AGENT_URL}{path}",
-            headers=_agent_headers(),
-            json=payload,
-        )
 
 
 async def _load_repo_names():
@@ -1605,27 +1592,6 @@ MORNING_BRIEF_MINUTE = int(os.getenv("MORNING_BRIEF_MINUTE", "0"))
 _GH_REPOS: list[str] = ["gmedia/erp"]
 
 
-async def _gh_api(path: str) -> dict | list | None:
-    """Call GitHub REST API with GH_PAT."""
-    if not GH_PAT:
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f"https://api.github.com{path}",
-                headers={
-                    "Authorization": f"Bearer {GH_PAT}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-        if r.status_code == 200:
-            return r.json()
-    except httpx.RequestError:
-        pass
-    return None
-
-
 async def _collect_github_summary() -> list[str]:
     """Collect open PRs and recent commits from GitHub repos."""
     lines: list[str] = []
@@ -1635,7 +1601,7 @@ async def _collect_github_summary() -> list[str]:
     for repo in _GH_REPOS:
         # Open PRs
         prs = await _gh_api(f"/repos/{repo}/pulls?state=open&per_page=10&sort=updated")
-        if prs:
+        if isinstance(prs, list) and prs:
             lines.append(f"📌 <b>{repo}</b> — {len(prs)} open PR(s):")
             for pr in prs[:5]:
                 draft = " [draft]" if pr.get("draft") else ""
@@ -1644,7 +1610,7 @@ async def _collect_github_summary() -> list[str]:
         # Recent commits (last 12h)
         since = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
         commits = await _gh_api(f"/repos/{repo}/commits?per_page=10&since={since}")
-        if commits:
+        if isinstance(commits, list) and commits:
             lines.append(f"  📝 {len(commits)} commit(s) last 12h:")
             for c in commits[:3]:
                 msg = (c.get("commit", {}).get("message") or "").split("\n")[0][:60]

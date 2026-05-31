@@ -1,14 +1,154 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 04:38 UTC
+**Last Updated:** 2026-05-31 05:00 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + CI hardening (lint gate + 71 unit tests). Sesi 2026-05-30 part 2 closed dengan 8 PR merged.
+**Status:** ✅ 13 features shipped + CI hardening (lint gate covers bot.py + langgraph-agent main.py + 71 unit tests). Sesi 2026-05-31 closed dengan 1 PR merged + live smoke test.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
 ---
 
 ## 🤝 FOR NEXT SESSION (read this first)
+
+**Where we left off:** Sesi 2026-05-31 — extended lint gate to langgraph-agent main.py (cross-module orphan-ref check). Dogfood window terus berjalan (7 fitur Phase 1, sejak 2026-05-30 23:00 UTC).
+
+### Session 2026-05-31 — what shipped (1 PR direct to main + smoke test cycle)
+
+**Feature work:**
+1. **commit `ed5f211`+** (direct push, no PR) — `ci: extend lint gate to langgraph-agent main.py orphan-refs` (commit hash di history setelah merge)
+   - New step di `lint` job: parses `langgraph-agent/app/main.py` AST, extracts `module.attr` references where `module` is from `from . import ...`, verifies each `attr` is a top-level name in sibling `.py` file
+   - Catches same failure mode as bot.py gate (PR #16) but for cross-module calls (e.g. `pr_review.handle_pr_event` typo)
+   - Defined names checked: `FunctionDef`, `AsyncFunctionDef`, `ClassDef`, `Assign`, `AnnAssign`, `Import`, `ImportFrom` (covers re-exports)
+   - Local: 44 cross-module refs across 16 modules clean
+   - Run 26703604570 baseline green: lint 5s, test 30s, deploy 1m36s
+
+2. **Smoke test cycle (commits + revert)**
+   - Injected `pr_review.handle_pr_event_TYPO_SMOKE` typo, pushed → run 26703689068 caught at line 528, lint failed in 6s, deploy correctly skipped via `needs: [lint, test]`
+   - Reverted typo, pushed → run 26703708905 fully green, deploy succeeded
+   - **CI gate behaves identical to PR #16 pattern** — proven end-to-end before relying on it
+
+### Production state at handoff (verified live)
+
+**Containers (verified via run 26703708905 post-deploy probe):**
+```
+alertmanager      Up (healthy)
+caddy             Up
+calcom            Up (healthy)
+langgraph-agent   Up (healthy)
+n8n               Up (healthy)
+prometheus        Up (healthy)
+telegram-bot      Up
+```
+
+**CI pipeline now covers (3 gates total):**
+- `lint` (~6s) — compileall + bot.py orphan-ref + **main.py cross-module orphan-ref (NEW)**
+- `test` (~30s) — 71 pytest unit tests
+- `deploy` (~1m35s) — Docker compose up + post-deploy probes
+
+### Files changed this session
+
+**Infrastructure:**
+- `.github/workflows/deploy.yml` — +76 lines (new "Langgraph-agent main.py cross-module orphan-reference check" step in lint job)
+
+**Documentation:**
+- `TASK.md` — this update
+- `AI_AGENT_ROADMAP.md` — Tier 1 next-session item #1 marked done
+
+### Active Tasks (for next session)
+
+- [ ] **DOGFOOD WINDOW (active, started 2026-05-30 23:00 UTC, ~30h elapsed)** — observe 7 features on real workload for 1-2 weeks total:
+  - Phase 1 (since 2026-05-30 morning): `/meeting`, `/deps`, `/docsync`, Auto PR Review
+  - Phase 2 (since 2026-05-30 part 2): `/hygiene`, `/dns` (idle), `/firewall`
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com` via Telegram, DNS auto-seeds. Without this, 2 schedulers stay idle.
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
+- [ ] **DECISION POINT: pick next roadmap items** — see "Next session focus" below
+- [ ] **DEFERRED: Deps Watchdog Phase 2 (auto-PR)** — wait Phase 1 dogfood data
+- [ ] **DEFERRED: Docs Sync Phase 2 (auto-PR)** — wait Phase 1 dogfood data
+- [ ] **DEFERRED: Firewall Audit Phase 2 (auto-remediation)** — wait audit signal data
+- [ ] **DEFERRED: Grafana** — wait actual trend visualization need
+- [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels (PR #8 closed pending this)
+
+### Next session focus (PRIORITY ORDER)
+
+**Tier 1 — Fully autonomous AI-suitable, no blocker:**
+
+1. **Refactor bot.py into modules** (1-2 hari, RECOMMENDED) — `bot.py` is now **3500+ lines** with 8 watchdogs inline. Extract to `telegram-bot/watchdogs/`:
+   ```
+   telegram-bot/
+   ├── bot.py (orchestrator + handlers registration only)
+   ├── watchdogs/
+   │   ├── ssl.py, dns.py, drift.py, capacity.py
+   │   ├── hygiene.py, firewall.py, deps.py, morning_brief.py
+   │   └── health_check.py
+   └── infra/
+       ├── ssh.py, prometheus.py, config_store.py
+   ```
+   - **Why now:** before next watchdog adds another 200+ lines. Tech debt grows quadratic.
+   - **Risk:** medium — pure code reorg, no behavior change, but PTB handler registration order matters
+   - **Mitigation:** 1 PR per watchdog (start with DNS or Hygiene, smallest blast radius), each independently verifiable via deploy log capture
+   - **Coverage:** 71-test suite catches parser regressions, 2 lint gates catch orphan refs (bot.py + main.py)
+
+2. **Test Coverage Agent** (Tier 1.5 from roadmap, 2-3 hari) — now that test foundation exists + 2 lint gates protect against orphan refs:
+   - Reuse explore agent → coverage report scan
+   - Identify untested public functions
+   - Generate test stub + run pytest
+   - Auto-PR if test passes
+   - First target: pro-secretary itself (eat own dogfood)
+
+**Tier 2 — Blocked on user input:**
+
+3. **Spec-to-Implementation** (2-3 hari) — needs real PRD/feature spec from user
+4. **Onboard VPS to Prometheus** — needs IP/SSH list from user
+
+**Tier 3 — Wait for dogfood signal (1-2 weeks minimum from 2026-05-30):**
+
+5. **Deps Watchdog Phase 2 (auto-PR)** — review noise level on `/deps` reports
+6. **Docs Sync Phase 2 (auto-PR)** — review false positive rate on `/docsync`
+7. **Firewall Audit Phase 2 (auto-remediation)** — review audit signal accuracy
+
+### Useful commands for next session
+
+```bash
+# Verify CI status
+gh run list --workflow=deploy.yml --limit 5
+
+# Run tests locally
+python3 -m pytest -v
+
+# Run lint check locally (both files)
+python3 -m compileall -q telegram-bot langgraph-agent
+# Inline AST checks live in deploy.yml — extract heredoc blocks if you want local script
+
+# Tail bot logs (requires SSH to VPS)
+ssh prosec "docker logs telegram-bot --tail 100 -f"
+
+# Trigger DNS + SSL via Telegram
+/ssl add domain1.com
+/dns                    # auto-uses SSL list
+```
+
+### Lessons from this session (institutional memory)
+
+1. **Pattern transfer is cheap when you keep heredoc inline** — copying the bot.py orphan-ref AST walker style to main.py took ~1 hour total (prototype + smoke test + port + live verify + revert). Inline heredoc keeps the lint logic next to the workflow that runs it.
+
+2. **`from . import X` → walk Attribute nodes whose value.id ∈ imports** — simpler than tracking call expressions. Catches both `module.fn(...)` and bare attribute access (`module.CONSTANT`).
+
+3. **Smoke-test pattern still pays off** — same as PR #16/#17. Inject the bug we're trying to catch, verify CI catches it, restore. Without this, no one would trust the gate.
+
+4. **Cross-module checks have a natural false-positive limit** — only catches direct `module.attr`. Skips: nested `module.sub.attr`, `getattr(module, ...)`, dynamic dispatch. This is intentional — catching the common 80% with zero false positives is better than catching 95% with noise.
+
+### Recently Completed
+
+- ✅ [2026-05-31 05:00 UTC] **CI lint gate extended to langgraph-agent main.py** — cross-module orphan-ref check, smoke-tested live (run 26703689068 caught typo, run 26703708905 restored green)
+- ✅ [2026-05-30 23:45 UTC] **CI pytest suite shipped** — 71 unit tests across 2 modules, deploy `needs: [lint, test]`
+- ✅ [2026-05-30 23:30 UTC] **CI lint gate shipped** — AST orphan-ref check on bot.py
+- ✅ [2026-05-30 23:18 UTC] **3 dependabot PRs resolved** — #9 + #7 merged, #8 closed
+- ✅ [2026-05-30 23:08 UTC] **Deploy log capture shipped** (PR #15)
+- ✅ [2026-05-30 22:55 UTC] **3 read-only infra agents shipped** — Docker Hygiene + DNS Health + Firewall Audit (PR #14)
+
+---
+
+## 📜 PREVIOUS SESSION (2026-05-30 part 2) archived below
 
 **Where we left off:** Sesi 2026-05-30 part 2 — shipped 3 read-only infra agents (Docker Hygiene, DNS Health, Firewall Audit) + CI infrastructure hardening (lint gate + first pytest suite) + dependabot housekeeping. Production state stabil, dogfood window aktif untuk 7 fitur Phase 1.
 

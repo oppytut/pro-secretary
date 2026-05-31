@@ -525,7 +525,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
     import json
     payload = json.loads(body)
-    background_tasks.add_task(pr_review.handle_pr_event_TYPO_SMOKE, payload)
+    background_tasks.add_task(pr_review.handle_pr_event, payload)
     return {"queued": True, "event": event}
 
 

@@ -1,0 +1,33 @@
+default_language_version:
+  python: python3
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--select=F]
+        files: ^(telegram-bot|langgraph-agent|tests)/.*\.py$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+        files: ^\.github/workflows/.*\.ya?ml$
+
+  - repo: local
+    hooks:
+      - id: compileall
+        name: python -m compileall
+        language: system
+        entry: python3 -m compileall -q telegram-bot langgraph-agent
+        pass_filenames: false
+        files: ^(telegram-bot|langgraph-agent)/.*\.py$
+
+      - id: mypy
+        name: mypy (lenient, pre-push)
+        language: system
+        entry: python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+        pass_filenames: false
+        stages: [pre-push]
+        files: ^(telegram-bot|langgraph-agent)/.*\.py$

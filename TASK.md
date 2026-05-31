@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 06:15 UTC
+**Last Updated:** 2026-05-31 06:50 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + CI heavily hardened (5 lint gates: bot.py orphan + main.py cross-module orphan + ruff F-class + actionlint + compileall, 71 unit tests, coverage floor 12%, Node 24 active). Sesi 2026-05-31 closed dengan 7 commits ke main + **1 latent production bug caught & fixed**.
+**Status:** ✅ 13 features shipped + CI fully hardened (6 lint gates: actionlint + ruff F + mypy + bot.py orphan + main.py orphan + compileall, 71 tests, coverage floor 12%, Node 24). Sesi 2026-05-31 closed dengan 8 commits + **4 latent production bugs caught & fixed** sebagai byproduct CI hardening.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,58 +10,47 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-31 — autonomous CI hardening across 2 stacks (6 commits + bug fix). Ruff F-class expansion caught `SSL_CHECK_DOMAINS` reference bug di bot.py:3409 yang akan crash startup ketika SSL_CHECK_ENABLED flipped on. Dogfood window terus berjalan ~31 jam.
+**Where we left off:** Sesi 2026-05-31 — 3 stack autonomous CI hardening shipped (lint extension + Node24/coverage/ruff F401 + actionlint/coverage-floor/ruff-F + mypy lenient). Ruff F-class catch 1 latent bug, mypy catch 3 lebih. Dogfood window terus berjalan ~32h.
 
-### Session 2026-05-31 — what shipped (7 commits ke main, all green)
+### Session 2026-05-31 — what shipped (8 commits ke main + 1 docs, all green)
 
 **Stack 1 — Lint extension (early sesi):**
 
 1. **`ci: extend lint gate to langgraph-agent main.py orphan-refs`**
-   - New step di `lint` job: parses `main.py` AST, extracts `module.attr` references where module is from `from . import ...`, verifies each `attr` is a top-level name in sibling `.py`
+   - AST cross-module orphan-ref check untuk FastAPI agent
    - Local: 44 cross-module refs across 16 modules clean
-   - Live smoke test: run 26703689068 caught injected typo, run 26703708905 restored green
+   - Live smoke test: run 26703689068 caught injected typo, run 26703708905 restored
 
 **Stack 2 — Autonomous quick wins:**
 
-2. **`ci: opt into Node 24 for GHA actions`**
-   - `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"` di workflow-level `env`
-   - Eliminates Node 20 deprecation noise pre June 16, 2026 cutoff
-
-3. **`ci: add pytest-cov + coverage baseline summary`**
-   - Foundation untuk Test Coverage Agent (Tier 1.5)
-   - `pytest.ini`: `--cov=bot --cov=app --cov-report=term --cov-report=xml`
-   - GITHUB_STEP_SUMMARY: per-package markdown table sorted ascending by coverage
-   - **Baseline:** Line 12.75% (634/4971), `langgraph-agent.app` 11.0%, `telegram-bot` 14.9%
-
-4. **`ci: gate unused imports via ruff F401 + cleanup existing`**
-   - 4 cleanup: `deps_watchdog.config`, `gitlab_review.hashlib`, `gitlab_review.llm`, `system_status.subprocess`
+2. **`ci: opt into Node 24 for GHA actions`** — `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"`
+3. **`ci: add pytest-cov + coverage baseline summary`** — baseline 12.75%, GITHUB_STEP_SUMMARY breakdown
+4. **`ci: gate unused imports via ruff F401 + cleanup existing`** — 4 cleanup
 
 **Stack 3 — Autonomous follow-up:**
 
 5. **`ci: gate workflows via actionlint v1.7.7`**
-   - Self-checks: lint job validates the very workflow yang menjalankannya
-   - Smoke test: injected `runs-on: ${{ matrix.os }}` (no matrix defined) → exit 1
-   - Pinned to v1.7.7 binary download
-
 6. **`ci: lock coverage floor at 12% (baseline 12.75%)`**
-   - `--cov-fail-under=12` di pytest.ini
-   - Margin ~0.75% untuk refactor noise tolerance
-   - Smoke test: floor=99 fails dengan exit 1, floor=12 passes
+7. **`fix(bot)+ci: expand ruff to full F-class, fix latent SSL_CHECK_DOMAINS bug`** ⚠️ **REAL BUG #1**
+   - F821 catch: `bot.py:3409` referenced undefined `SSL_CHECK_DOMAINS`
+   - Would crash bot startup on first SSL_CHECK_ENABLED activation
 
-7. **`fix(bot)+ci: expand ruff to full F-class, fix latent SSL_CHECK_DOMAINS bug`** ⚠️ **REAL BUG CAUGHT**
-   - Expanded ruff `--select=F401` → `--select=F` (full pyflakes)
-   - **Caught F821 latent production bug:** `bot.py:3409` referenced undefined `SSL_CHECK_DOMAINS`
-     - Actual config var: `_SSL_ENV_DOMAINS` (line 1202)
-     - Runtime accessor: `_get_ssl_domains()` (used correctly on line 3398 gating)
-     - **Bug only triggers when SSL_CHECK_ENABLED flips true + SSL scheduler initializes**
-     - Has not crashed yet because watchdog is idle pending user `/ssl add`
-     - Would have shipped to production unnoticed without F-class expansion
-   - Also fixed F541: removed extraneous f-string prefix di `meeting_notes.py:182`
-   - Step renamed: "Unused imports check (ruff F401)" → "Pyflakes-class lint (ruff F)"
+**Stack 4 — Autonomous mypy gate:**
+
+8. **`ci+fix(bot): mypy lenient gate + 3 type bugs caught`** ⚠️ **REAL BUGS #2-4**
+   - Bug #2: `bot.py:1052` — `for r in repos` shadowed `httpx.Response` variable from line 1018. Loop var renamed to `repo_item`.
+   - Bug #3: `bot.py:3140` — PTB 22 changed `Voice.duration` from `int` to `timedelta`. Comparison was dead-code (silent TypeError) when duration was new shape. Fixed with `total_seconds()` + isinstance branch.
+   - Bug #4: `bot.py:1241` — `parsedate_to_datetime(cert['notAfter'])` typed as `str | tuple[...]`. Fixed with explicit `str()` cast.
+   - Plus cleanup: removed 1 unused `# type: ignore[attr-defined]` di deps_watchdog.py
+   - Library-shape noise suppressed via `mypy.ini` per-module overrides (PTB MaybeInaccessibleMessage, qdrant invariant lists, slowapi handler shape)
+   - Smoke test: injected `1 + "string"` → mypy exit 1, restored exit 0
+
+**Documentation:**
+9. `docs(TASK): handoff for stack 2 + production bug catch`
 
 ### Production state at handoff (verified live)
 
-**Containers (verified via run 26705078580 post-deploy probe):**
+**Containers (verified via run 26705725700 post-deploy probe):**
 ```
 alertmanager      Up (healthy)
 caddy             Up
@@ -72,139 +61,137 @@ prometheus        Up (healthy)
 telegram-bot      Up
 ```
 
-**CI pipeline now covers (5 lint gates + coverage + workflow gate):**
-- `lint` (~9s) — compileall + actionlint + ruff F-class + bot.py orphan-ref + main.py cross-module orphan-ref
-- `test` (~29-33s) — 71 pytest tests + coverage baseline summary + **floor 12%**
-- `deploy` (~1m32s-2m03s) — Docker compose up + post-deploy probes
+**CI pipeline now covers (6 lint gates + coverage + workflow gate):**
+- `lint` (~38s, mypy is heaviest) — compileall + actionlint + ruff F + **mypy lenient (NEW)** + bot.py orphan-ref + main.py cross-module orphan-ref
+- `test` (~30s) — 71 pytest tests + coverage baseline summary + floor 12%
+- `deploy` (~1m32-2m03s) — Docker compose up + post-deploy probes
 - **Node 24** active for all jobs
 
 ### Files changed this session
 
 **Infrastructure:**
-- `.github/workflows/deploy.yml` — Node 24 env, actionlint step, ruff F gate, pytest-cov install, coverage summary, main.py orphan-ref check (~133 lines net added across 2 stacks)
-- `pytest.ini` — coverage flags + floor
+- `.github/workflows/deploy.yml` — Node 24, actionlint, ruff F, mypy, pytest-cov, coverage summary, main.py orphan-ref (~140 lines net added across 4 stacks)
+- `pytest.ini` — coverage flags + floor 12%
+- `mypy.ini` — NEW (lenient config + 4 per-module override blocks with rationale)
 - `.gitignore` — `.coverage`, `coverage.xml`, `htmlcov/`
 
-**Application code (cleanup + 1 real bug fix):**
-- `telegram-bot/bot.py` — `SSL_CHECK_DOMAINS` → `_get_ssl_domains()` (real bug fix)
-- `langgraph-agent/app/deps_watchdog.py` — removed unused `config` import
-- `langgraph-agent/app/gitlab_review.py` — removed unused `hashlib` + `llm` imports
-- `langgraph-agent/app/system_status.py` — removed unused `subprocess` import
-- `langgraph-agent/app/meeting_notes.py` — removed extraneous f-string prefix
+**Application code (4 real bug fixes + 5 cleanup):**
+- `telegram-bot/bot.py` — F821 fix (`SSL_CHECK_DOMAINS`→`_get_ssl_domains()`), shadow rename (`for r`→`for repo_item`), Voice.duration coerce, parsedate_to_datetime cast
+- `langgraph-agent/app/deps_watchdog.py` — removed unused `config` import + unused type ignore
+- `langgraph-agent/app/gitlab_review.py` — removed `hashlib` + `llm` unused
+- `langgraph-agent/app/system_status.py` — removed `subprocess` unused
+- `langgraph-agent/app/meeting_notes.py` — removed extraneous f-string
 
 **Documentation:**
 - `TASK.md` — this update
 
 ### Active Tasks (for next session)
 
-- [ ] **DOGFOOD WINDOW (active, started 2026-05-30 23:00 UTC, ~31h elapsed)** — observe 7 features on real workload for 1-2 weeks total:
-  - Phase 1 (since 2026-05-30 morning): `/meeting`, `/deps`, `/docsync`, Auto PR Review
-  - Phase 2 (since 2026-05-30 part 2): `/hygiene`, `/dns` (idle), `/firewall`
-- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com` via Telegram. **Now safe to activate** — F821 bug fixed in commit 7. Without this, 2 schedulers stay idle.
-- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
-- [ ] **DECISION POINT: pick next roadmap items** — see "Next session focus" below
-- [ ] **DEFERRED: Deps Watchdog Phase 2 (auto-PR)** — wait Phase 1 dogfood data
-- [ ] **DEFERRED: Docs Sync Phase 2 (auto-PR)** — wait Phase 1 dogfood data
-- [ ] **DEFERRED: Firewall Audit Phase 2 (auto-remediation)** — wait audit signal data
-- [ ] **DEFERRED: Grafana** — wait actual trend visualization need
-- [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels (PR #8 closed pending this)
+- [ ] **DOGFOOD WINDOW (active, started 2026-05-30 23:00 UTC, ~32h elapsed)** — observe 7 features for 1-2 weeks total:
+  - Phase 1: `/meeting`, `/deps`, `/docsync`, Auto PR Review
+  - Phase 2: `/hygiene`, `/dns` (idle), `/firewall`
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com`. **Now safe** — SSL_CHECK_DOMAINS bug fixed.
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs IP/SSH list from user
+- [ ] **DECISION POINT: pick next roadmap items** — see "Next session focus"
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
 
 ### Next session focus (PRIORITY ORDER)
 
 **Tier 1 — Fully autonomous AI-suitable, no blocker:**
 
-1. **Refactor bot.py into modules** (1-2 hari, RECOMMENDED) — `bot.py` 3500+ lines dengan 8 watchdog inline:
+1. **Refactor bot.py into modules** (1-2 hari, RECOMMENDED) — `bot.py` 3500+ lines, 8 watchdog inline:
    ```
    telegram-bot/
-   ├── bot.py (orchestrator + handlers registration only)
-   ├── watchdogs/
-   │   ├── ssl.py, dns.py, drift.py, capacity.py
-   │   ├── hygiene.py, firewall.py, deps.py, morning_brief.py
-   │   └── health_check.py
-   └── infra/
-       ├── ssh.py, prometheus.py, config_store.py
+   ├── bot.py (orchestrator + handlers registration)
+   ├── watchdogs/{ssl,dns,drift,capacity,hygiene,firewall,deps,morning_brief}.py
+   └── infra/{ssh,prometheus,config_store}.py
    ```
-   - **Coverage:** 71-test suite + 5 lint gates + ruff F-class as safety net
-   - **Heads-up:** orphan-ref check in deploy.yml currently parses `bot.py` as single file. Refactor will need to update AST walker for multi-file or follow imports.
+   - **Safety net:** 6 lint gates + 71 tests + coverage floor 12%
+   - **Heads-up:** orphan-ref check parses `bot.py` as single file. Refactor needs multi-file walker update.
 
-2. **Test Coverage Agent** (Tier 1.5 from roadmap, 2-3 hari):
-   - Reuse explore agent → coverage.xml parser
-   - Identify untested public functions (start dengan files showing 0% in baseline: `docs_sync`, `gitlab_review`, `journal`, `meeting_notes`, `pr_review`, `resource_alerts`, `skills`, `sync`, `system_status`, `telegram`, `tools`, `vps_status`, `workflow`)
-   - Generate test stub + run pytest
-   - Auto-PR if test passes
-   - First target: pro-secretary itself (eat own dogfood)
+2. **Test Coverage Agent** (Tier 1.5, 2-3 hari) — coverage baseline 12.75% as starting point. Target 0% modules: `docs_sync`, `gitlab_review`, `journal`, `meeting_notes`, `pr_review`, `resource_alerts`, `skills`, `sync`, `system_status`, `telegram`, `tools`, `vps_status`, `workflow`.
 
-3. **Quick wins backlog (autonomous-suitable, low risk):**
-   - Pin remaining GHA actions ke SHA (audit + fix any miss)
+3. **Quick wins backlog (autonomous-suitable):**
+   - Pre-commit hooks config (mirror CI lint locally)
+   - Pin remaining GHA actions ke SHA
    - Standardize logging format (`logging.getLogger(__name__)` everywhere)
-   - Pytest expansion untuk modul belum ter-cover (`docs_sync`, `meeting_notes`, `pr_review` parsers, `gitlab_review`)
-   - Mypy strict gate for public API
-   - Pre-commit hooks config (ruff F + actionlint + compileall locally)
+   - Pytest expansion ke 3 modul kecil 0% (`skills`, `journal`, `telegram` — 98 stmts total)
+   - Bot.py command docstring audit
    - Bump coverage floor as new tests land
 
 **Tier 2 — Blocked on user input:**
 
-4. **Spec-to-Implementation** (2-3 hari) — needs real PRD/feature spec from user
-5. **Onboard VPS to Prometheus** — needs IP/SSH list from user
+4. **Spec-to-Implementation** — needs PRD/spec from user
+5. **Onboard VPS to Prometheus** — needs IP/SSH list
 
-**Tier 3 — Wait for dogfood signal (1-2 weeks minimum from 2026-05-30):**
+**Tier 3 — Wait for dogfood signal (1-2 weeks min from 2026-05-30):**
 
-6. **Deps Watchdog Phase 2 (auto-PR)** — review noise level on `/deps` reports
-7. **Docs Sync Phase 2 (auto-PR)** — review false positive rate on `/docsync`
-8. **Firewall Audit Phase 2 (auto-remediation)** — review audit signal accuracy
+6. Deps Watchdog Phase 2 (auto-PR)
+7. Docs Sync Phase 2 (auto-PR)
+8. Firewall Audit Phase 2 (auto-remediation)
 
 ### Useful commands for next session
 
 ```bash
-# Verify CI status
+# CI status
 gh run list --workflow=deploy.yml --limit 5
 
-# Run full local lint pipeline
+# Full local lint pipeline
 python3 -m compileall -q telegram-bot langgraph-agent
 python3 -m ruff check --select=F telegram-bot langgraph-agent tests
-# AST orphan-ref + actionlint live in deploy.yml inline
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+# AST orphan-ref + actionlint inline di deploy.yml
 
-# Run tests with coverage + floor check
+# Tests with coverage + floor check
 python3 -m pytest -v
-# Reads pytest.ini, generates coverage.xml + term report, fails if <12%
+# Reads pytest.ini, fails if <12%
 
 # Local actionlint
 curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
   | tar -xz -C /tmp actionlint
 /tmp/actionlint .github/workflows/*.yml
 
-# Tail bot logs (requires SSH to VPS)
+# Tail bot logs
 ssh prosec "docker logs telegram-bot --tail 100 -f"
 
-# Trigger DNS + SSL via Telegram (now safe — bug fixed)
+# Activate SSL/DNS via Telegram (now safe)
 /ssl add domain1.com
-/dns                    # auto-uses SSL list
+/dns
 ```
 
 ### Lessons from this session (institutional memory)
 
-1. **F-class expansion paid off the same hour it shipped** — caught a latent F821 bug (`SSL_CHECK_DOMAINS`) that would have crashed bot startup once SSL_CHECK_ENABLED flipped on. The bug had been there for an unknown time, masked by SSL watchdog being idle. **F-class scan should be the default for any Python codebase.**
+1. **CI hardening = bug catching machine** — 4 latent production bugs caught as byproduct (1 from ruff F-class, 3 from mypy). Combined ruff+mypy approach catches different classes:
+   - ruff F-class: name/syntax (undefined vars, unused imports, redundant fstrings)
+   - mypy: type misuse (None access, wrong arg types, type union mismatches, variable shadowing)
 
-2. **Stack micro-PRs > mega-PR** — 2 stacks of 3-4 commits each shipped <2 jam. Each commit independently verifiable, easy to revert, clean git history. CI runs in 6-9s for lint, ~30s for test, manageable feedback loop.
+2. **Stack micro-PRs > mega-PR** — 4 stacks of 1-3 commits each, total 8 commits in <4 jam. Each commit independently verifiable, easy revert, clean history.
 
-3. **Smoke-test pattern still pays off** — applied to actionlint and coverage floor in stack 2. Inject the failure mode you're trying to catch, verify CI catches it, restore. Without this, you cannot trust the gate.
+3. **Smoke-test pattern critical** — applied to every new gate (orphan-ref, actionlint, coverage floor, mypy). Inject failure mode → verify CI catches → restore. Without this, gate is unverified.
 
-4. **Coverage baseline first, floor second, threshold-bump third** — measuring without enforcing creates buy-in. Floor with margin protects without false positives. Bumps come naturally as Test Coverage Agent adds tests.
+4. **Per-module mypy overrides > suppress everywhere** — when libraries have intentionally-noisy type signatures (qdrant-client invariant lists, PTB MaybeInaccessibleMessage, slowapi handler shape), suppress at module level with rationale comment. Better than `# type: ignore` everywhere.
 
-5. **Hindsight check: would the bug have been caught earlier?** Pyright/mypy strict mode would have flagged `SSL_CHECK_DOMAINS` as undefined. Adding mypy gate is now higher priority since we have proof of latent name-resolution bugs.
+5. **Lint gate cost is acceptable** — lint job grew from 5s → 38s after adding mypy (mypy needs runtime deps installed for proper resolution). Worth it for the bug class. Future optimization: cache pip wheels.
 
-6. **Self-checking lint gate is recursive but works** — actionlint validates `.github/workflows/deploy.yml` from within `deploy.yml`. Same commit that introduces a bad change is the same commit that fails to deploy. No cyclic reasoning issue because the gate runs before any other step that depends on workflow validity.
+6. **PTB 22 type changes were real risk** — Voice.duration int→timedelta change at major version bump silently broke handler comparison. Mypy caught what manual review missed. Same risk class as the F821 SSL_CHECK_DOMAINS rename: changes that compile but fail at runtime.
 
-### Recently Completed
+7. **Type-safety arc is naturally incremental** — 23 errors → 16 → 1 → 0 by triage:
+   - Real bugs (3): fix at source
+   - Library noise (15): per-module override with rationale
+   - Cleanup (1): remove stale ignore
+   - Final state: clean + protected against regression
 
-- ✅ [2026-05-31 06:00 UTC] **Ruff F-class expansion + bug fix** — caught latent SSL_CHECK_DOMAINS undefined name; full F gate now active
-- ✅ [2026-05-31 05:50 UTC] **Coverage floor 12%** — `--cov-fail-under=12` locks baseline
-- ✅ [2026-05-31 05:42 UTC] **actionlint gate** — workflow lint via v1.7.7 binary
-- ✅ [2026-05-31 05:20 UTC] **Ruff F401 gate + 4 cleanup** — first ruff gate
-- ✅ [2026-05-31 05:15 UTC] **Coverage baseline 12.75%** — pytest-cov + GITHUB_STEP_SUMMARY breakdown
-- ✅ [2026-05-31 05:08 UTC] **Node 24 migration** — `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`
-- ✅ [2026-05-31 05:00 UTC] **CI lint gate extended to langgraph-agent main.py** — cross-module orphan-ref
-- ✅ [2026-05-30 23:45 UTC] **CI pytest suite shipped** — 71 unit tests, deploy `needs: [lint, test]`
+### Recently Completed (chronological)
+
+- ✅ [2026-05-31 06:42 UTC] **Mypy lenient gate + 3 type bugs caught** — voice.duration, response shadow, parsedate cast; mypy.ini per-module overrides
+- ✅ [2026-05-31 06:00 UTC] **Ruff F-class expansion + 1 bug fix** — SSL_CHECK_DOMAINS undefined name
+- ✅ [2026-05-31 05:50 UTC] **Coverage floor 12%**
+- ✅ [2026-05-31 05:42 UTC] **Actionlint gate (v1.7.7)**
+- ✅ [2026-05-31 05:20 UTC] **Ruff F401 gate + 4 cleanup**
+- ✅ [2026-05-31 05:15 UTC] **Coverage baseline 12.75%**
+- ✅ [2026-05-31 05:08 UTC] **Node 24 migration**
+- ✅ [2026-05-31 05:00 UTC] **Main.py cross-module orphan-ref check**
 
 ---
 

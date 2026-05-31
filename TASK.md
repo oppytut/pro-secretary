@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 07:00 UTC
+**Last Updated:** 2026-05-31 09:15 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + CI fully hardened (6 lint gates: actionlint + ruff F + mypy + bot.py orphan + main.py orphan + compileall, 71 tests, coverage floor 12%, Node 24). Sesi 2026-05-31 closed dengan 8 commits + **4 latent production bugs caught & fixed** sebagai byproduct CI hardening.
+**Status:** ✅ 13 features shipped + CI hardened (6 lint gates + actionlint + ruff F + mypy + 2 orphan-ref + compileall, 117 tests, coverage floor 14%, Node 24, pre-commit hooks, logging standardized). Sesi 2026-05-31 09:00 closed dengan +4 stack di atas baseline (pin GHA action SHA, pre-commit config, logging cleanup, pytest expansion).
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,35 +10,50 @@
 
 ## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
 
-**Last session ended 2026-05-31 07:00 UTC. Continuing in a new opencode session.**
+**Last session ended 2026-05-31 09:15 UTC. Continuing in a new opencode session.**
 
 ### Repo state right now
 
 ```
 Branch: main, working tree clean
-Last 4 commits all green CI:
-  cb6f4f0 docs(TASK): handoff for stack 4 (mypy gate + 3 type bugs)
-  6a43994 ci+fix(bot): mypy lenient gate + 3 type bugs caught
-  c46702f docs(TASK): handoff for stack 2 + production bug catch
-  76d8ccb fix(bot)+ci: expand ruff to full F-class, fix latent SSL_CHECK_DOMAINS bug
+Last 4 commits (Bundle 1+2 from suggestions):
+  <pending push>  test(pytest+ci): add 46 tests for skills/journal/telegram + bump floor 12→14
+  <pending push>  refactor(agent): standardize loggers to getLogger(__name__) (8 modules)
+  <pending push>  ci: add pre-commit config mirroring CI lint gates (ruff/mypy/actionlint/compileall)
+  <pending push>  ci: pin appleboy/ssh-action in run-command.yml to v1.2.5 SHA
 
-Production: 7 containers up + healthy (verified run 26705725700)
-Dogfood: ~32h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+Pre-existing baseline (verified before this session):
+  f468cac docs(TASK): add fresh-session entrypoint
+  cb6f4f0 docs(TASK): handoff for stack 4 (mypy gate + 3 type bugs)
+
+Production: 7 containers up + healthy (verified run 26705725700, ~34h ago)
+Dogfood: ~34h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
 ```
 
 ### Verify state in <2 minutes
 
 ```bash
 git status                                    # should be clean
-git log --oneline -5                          # should match above
+git log --oneline -8                          # should match above
 gh run list --workflow=deploy.yml --limit 3   # last 3 should be green
-python3 -m pytest -q                          # 71 passed, 12.75% coverage
+python3 -m pytest -q                          # 117 passed, ~14.6% coverage
 python3 -m ruff check --select=F telegram-bot langgraph-agent tests
 python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
 python3 -m compileall -q telegram-bot langgraph-agent
+pre-commit run --all-files                    # all 4 hooks pass
 ```
 
 If anything fails: do not proceed with new work. Diagnose first.
+
+### Optional: enable pre-commit hooks locally
+
+```bash
+pip install pre-commit
+pre-commit install --hook-type pre-commit --hook-type pre-push
+# pre-commit stage: ruff F, actionlint, compileall (~2s)
+# pre-push stage: mypy lenient (~25s, needs runtime deps installed)
+# Skip once: SKIP=mypy git commit ...
+```
 
 ### Pick your work
 
@@ -47,17 +62,177 @@ If anything fails: do not proceed with new work. Diagnose first.
 | Path | Effort | Risk | Notes |
 |---|---|---|---|
 | **A. Bot.py refactor pilot** (DNS watchdog) | 4-6h | 🟡 Med | Smallest blast radius. Validate pattern. **Heads-up below.** |
-| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | Eat own dogfood. Foundation: coverage.xml, baseline 12.75%. |
-| **C. Pre-commit hooks config** | 1-2h | 🟢 Low | Mirror CI lint locally. Quality of life. |
-| **D. Pytest expansion** (skills/journal/telegram, 98 stmts) | 3-4h | 🟢 Low | Small modules, coverage delta visible. Bump floor 12→13/14. |
-| **E. GHA action SHA pinning audit** | 1h | 🟢 Low | Supply chain. Quick mechanical task. |
-| **F. Logging standardization** | 2-3h | 🟢 Low | `logging.getLogger(__name__)` everywhere. |
+| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | Eat own dogfood. Foundation: coverage.xml, baseline 14.62%. |
+| **D. Pytest expansion (next batch)** | 3-4h | 🟢 Low | Other 0% modules: meeting_notes, pr_review, docs_sync. Bump floor 14→16+. |
 | **G. Wait for dogfood signal** | — | — | Phase 2 work blocked on this. ~5-12 days remaining. |
 
 **Blocked on user input (don't start without):**
 - Spec-to-Implementation (needs PRD)
 - Onboard 8-13 VPS to Prometheus (needs IP/SSH list)
 - Activate DNS+SSL schedulers (needs `/ssl add yourdomain.com` via Telegram)
+
+### Critical heads-up if you pick path A (bot.py refactor)
+
+**The orphan-ref AST check in `.github/workflows/deploy.yml` parses `bot.py` as a single file.** Refactor to multi-module will break the gate. Two options:
+
+1. **Update the AST walker first** — extend it to walk `telegram-bot/` package: collect functions across all `.py` files, then verify handler/scheduler refs resolve to *any* defined function in the package. Single PR before refactor.
+2. **Disable the bot.py-specific check, rely on import resolution** — `python -m compileall` already catches import errors. Less precise but simpler.
+
+Recommended: option 1, ship as separate PR before any extraction.
+
+**Pattern for refactor itself:**
+```
+telegram-bot/
+├── bot.py (orchestrator + handlers registration only)
+├── watchdogs/{ssl,dns,drift,capacity,hygiene,firewall,deps,morning_brief}.py
+├── infra/{ssh,prometheus,config_store}.py
+└── handlers/ (extract cmd_* if useful)
+```
+
+Start with **DNS watchdog** — smallest blast radius:
+- Self-contained: only depends on `_ssh_exec`, `_get_ssh_targets`, `_config_get/_set`
+- Already has its own scheduler hook
+- ~200 lines, easy to verify by grep before/after
+
+1 PR per watchdog. Each verifiable via deploy log capture (post-deploy probes already check container health).
+
+### Safety net you can rely on
+
+- **6 CI lint gates** — catch syntax/name/type bugs before deploy
+- **117 pytest tests** — parser + module-unit regressions caught (was 71)
+- **Coverage floor 14%** — prevents test deletion (was 12%)
+- **Pre-commit hooks** — mirror CI lint locally, catch issues before push
+- **Deploy gated** `needs: [lint, test]` — broken code can't reach prod
+- **Post-deploy probes** in deploy job — verify containers healthy after each deploy
+
+### What this session DID NOT do (handoff items)
+
+- Did not refactor bot.py (still 3500+ lines, needs fresh focus session)
+- Did not write Test Coverage Agent (proper design work, not autonomous-suitable)
+- Did not touch Phase 2 logic (Deps/Docs/Firewall auto-PR/auto-remediation) — wait dogfood signal
+- Did not migrate to Python 3.14 (waiting for py-rust-stemmers wheels)
+
+### Sesi recap (high-level)
+
+Sesi 2026-05-31 (continuation) = Bundle 1 + Bundle 2 from suggested next-steps. 4 stack autonomous shipped:
+1. **Pin GHA action SHA** — `run-command.yml` was last unpinned floating tag (`appleboy/ssh-action@v1` → SHA-pin matching v1.2.5 used elsewhere). Supply chain hygiene.
+2. **Pre-commit config** — ruff F, actionlint, compileall as pre-commit; mypy as pre-push (heavier, needs runtime deps). Smoke-tested with injected F401 → caught → restored.
+3. **Logging standardization** — 8 modules migrated from `getLogger("agent.<module>")` / `getLogger("agent")` to `getLogger(__name__)`. No external log consumers depend on `agent.` prefix; verified via grep.
+4. **Pytest expansion** — 46 new tests across `skills` (16), `journal` (16), `telegram` (14). Coverage delta: 12.75% → 14.62% (+1.87pp). Floor bumped 12 → 14. All 117 tests pass.
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-05-31 09:00 — 4 stack autonomous quality-of-life shipped on top of CI hardening baseline. Production state stable, dogfood window terus berjalan.
+
+### Session 2026-05-31 09:00 — what shipped (4 commits, all local, awaiting push)
+
+**Stack 1 — GHA action SHA pinning:**
+1. **`ci: pin appleboy/ssh-action in run-command.yml to v1.2.5 SHA`**
+   - File: `.github/workflows/run-command.yml`
+   - All other workflows already SHA-pinned; this was the lone outlier with floating `@v1` tag
+   - Comment `# v1.2.5` added per repo convention (matches `deploy.yml`, `deactivate-n8n-workflow.yml`, etc.)
+   - Verified via local `actionlint` clean
+
+**Stack 2 — Pre-commit hooks:**
+2. **`ci: add pre-commit config mirroring CI lint gates`**
+   - File: `.pre-commit-config.yaml` (new)
+   - 4 hooks: ruff F-class, actionlint, compileall (pre-commit stage); mypy lenient (pre-push stage, slow)
+   - `language_version: python3` (loose) so works across local py3.11/3.12 and CI py3.11
+   - Smoke-tested: injected F401 to `tests/conftest.py` → ruff hook caught → restored, hook returned green
+   - All 4 hooks verified passing on full repo
+   - **Bot.py + main.py orphan-ref checks NOT mirrored** — those live inline in `deploy.yml`, refactoring to script out-of-scope; CI remains authoritative
+
+**Stack 3 — Logging standardization:**
+3. **`refactor(agent): standardize loggers to getLogger(__name__) (8 modules)`**
+   - Files: `langgraph-agent/app/{config,deps_watchdog,docs_sync,gitlab_review,journal,main,meeting_notes,pr_review}.py`
+   - Was: 6 modules `getLogger("agent.<module>")`, 1 `getLogger("agent")` (main.py), 1 `getLogger("agent")` (config inline warning), 2 already `__name__`
+   - Now: all 11 modules consistent (`__name__`)
+   - Verified no external consumer depends on `agent.` prefix (no log filter, alert rule, or grep-based aggregation references it)
+   - Effect: log namespace shifts from `agent.foo` → `app.foo` (internal-only, follows package structure)
+
+**Stack 4 — Pytest expansion + coverage floor bump:**
+4. **`test(pytest+ci): add 46 tests for skills/journal/telegram + bump floor 12→14`**
+   - 3 new test files (130 lines test code total):
+     - `tests/test_skills.py` (16 tests) — `log_skill` dedup threshold (>0.85 boundary), payload shape, `search_skills` passthrough; mocks qdrant_helper functions via monkeypatch
+     - `tests/test_journal.py` (16 tests) — empty/oversized validation, vault not-found, jakarta-tz timestamp formatting, multi-month file split, header-no-duplicate; uses tmp_path fixture
+     - `tests/test_telegram.py` (14 tests) — token/recipient guards, parse_mode/reply_markup propagation, mixed success/failure aggregation; uses fake `httpx.AsyncClient` via monkeypatch (no respx dep needed)
+   - Coverage:
+     - skills.py: 0% → **100%** (24 stmts)
+     - journal.py: 0% → **93%** (43 stmts)
+     - telegram.py: 0% → **94%** (31 stmts)
+     - Total: 12.75% → **14.62%** (+1.87pp)
+   - Floor bumped 12 → 14 in `pytest.ini`
+   - Smoke-tested floor: temporarily set to 99 → "FAIL Required test coverage of 99% not reached. Total coverage: 14.62%" → restored to 14
+
+### Production state at handoff (NOT re-verified this session)
+
+Last verified: 2026-05-31 ~07:00 UTC via deploy run 26705725700.
+
+**Containers (assumed unchanged, no deploy this session):**
+```
+alertmanager      Up (healthy)
+caddy             Up
+calcom            Up (healthy)
+langgraph-agent   Up (healthy)
+n8n               Up (healthy)
+prometheus        Up (healthy)
+telegram-bot      Up
+```
+
+**CI pipeline (unchanged from earlier session):**
+- `lint` (~38s) — compileall + actionlint + ruff F + mypy lenient + bot.py orphan-ref + main.py cross-module orphan-ref
+- `test` (~30s) — pytest + coverage baseline summary + floor 14% (was 12%)
+- `deploy` (~1m32-2m03s) — Docker compose up + post-deploy probes
+- Node 24 active for all jobs
+
+### Files changed this session
+
+**Infrastructure:**
+- `.github/workflows/run-command.yml` — SHA-pin appleboy/ssh-action
+- `.pre-commit-config.yaml` — NEW (4 hooks)
+- `pytest.ini` — coverage floor 12 → 14
+
+**Application code (logging standardization, no behavior change):**
+- `langgraph-agent/app/config.py` — inline warning logger
+- `langgraph-agent/app/deps_watchdog.py`
+- `langgraph-agent/app/docs_sync.py`
+- `langgraph-agent/app/gitlab_review.py`
+- `langgraph-agent/app/journal.py`
+- `langgraph-agent/app/main.py`
+- `langgraph-agent/app/meeting_notes.py`
+- `langgraph-agent/app/pr_review.py`
+
+**Tests (NEW):**
+- `tests/test_skills.py` (16 tests, ~130 lines)
+- `tests/test_journal.py` (16 tests, ~95 lines)
+- `tests/test_telegram.py` (14 tests, ~165 lines)
+
+### Active Tasks (for next session)
+
+- [ ] **DOGFOOD WINDOW (active, ~34h elapsed)** — observe 7 features for 1-2 weeks total
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com`. Now safe — SSL_CHECK_DOMAINS bug fixed.
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs IP/SSH list from user
+- [ ] **DECISION POINT: pick next roadmap items** — see "Pick your work" above
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Recently Completed (chronological)
+
+- ✅ [2026-05-31 09:15 UTC] **Pytest expansion + floor bump** — 46 new tests (skills/journal/telegram), 12→14 floor, +1.87pp coverage
+- ✅ [2026-05-31 09:00 UTC] **Logging standardization** — 8 modules to `getLogger(__name__)`
+- ✅ [2026-05-31 08:30 UTC] **Pre-commit hooks** — ruff/mypy/actionlint/compileall, pre-commit + pre-push stages
+- ✅ [2026-05-31 08:15 UTC] **GHA action SHA pinning** — `run-command.yml` (last outlier)
+- ✅ [2026-05-31 06:42 UTC] **Mypy lenient gate + 3 type bugs caught**
+- ✅ [2026-05-31 06:00 UTC] **Ruff F-class expansion + 1 bug fix**
+
+### Lessons from this session
+
+1. **Pre-commit `language: system` + loose `python: python3`** prevents env breakage across dev machines (py3.11 in CI, py3.12 locally). Pinning to `python3.11` failed because virtualenv couldn't find that interp on local box.
+2. **Logging convention: `__name__` is canonical in Python ecosystem** — explicit hardcoded prefix like `"agent.foo"` works but breaks the implicit convention. Migration was zero-risk because no log filter / aggregator depended on prefix.
+3. **Mocking via monkeypatch beats adding deps** — telegram.py async test could pass without `respx` or `pytest-asyncio` by stubbing `httpx.AsyncClient` factory and using bare `asyncio.run()`. Saved a deps-bump PR.
+4. **Coverage floor bumps must follow tests, not lead them** — bumping from 12 to 14 only after 117 tests verified passing prevents false guarantee. Smoke-test floor (set to 99 → confirm FAIL) ensures floor mechanic works.
 
 ### Critical heads-up if you pick path A (bot.py refactor)
 

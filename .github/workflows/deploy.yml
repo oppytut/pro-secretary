@@ -65,8 +65,10 @@ jobs:
             langgraph-agent/app/skills.py \
             langgraph-agent/app/telegram.py \
             langgraph-agent/app/tools.py \
+            telegram-bot/infra/agent.py \
             telegram-bot/infra/auth.py \
             telegram-bot/infra/config_store.py \
+            telegram-bot/infra/gh.py \
             telegram-bot/infra/prom.py \
             telegram-bot/infra/ssh.py \
             telegram-bot/watchdogs/capacity.py \

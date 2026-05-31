@@ -7,6 +7,7 @@ import socket
 import ssl
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from telegram import Update
@@ -46,7 +47,7 @@ def del_ssl_domain(domain: str) -> bool:
     return True
 
 
-async def check_ssl_expiry(domain: str) -> dict:
+async def check_ssl_expiry(domain: str) -> dict[str, Any]:
     def _get_cert_expiry(host: str) -> tuple[int, str]:
         ctx = ssl.create_default_context()
         with ctx.wrap_socket(socket.socket(), server_hostname=host) as s:

@@ -11,7 +11,8 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 def _load_config() -> dict[str, Any]:
     if CONFIG_FILE.exists():
         try:
-            return json.loads(CONFIG_FILE.read_text())
+            data: dict[str, Any] = json.loads(CONFIG_FILE.read_text())
+            return data
         except Exception:
             pass
     return {}

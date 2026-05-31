@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from telegram import Update
@@ -79,8 +80,8 @@ async def dig_record(
     return sorted(records), None
 
 
-async def check_domain_consistency(domain: str) -> dict:
-    results: dict[str, dict] = {}
+async def check_domain_consistency(domain: str) -> dict[str, Any]:
+    results: dict[str, dict[str, Any]] = {}
     for label, resolver in _DNS_RESOLVERS:
         records, err = await dig_record(domain, resolver, "A")
         results[label] = {"records": records, "error": err}

@@ -33,6 +33,12 @@ jobs:
         run: |
           python -m compileall -q telegram-bot langgraph-agent
 
+      - name: Actionlint workflows
+        run: |
+          curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
+            | tar -xz -C /tmp actionlint
+          /tmp/actionlint -color .github/workflows/*.yml
+
       - name: Unused imports check (ruff F401)
         run: |
           pip install --quiet ruff

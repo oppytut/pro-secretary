@@ -33,6 +33,11 @@ jobs:
         run: |
           python -m compileall -q telegram-bot langgraph-agent
 
+      - name: Unused imports check (ruff F401)
+        run: |
+          pip install --quiet ruff
+          ruff check --select=F401 telegram-bot langgraph-agent tests
+
       - name: Bot.py orphan-reference check
         run: |
           python - <<'EOF'

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
-import subprocess
 import time
 from datetime import datetime
 from typing import Any

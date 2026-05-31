@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from . import code_repos, config
+from . import code_repos
 
 logger = logging.getLogger("agent.deps_watchdog")
 

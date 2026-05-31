@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import hmac as _hmac
 import logging
 from typing import Any
@@ -8,7 +7,7 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from . import config, llm, pr_review, telegram
+from . import config, pr_review, telegram
 
 logger = logging.getLogger("agent.gitlab_review")
 

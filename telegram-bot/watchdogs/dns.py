@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 
 from infra.auth import ALLOWED_USERS, authorized
 from infra.config_store import config_get, config_set
+from watchdogs.ssl import get_ssl_domains
 
 logger = logging.getLogger(__name__)
 
@@ -23,22 +24,16 @@ _DNS_RESOLVERS: list[tuple[str, str]] = [
 ]
 
 
-def _get_ssl_seed() -> list[str]:
-    from bot import _get_ssl_domains  # avoid circular import at module load time
-
-    return list(_get_ssl_domains())
-
-
 def get_dns_domains() -> list[str]:
     stored = config_get("dns_domains", None)
     if stored is not None:
         return list(stored)
-    return _get_ssl_seed()
+    return list(get_ssl_domains())
 
 
 def add_dns_domain(domain: str) -> bool:
     domains = config_get("dns_domains", None)
-    domains = list(domains) if domains is not None else _get_ssl_seed()
+    domains = list(domains) if domains is not None else list(get_ssl_domains())
     if domain in domains:
         return False
     domains.append(domain)
@@ -48,7 +43,7 @@ def add_dns_domain(domain: str) -> bool:
 
 def del_dns_domain(domain: str) -> bool:
     domains = config_get("dns_domains", None)
-    domains = list(domains) if domains is not None else _get_ssl_seed()
+    domains = list(domains) if domains is not None else list(get_ssl_domains())
     if domain not in domains:
         return False
     domains.remove(domain)

@@ -44,6 +44,13 @@ jobs:
           pip install --quiet ruff
           ruff check --select=F telegram-bot langgraph-agent tests
 
+      - name: Type check (mypy lenient)
+        run: |
+          pip install --quiet mypy
+          pip install --quiet -r telegram-bot/requirements.txt
+          pip install --quiet -r langgraph-agent/requirements.txt
+          mypy --config-file=mypy.ini telegram-bot langgraph-agent
+
       - name: Bot.py orphan-reference check
         run: |
           python - <<'EOF'

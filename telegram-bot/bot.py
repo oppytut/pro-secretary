@@ -1049,8 +1049,8 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 No repos configured for auto-review.")
         else:
             lines = ["🔍 <b>Auto PR Review Repos</b>", ""]
-            for r in repos:
-                lines.append(f"• <code>{r}</code>")
+            for repo_item in repos:
+                lines.append(f"• <code>{repo_item}</code>")
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
         return
 
@@ -1238,7 +1238,7 @@ async def _check_ssl_expiry(domain: str) -> dict:
             cert = s.getpeercert()
         expiry_str = cert["notAfter"]
         from email.utils import parsedate_to_datetime
-        expiry_dt = parsedate_to_datetime(expiry_str)
+        expiry_dt = parsedate_to_datetime(str(expiry_str))
         days_left = (expiry_dt - datetime.now(timezone.utc)).days
         return days_left, expiry_dt.strftime("%Y-%m-%d")
 
@@ -3137,9 +3137,10 @@ def _record_history(context: ContextTypes.DEFAULT_TYPE, role: str, text: str) ->
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     voice = update.message.voice
 
-    if voice.duration and voice.duration > MAX_VOICE_DURATION_SEC:
+    duration_sec = voice.duration.total_seconds() if isinstance(voice.duration, timedelta) else (voice.duration or 0)
+    if duration_sec and duration_sec > MAX_VOICE_DURATION_SEC:
         await update.message.reply_text(
-            f"⚠️ Voice terlalu panjang ({voice.duration}s). Maks {MAX_VOICE_DURATION_SEC}s."
+            f"⚠️ Voice terlalu panjang ({int(duration_sec)}s). Maks {MAX_VOICE_DURATION_SEC}s."
         )
         return
 

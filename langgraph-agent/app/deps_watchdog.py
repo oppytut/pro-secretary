@@ -321,7 +321,7 @@ async def scan_repo(repo_id: str) -> dict[str, Any]:
         return {"ok": False, "error": "unknown repo", "repo_id": repo_id}
 
     try:
-        repo_path = code_repos._sync_repo(repo)  # type: ignore[attr-defined]
+        repo_path = code_repos._sync_repo(repo)
     except Exception as exc:
         logger.exception("repo sync failed")
         return {"ok": False, "error": f"sync failed: {exc}", "repo_id": repo_id}

@@ -64,6 +64,7 @@ jobs:
             langgraph-agent/app/pr_review.py \
             langgraph-agent/app/skills.py \
             langgraph-agent/app/telegram.py \
+            langgraph-agent/app/test_coverage.py \
             langgraph-agent/app/tools.py \
             telegram-bot/infra/agent.py \
             telegram-bot/infra/auth.py \
@@ -78,7 +79,8 @@ jobs:
             telegram-bot/watchdogs/firewall.py \
             telegram-bot/watchdogs/hygiene.py \
             telegram-bot/watchdogs/morning_brief.py \
-            telegram-bot/watchdogs/ssl.py
+            telegram-bot/watchdogs/ssl.py \
+            telegram-bot/watchdogs/test_coverage.py
 
       - name: Orphan-reference checks (bot.py + agent main.py)
         run: python scripts/lint_orphan_refs.py

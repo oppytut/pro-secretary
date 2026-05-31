@@ -179,7 +179,7 @@ async def process_meeting(
 def format_for_telegram(result: dict[str, Any]) -> str:
     lines: list[str] = []
     if result.get("summary"):
-        lines.append(f"📝 <b>Meeting Summary</b>")
+        lines.append("📝 <b>Meeting Summary</b>")
         lines.append(result["summary"])
         lines.append("")
 

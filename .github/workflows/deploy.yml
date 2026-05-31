@@ -39,10 +39,10 @@ jobs:
             | tar -xz -C /tmp actionlint
           /tmp/actionlint -color .github/workflows/*.yml
 
-      - name: Unused imports check (ruff F401)
+      - name: Pyflakes-class lint (ruff F)
         run: |
           pip install --quiet ruff
-          ruff check --select=F401 telegram-bot langgraph-agent tests
+          ruff check --select=F telegram-bot langgraph-agent tests
 
       - name: Bot.py orphan-reference check
         run: |

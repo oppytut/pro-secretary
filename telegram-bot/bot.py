@@ -3406,7 +3406,7 @@ async def post_init(application: Application):
             time=ssl_time,
             name="ssl_check",
         )
-        logger.info(f"SSL check scheduled daily at {DRIFT_CHECK_HOUR:02d}:{DRIFT_CHECK_MINUTE + 5:02d} WIB for {len(SSL_CHECK_DOMAINS)} domain(s).")
+        logger.info(f"SSL check scheduled daily at {DRIFT_CHECK_HOUR:02d}:{DRIFT_CHECK_MINUTE + 5:02d} WIB for {len(_get_ssl_domains())} domain(s).")
 
     if CAPACITY_CHECK_ENABLED:
         capacity_time = _time(

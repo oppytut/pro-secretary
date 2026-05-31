@@ -7,6 +7,6 @@ fastembed==0.8.0
 langgraph==1.2.1
 python-dotenv==1.2.2
 psycopg[binary]==3.3.4
-boto3==1.43.14
+boto3==1.43.15
 slowapi==0.1.9
 PyYAML==6.0.3

@@ -6,7 +6,7 @@ Importing bot.py is safe (no side effects beyond reading env vars at module leve
 from __future__ import annotations
 
 import bot
-from watchdogs import hygiene
+from watchdogs import firewall, hygiene
 
 
 class TestDockerSizeToGb:
@@ -88,7 +88,7 @@ class TestParseListeningPorts:
             'LISTEN 0      511    [::]:443           [::]:*       users:(("caddy",pid=99,fd=8))\n'
             'LISTEN 0      4096   *:8080             *:*'
         )
-        listeners = bot._parse_listening_ports(sample)
+        listeners = firewall.parse_listening_ports(sample)
         public = {l["port"] for l in listeners if l["public"] == "yes"}
         private = {l["port"] for l in listeners if l["public"] == "no"}
         assert "22" in public
@@ -97,14 +97,14 @@ class TestParseListeningPorts:
         assert "9090" in private
 
     def test_empty_input(self):
-        assert bot._parse_listening_ports("") == []
+        assert firewall.parse_listening_ports("") == []
 
     def test_skips_lines_without_colon(self):
-        assert bot._parse_listening_ports("LISTEN 0 4096 garbage") == []
+        assert firewall.parse_listening_ports("LISTEN 0 4096 garbage") == []
 
     def test_extracts_process_when_present(self):
         sample = 'LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))'
-        listeners = bot._parse_listening_ports(sample)
+        listeners = firewall.parse_listening_ports(sample)
         assert len(listeners) == 1
         assert "sshd" in listeners[0]["process"]
 

@@ -3,7 +3,7 @@
 import logging
 import os
 import tempfile
-from datetime import datetime, timedelta, time as _time, timezone
+from datetime import datetime, timedelta, time as _time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -60,13 +60,26 @@ from infra.ssh import (
 )
 from infra.prom import prom_query as _prom_query
 from infra.agent import agent_post as _agent_post
-from infra.gh import gh_api as _gh_api
 from watchdogs.hygiene import (
     DOCKER_HYGIENE_ENABLED,
     DOCKER_HYGIENE_HOUR,
     DOCKER_HYGIENE_MINUTE,
     cmd_hygiene,
     docker_hygiene_job,
+)
+from watchdogs.firewall import (
+    FIREWALL_AUDIT_ENABLED,
+    FIREWALL_AUDIT_HOUR,
+    FIREWALL_AUDIT_MINUTE,
+    cmd_firewall,
+    firewall_audit_job,
+)
+from watchdogs.morning_brief import (
+    MORNING_BRIEF_ENABLED,
+    MORNING_BRIEF_HOUR,
+    MORNING_BRIEF_MINUTE,
+    cmd_briefing,
+    morning_brief_job,
 )
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -615,16 +628,6 @@ async def cmd_catat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"📝 Dicatat: {note}")
     else:
         await update.message.reply_text(f"⚠️ Gagal mencatat (HTTP {r.status_code}).")
-
-
-@authorized
-async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏳ Menyiapkan briefing...")
-    try:
-        text = await _build_morning_brief()
-        await update.message.reply_text(text[:4000], parse_mode="HTML")
-    except Exception as exc:
-        await update.message.reply_text(f"⚠️ Gagal membuat briefing: {exc}")
 
 
 @authorized
@@ -1181,375 +1184,6 @@ async def cmd_docsync(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(report[:4000], parse_mode="HTML")
 
 
-
-# --- Firewall Audit Agent ---
-FIREWALL_AUDIT_ENABLED = os.getenv("FIREWALL_AUDIT_ENABLED", "true").lower() in ("1", "true", "yes")
-FIREWALL_AUDIT_HOUR = int(os.getenv("FIREWALL_AUDIT_HOUR", "3"))
-FIREWALL_AUDIT_MINUTE = int(os.getenv("FIREWALL_AUDIT_MINUTE", "30"))
-_FIREWALL_DEFAULT_WHITELIST = {22, 80, 443}
-_FIREWALL_PROBE_CMD = (
-    "ss -H -tlnp 2>/dev/null || ss -H -tln 2>/dev/null || "
-    "netstat -tln 2>/dev/null | tail -n +3"
-)
-
-
-def _get_firewall_whitelist(vps_name: str) -> set[int]:
-    raw = _config_get("firewall_whitelist", {}) or {}
-    ports = raw.get(vps_name)
-    if ports is None:
-        return set(_FIREWALL_DEFAULT_WHITELIST)
-    return {int(p) for p in ports}
-
-
-def _set_firewall_whitelist(vps_name: str, ports: set[int]) -> None:
-    raw = _config_get("firewall_whitelist", {}) or {}
-    raw[vps_name] = sorted(ports)
-    _config_set("firewall_whitelist", raw)
-
-
-def _add_firewall_port(vps_name: str, port: int) -> bool:
-    ports = _get_firewall_whitelist(vps_name)
-    if port in ports:
-        return False
-    ports.add(port)
-    _set_firewall_whitelist(vps_name, ports)
-    return True
-
-
-def _del_firewall_port(vps_name: str, port: int) -> bool:
-    ports = _get_firewall_whitelist(vps_name)
-    if port not in ports:
-        return False
-    ports.discard(port)
-    _set_firewall_whitelist(vps_name, ports)
-    return True
-
-
-def _parse_listening_ports(ss_output: str) -> list[dict[str, str]]:
-    listeners: list[dict[str, str]] = []
-    for raw in ss_output.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) < 4:
-            continue
-        local = parts[3] if "tcp" not in parts[0].lower() else parts[3]
-        if ":" not in local:
-            continue
-        addr, _, port_str = local.rpartition(":")
-        try:
-            port = int(port_str)
-        except ValueError:
-            continue
-        bind = addr.strip("[]") or "0.0.0.0"
-        public = bind in ("0.0.0.0", "::", "*")
-        proc_info = ""
-        for tok in parts[4:]:
-            if tok.startswith("users:"):
-                proc_info = tok
-                break
-        listeners.append({
-            "port": str(port),
-            "bind": bind,
-            "public": "yes" if public else "no",
-            "process": proc_info,
-        })
-    return listeners
-
-
-async def _audit_vps_firewall(vps_name: str) -> dict:
-    ok, output = await _ssh_exec(vps_name, _FIREWALL_PROBE_CMD)
-    if not ok:
-        return {"vps": vps_name, "error": output or "ssh failed", "findings": []}
-    listeners = _parse_listening_ports(output)
-    whitelist = _get_firewall_whitelist(vps_name)
-    findings: list[dict[str, str]] = []
-    for entry in listeners:
-        if entry["public"] != "yes":
-            continue
-        port_int = int(entry["port"])
-        if port_int in whitelist:
-            continue
-        findings.append(entry)
-    return {
-        "vps": vps_name,
-        "error": None,
-        "listeners": listeners,
-        "findings": findings,
-        "whitelist": sorted(whitelist),
-    }
-
-
-async def _run_firewall_audit() -> tuple[str, bool]:
-    targets = _get_ssh_targets()
-    if not targets:
-        return ("ℹ️ No VPS targets configured. Use <code>/monitor add ...</code>", False)
-
-    sections: list[str] = ["🛡️ <b>Firewall Audit</b>", ""]
-    has_warning = False
-    for vps_name in targets:
-        result = await _audit_vps_firewall(vps_name)
-        if result["error"]:
-            sections.append(f"❌ <b>{vps_name}</b> — {result['error']}")
-            has_warning = True
-            sections.append("")
-            continue
-
-        wl = ", ".join(str(p) for p in result["whitelist"]) or "(empty)"
-        if not result["findings"]:
-            sections.append(f"✅ <b>{vps_name}</b> — no unauthorized public ports (whitelist: {wl})")
-        else:
-            has_warning = True
-            sections.append(
-                f"🔴 <b>{vps_name}</b> — {len(result['findings'])} unauthorized public port(s)"
-            )
-            sections.append(f"   whitelist: {wl}")
-            for entry in result["findings"][:10]:
-                proc = f" {entry['process']}" if entry["process"] else ""
-                sections.append(
-                    f"   • port <code>{entry['port']}</code> bound to <code>{entry['bind']}</code>{proc}"
-                )
-        sections.append("")
-
-    now = datetime.now(ZoneInfo("Asia/Jakarta"))
-    sections.append(f"<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
-    return "\n".join(sections).rstrip(), has_warning
-
-
-async def _firewall_audit_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
-    if not chat_id or not _get_ssh_targets():
-        return
-    try:
-        report, has_warning = await _run_firewall_audit()
-        if has_warning:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=report[:4000],
-                parse_mode="HTML",
-            )
-            logger.info("Firewall audit: findings reported")
-        else:
-            logger.info("Firewall audit: clean")
-    except Exception as e:
-        logger.error(f"Firewall audit job failed: {e}")
-
-
-@authorized
-async def cmd_firewall(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args or []
-    if not args:
-        await update.message.reply_text("🛡️ Running firewall audit...")
-        try:
-            report, _ = await _run_firewall_audit()
-            await update.message.reply_text(report[:4000], parse_mode="HTML")
-        except Exception as exc:
-            await update.message.reply_text(f"⚠️ Firewall audit failed: {exc}")
-        return
-
-    action = args[0].lower()
-    if action == "list":
-        targets = _get_ssh_targets()
-        if not targets:
-            await update.message.reply_text("📋 No VPS targets configured.")
-            return
-        lines = ["🛡️ <b>Firewall Whitelist</b>", ""]
-        for vps_name in targets:
-            ports = sorted(_get_firewall_whitelist(vps_name))
-            lines.append(f"• <b>{vps_name}</b>: {', '.join(str(p) for p in ports) or '(empty)'}")
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-        return
-
-    if action == "add" and len(args) >= 3:
-        vps_name = args[1]
-        try:
-            port = int(args[2])
-        except ValueError:
-            await update.message.reply_text("⚠️ Port must be a number.")
-            return
-        if vps_name not in _get_ssh_targets():
-            await update.message.reply_text(f"⚠️ Unknown VPS <code>{vps_name}</code>.", parse_mode="HTML")
-            return
-        if _add_firewall_port(vps_name, port):
-            await update.message.reply_text(
-                f"✅ Added port <code>{port}</code> to <b>{vps_name}</b> whitelist.",
-                parse_mode="HTML",
-            )
-        else:
-            await update.message.reply_text(
-                f"ℹ️ Port <code>{port}</code> already in <b>{vps_name}</b> whitelist.",
-                parse_mode="HTML",
-            )
-        return
-
-    if action in ("del", "remove") and len(args) >= 3:
-        vps_name = args[1]
-        try:
-            port = int(args[2])
-        except ValueError:
-            await update.message.reply_text("⚠️ Port must be a number.")
-            return
-        if _del_firewall_port(vps_name, port):
-            await update.message.reply_text(
-                f"✅ Removed port <code>{port}</code> from <b>{vps_name}</b> whitelist.",
-                parse_mode="HTML",
-            )
-        else:
-            await update.message.reply_text(
-                f"ℹ️ Port <code>{port}</code> not in <b>{vps_name}</b> whitelist.",
-                parse_mode="HTML",
-            )
-        return
-
-    await update.message.reply_text(
-        "Usage:\n/firewall — audit all VPS\n/firewall list — show whitelist per VPS\n"
-        "/firewall add <vps> <port> — allow public port\n"
-        "/firewall del <vps> <port> — remove from whitelist"
-    )
-
-
-
-
-# --- Morning Standup Brief ---
-GH_PAT = os.getenv("GH_PAT", "")
-MORNING_BRIEF_ENABLED = os.getenv("MORNING_BRIEF_ENABLED", "true").lower() in ("1", "true", "yes")
-MORNING_BRIEF_HOUR = int(os.getenv("MORNING_BRIEF_HOUR", "7"))
-MORNING_BRIEF_MINUTE = int(os.getenv("MORNING_BRIEF_MINUTE", "0"))
-
-# GitHub repos to check (owner/repo format) — extracted from repos.yml
-_GH_REPOS: list[str] = ["gmedia/erp"]
-
-
-async def _collect_github_summary() -> list[str]:
-    """Collect open PRs and recent commits from GitHub repos."""
-    lines: list[str] = []
-    if not GH_PAT:
-        return lines
-
-    for repo in _GH_REPOS:
-        # Open PRs
-        prs = await _gh_api(f"/repos/{repo}/pulls?state=open&per_page=10&sort=updated")
-        if isinstance(prs, list) and prs:
-            lines.append(f"📌 <b>{repo}</b> — {len(prs)} open PR(s):")
-            for pr in prs[:5]:
-                draft = " [draft]" if pr.get("draft") else ""
-                lines.append(f"  • #{pr['number']} {pr['title']}{draft}")
-
-        # Recent commits (last 12h)
-        since = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
-        commits = await _gh_api(f"/repos/{repo}/commits?per_page=10&since={since}")
-        if isinstance(commits, list) and commits:
-            lines.append(f"  📝 {len(commits)} commit(s) last 12h:")
-            for c in commits[:3]:
-                msg = (c.get("commit", {}).get("message") or "").split("\n")[0][:60]
-                author = c.get("commit", {}).get("author", {}).get("name", "?")
-                lines.append(f"  • {msg} ({author})")
-
-        # Failing CI (check runs on default branch)
-        checks = await _gh_api(f"/repos/{repo}/commits/HEAD/check-runs?per_page=10")
-        if isinstance(checks, dict) and checks.get("check_runs"):
-            failed = [cr for cr in checks["check_runs"] if cr.get("conclusion") == "failure"]
-            if failed:
-                lines.append(f"  ❌ {len(failed)} failing CI check(s):")
-                for cr in failed[:3]:
-                    lines.append(f"  • {cr['name']}")
-
-    return lines
-
-
-async def _collect_prom_summary() -> list[str]:
-    """Collect VPS status + active alerts from Prometheus."""
-    lines: list[str] = []
-
-    up_results = await _prom_query('up{job="node"}')
-    if not up_results:
-        return ["⚠️ Prometheus tidak tersedia"]
-
-    all_up = True
-    for target in up_results:
-        name = target["metric"].get("instance_name", target["metric"].get("instance", "?"))
-        is_up = target["value"][1] == "1"
-        if not is_up:
-            all_up = False
-            lines.append(f"❌ VPS <b>{name}</b> DOWN")
-
-    if all_up:
-        lines.append(f"✅ Semua VPS UP ({len(up_results)} target)")
-
-    # Active alerts
-    alerts = await _prom_query('ALERTS{alertstate="firing"}')
-    if alerts:
-        lines.append(f"🚨 {len(alerts)} active alert(s):")
-        for a in alerts[:5]:
-            m = a["metric"]
-            lines.append(f"  • [{m.get('severity', '?')}] {m.get('alertname', '?')} — {m.get('instance_name', '?')}")
-    else:
-        lines.append("✅ No active alerts")
-
-    return lines
-
-
-async def _collect_agent_briefing() -> str:
-    """Get schedule + tasks from agent."""
-    try:
-        r = await _agent_post("/api/briefing", {}, timeout=60.0)
-        if r.status_code == 200:
-            return r.json().get("response", "")
-    except httpx.RequestError:
-        pass
-    return ""
-
-
-async def _build_morning_brief() -> str:
-    """Aggregate all sources into morning brief message."""
-    sections: list[str] = []
-    sections.append("☀️ <b>Morning Standup Brief</b>")
-    sections.append("")
-
-    # 1. Agent briefing (schedule + tasks)
-    agent_brief = await _collect_agent_briefing()
-    if agent_brief:
-        sections.append(agent_brief)
-        sections.append("")
-
-    # 2. Infra status
-    prom_lines = await _collect_prom_summary()
-    if prom_lines:
-        sections.append("🖥️ <b>Infra Status</b>")
-        sections.extend(prom_lines)
-        sections.append("")
-
-    # 3. GitHub activity
-    gh_lines = await _collect_github_summary()
-    if gh_lines:
-        sections.append("🐙 <b>Code Activity</b>")
-        sections.extend(gh_lines)
-        sections.append("")
-
-    # Timestamp
-    now = datetime.now(ZoneInfo("Asia/Jakarta"))
-    sections.append(f"<i>{now.strftime('%A, %d %B %Y %H:%M')} WIB</i>")
-
-    return "\n".join(sections)
-
-
-async def _morning_brief_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduled job: send morning brief at configured time."""
-    chat_id = ALLOWED_USERS[0] if ALLOWED_USERS else None
-    if not chat_id:
-        return
-
-    try:
-        text = await _build_morning_brief()
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=text[:4000],
-            parse_mode="HTML",
-        )
-        logger.info("Morning brief sent to %s", chat_id)
-    except Exception as e:
-        logger.error("Morning brief job failed: %s", e)
 
 
 # --- Periodic Health Check ---
@@ -2451,7 +2085,7 @@ async def post_init(application: Application):
             tzinfo=ZoneInfo("Asia/Jakarta"),
         )
         application.job_queue.run_daily(
-            _morning_brief_job,
+            morning_brief_job,
             time=brief_time,
             name="morning_brief",
         )
@@ -2529,7 +2163,7 @@ async def post_init(application: Application):
             tzinfo=ZoneInfo("Asia/Jakarta"),
         )
         application.job_queue.run_daily(
-            _firewall_audit_job,
+            firewall_audit_job,
             time=firewall_time,
             name="firewall_audit",
         )

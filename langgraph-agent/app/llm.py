@@ -35,7 +35,7 @@ async def chat_completion(
         )
     r.raise_for_status()
     data = r.json()
-    return data["choices"][0]["message"]["content"].strip()
+    return str(data["choices"][0]["message"]["content"]).strip()
 
 
 async def chat_with_persona(

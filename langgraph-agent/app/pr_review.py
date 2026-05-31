@@ -42,7 +42,9 @@ _MAX_DIFF_CHARS = 12000
 def get_whitelist() -> list[str]:
     if _WHITELIST_FILE.exists():
         try:
-            return json.loads(_WHITELIST_FILE.read_text())
+            data = json.loads(_WHITELIST_FILE.read_text())
+            if isinstance(data, list):
+                return [str(item) for item in data]
         except Exception:
             pass
     return []

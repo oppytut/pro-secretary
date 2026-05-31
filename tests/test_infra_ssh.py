@@ -94,3 +94,97 @@ class TestAddDelTargets:
         ssh = _reload_ssh(monkeypatch, '{"env-only": {"host": "1.1.1.1", "port": "22", "user": "root"}}')
         assert ssh.del_ssh_target("env-only") is False
         assert "env-only" in ssh.get_ssh_targets()
+
+
+class TestSshExec:
+    def _patch_subprocess(self, monkeypatch, *, returncode=0, stdout=b"output", stderr=b"", timeout=False):
+        class FakeProc:
+            def __init__(self):
+                self.returncode = returncode
+
+            async def communicate(self):
+                if timeout:
+                    import asyncio as _a
+                    raise _a.TimeoutError()
+                return stdout, stderr
+
+        async def fake_create(*args, **kwargs):
+            return FakeProc()
+
+        import asyncio as _asyncio
+        monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_create)
+        if timeout:
+            async def fake_wait_for(coro, timeout):
+                # Trigger the inner timeout path
+                proc = await coro
+                return await proc.communicate()
+            monkeypatch.setattr(_asyncio, "wait_for", fake_wait_for)
+
+    def test_unknown_target_returns_error(self, tmp_path, monkeypatch):
+        import asyncio
+        monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(config_store, "CONFIG_FILE", tmp_path / "config.json")
+        ssh = _reload_ssh(monkeypatch, "")
+        ok, output = asyncio.run(ssh.ssh_exec("nonexistent", "uptime"))
+        assert ok is False
+        assert "No SSH target" in output
+
+    def test_successful_exec(self, tmp_path, monkeypatch):
+        import asyncio
+        monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(config_store, "CONFIG_FILE", tmp_path / "config.json")
+        ssh = _reload_ssh(monkeypatch, '{"v1": {"host": "1.2.3.4", "port": "22", "user": "ubuntu"}}')
+        self._patch_subprocess(monkeypatch, returncode=0, stdout=b"hello\n")
+        ok, output = asyncio.run(ssh.ssh_exec("v1", "echo hello"))
+        assert ok is True
+        assert output == "hello"
+
+    def test_failed_exec_uses_stderr(self, tmp_path, monkeypatch):
+        import asyncio
+        monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(config_store, "CONFIG_FILE", tmp_path / "config.json")
+        ssh = _reload_ssh(monkeypatch, '{"v1": {"host": "1.2.3.4", "port": "22", "user": "ubuntu"}}')
+        self._patch_subprocess(monkeypatch, returncode=1, stdout=b"", stderr=b"permission denied")
+        ok, output = asyncio.run(ssh.ssh_exec("v1", "ls /root"))
+        assert ok is False
+        assert "permission denied" in output
+
+    def test_timeout_returns_error(self, tmp_path, monkeypatch):
+        import asyncio
+        monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(config_store, "CONFIG_FILE", tmp_path / "config.json")
+        ssh = _reload_ssh(monkeypatch, '{"v1": {"host": "1.2.3.4", "port": "22", "user": "ubuntu"}}')
+
+        class HangingProc:
+            returncode = 0
+
+            async def communicate(self):
+                pass
+
+        async def fake_create(*args, **kwargs):
+            return HangingProc()
+
+        async def fake_wait_for(coro, timeout):
+            await coro
+            raise asyncio.TimeoutError()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
+        monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+        ok, output = asyncio.run(ssh.ssh_exec("v1", "long-cmd"))
+        assert ok is False
+        assert "timed out" in output
+
+    def test_exception_returns_error(self, tmp_path, monkeypatch):
+        import asyncio
+        monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(config_store, "CONFIG_FILE", tmp_path / "config.json")
+        ssh = _reload_ssh(monkeypatch, '{"v1": {"host": "1.2.3.4", "port": "22", "user": "ubuntu"}}')
+
+        async def fake_create(*args, **kwargs):
+            raise OSError("ssh binary not found")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
+        ok, output = asyncio.run(ssh.ssh_exec("v1", "uptime"))
+        assert ok is False
+        assert "ssh binary not found" in output

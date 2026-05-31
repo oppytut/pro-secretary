@@ -174,12 +174,51 @@ jobs:
 
       - name: Install pytest + bot/agent runtime deps
         run: |
-          pip install --quiet pytest
+          pip install --quiet pytest pytest-cov
           pip install --quiet -r telegram-bot/requirements.txt
           pip install --quiet -r langgraph-agent/requirements.txt
 
       - name: Run pytest
         run: pytest -v
+
+      - name: Coverage summary to step summary
+        if: always()
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET, os, pathlib
+          xml = pathlib.Path("coverage.xml")
+          if not xml.exists():
+              print("no coverage.xml; skipping summary")
+              raise SystemExit(0)
+          root = ET.parse(xml).getroot()
+          line_rate = float(root.get("line-rate", 0)) * 100
+          branch_rate = float(root.get("branch-rate", 0)) * 100
+          lines_covered = int(root.get("lines-covered", 0))
+          lines_valid = int(root.get("lines-valid", 0))
+          packages = sorted(
+              ((p.get("name"), float(p.get("line-rate", 0)) * 100) for p in root.iter("package")),
+              key=lambda x: x[1],
+          )
+          parts = [
+              "## Coverage Baseline",
+              "",
+              f"**Line coverage:** {line_rate:.1f}% ({lines_covered}/{lines_valid} lines)",
+              f"**Branch coverage:** {branch_rate:.1f}%",
+              "",
+              "### Per-package breakdown",
+              "",
+              "| Package | Line % |",
+              "|---------|--------|",
+          ]
+          for name, rate in packages:
+              parts.append(f"| {name} | {rate:.1f}% |")
+          parts.append("")
+          parts.append("_No threshold enforced yet — this is a measurement baseline._")
+          report = "\n".join(parts) + "\n"
+          summary = pathlib.Path(os.environ.get("GITHUB_STEP_SUMMARY", "/dev/null"))
+          summary.write_text(report)
+          print(report)
+          EOF
 
   deploy:
     needs: [lint, test]

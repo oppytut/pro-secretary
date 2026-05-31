@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 13:05 UTC
+**Last Updated:** 2026-05-31 13:51 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + CI hardened (8 lint gates: actionlint + ruff F + mypy lenient + mypy strict whitelist (4 modules) + orphan-refs + compileall + caddy validate + promtool + amtool, 409 tests, coverage floor 27%, Node 24, pre-commit hooks, logging standardized, orphan-ref walker multi-file ready, README dev section). Sesi 2026-05-31 13:05 closed dengan +4 stack di atas baseline 12:35 (pytest batch 4, mypy strict +tools, caddy/prom/amtool validation, README dev section udah ada).
+**Status:** ✅ 13 features shipped + CI hardened (8 lint gates, 11 mypy strict modules, 409 tests, coverage floor 27%, all production images SHA-pinned, requirements aligned). Sesi 2026-05-31 13:51 closed dengan +3 stack di atas baseline 13:05 (SHA-pin prom images, mypy strict 4→11 modules, boto3 align).
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,15 +10,19 @@
 
 ## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
 
-**Last session ended 2026-05-31 13:05 UTC. Continuing in a new opencode session.**
+**Last session ended 2026-05-31 13:51 UTC. Continuing in a new opencode session.**
 
 ### Repo state right now
 
 ```
 Branch: main, working tree clean
-Last 12 commits (sesi 2026-05-31 09:00 + 12:00 + 12:35 + 13:05):
-  <pending>  ci+types: expand mypy strict whitelist with tools.py + add config validation gates
-  <pending>  test(pytest+ci): batch 4 — tools/code_repos, floor 23→27
+Last 15 commits (sesi 2026-05-31 09:00 + 12:00 + 12:35 + 13:05 + 13:51):
+  <pending>  chore: align boto3 version between agent and bot (1.43.14→1.43.15)
+  <pending>  ci+types: expand mypy strict whitelist 4→11 modules
+  <pending>  ci: SHA-pin prom/prometheus and prom/alertmanager images
+  cf925a9    docs(TASK): handoff for sesi 2026-05-31 13:05
+  bae911a    ci+types: expand mypy strict whitelist with tools.py + add config validation gates
+  a0658dd    test(pytest+ci): batch 4 — tools/code_repos, floor 23→27
   5e1ef1b    docs(TASK): handoff for sesi 2026-05-31 12:35
   940e654    docs(README): add Local Development section
   ad557be    ci+types: add mypy strict gate for journal/telegram/embedding
@@ -28,11 +32,214 @@ Last 12 commits (sesi 2026-05-31 09:00 + 12:00 + 12:35 + 13:05):
   376bab7    ci+refactor: extract orphan-ref AST checks to scripts/lint_orphan_refs.py
   3bfd56a    docs(TASK): handoff for sesi 2026-05-31 09:00 (Bundle 1+2)
   8e7ae93    test(pytest+ci): add 46 tests for skills/journal/telegram + bump floor 12→14
-  fc65493    refactor(agent): standardize loggers to getLogger(__name__)
 
-Production: 7 containers up + healthy (last verified run 26712866430, ~30min ago)
-Dogfood: ~38h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+Production: 7 containers up + healthy (last verified run 26713505954, ~30min ago)
+Dogfood: ~39h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
 ```
+
+### Verify state in <2 minutes
+
+```bash
+git status                                    # clean
+git log --oneline -15                         # matches above
+gh run list --workflow=deploy.yml --limit 3   # last 3 green
+python3 -m pytest -q                          # 409 passed, ~28% coverage
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+python3 -m mypy --strict langgraph-agent/app/{config,docs_sync,embedding,gitlab_review,journal,llm,meeting_notes,pr_review,skills,telegram,tools}.py
+python3 -m compileall -q telegram-bot langgraph-agent
+python3 scripts/lint_orphan_refs.py
+pre-commit run --all-files                    # all 4 hooks pass
+pre-commit run --all-files --hook-stage pre-push  # +mypy lenient + strict
+```
+
+If anything fails: do not proceed. Diagnose first.
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.** Diminishing returns warning: low-hanging fruit (pure-logic modules) mostly covered. Remaining work is mock-heavy or decision-heavy.
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A. Bot.py refactor pilot** (DNS watchdog) | 4-6h | 🟡 Med | UNBLOCKED. Single-focus session. Smallest blast radius. |
+| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | Foundation: coverage.xml, baseline 28.45%. |
+| **D. Pytest expansion batch 5** (qdrant_helper 24%, code_repos 58%→80%, sync 0%, vps_status 0%, etc) | 3-4h+ | 🟡 Med | ROI menurun (mock-heavy). |
+| **I. Mypy strict expansion** (deps_watchdog, code_repos, qdrant_helper, sync, etc) | 1-2h | 🟢 Low | 11/22 modules done. Try remaining bigger modules. |
+| **K. Pin docker images for langgraph-agent + telegram-bot Dockerfiles** | 30 menit | 🟢 Low | python:3.11-slim already SHA-pinned. Already complete. |
+| **L. Add `.dockerignore` files** | 30 menit | 🟢 Low | Marginal — Dockerfiles use explicit COPY. |
+| **H. Add cmd_* docstrings** | 2-3h | 🟢 Low | 29/29 cmd_* di bot.py tanpa docstring. Defer ke saat refactor (path A). |
+| **G. Wait for dogfood signal** | — | — | Phase 2 work blocked. ~5-12 days remaining. |
+
+**Blocked on user input:**
+- Spec-to-Implementation (needs PRD)
+- Onboard 8-13 VPS to Prometheus (needs IP/SSH list)
+- Activate DNS+SSL schedulers (needs `/ssl add yourdomain.com` via Telegram)
+
+### Bot.py refactor — UNBLOCKED 🎉
+
+The orphan-ref walker has been extracted to `scripts/lint_orphan_refs.py` and supports multi-file packages. CI gate calls the script.
+
+**Pattern for refactor:**
+```
+telegram-bot/
+├── __init__.py          (new)
+├── bot.py               (orchestrator + handler registration only)
+├── watchdogs/
+│   ├── __init__.py
+│   ├── ssl.py
+│   ├── dns.py           ← START HERE
+│   ├── drift.py
+│   ├── capacity.py
+│   ├── hygiene.py
+│   ├── firewall.py
+│   ├── deps.py
+│   └── morning_brief.py
+├── infra/
+│   ├── ssh.py
+│   ├── prometheus.py
+│   └── config_store.py
+└── handlers/            (optional, extract cmd_* if useful)
+```
+
+Start with **DNS watchdog** — smallest blast radius. ~200 lines.
+
+### Safety net you can rely on
+
+- **8 CI lint gates** — actionlint, ruff F, mypy lenient (whole package), mypy strict (11-module whitelist), orphan-refs script, compileall, caddy validate, promtool, amtool
+- **5 pre-commit hooks** + 2 pre-push hooks
+- **409 pytest tests** — parser + module-unit regressions caught
+- **Coverage floor 27%** — actual at 28.45%
+- **Mypy strict whitelist** (50% of agent modules) — `config`, `docs_sync`, `embedding`, `gitlab_review`, `journal`, `llm`, `meeting_notes`, `pr_review`, `skills`, `telegram`, `tools`
+- **All production images SHA-pinned** — caddy, prom/prometheus, prom/alertmanager, python:3.11-slim
+- **Config validation in CI** — Caddyfile (caddy validate), Prometheus + alert rules (promtool), Alertmanager (amtool)
+- **README has Local Development section**
+
+### What this session DID NOT do
+
+- Did not refactor bot.py (still unblocked, ready for path A)
+- Did not write Test Coverage Agent
+- Did not touch Phase 2 logic — wait dogfood signal
+- Did not migrate to Python 3.14
+- Did not add cmd_* docstrings
+- Did not pursue mypy strict on deps_watchdog/code_repos/qdrant_helper (next batch's work)
+- Did not add `.dockerignore` (marginal benefit since Dockerfiles use explicit COPY)
+
+### Sesi recap (high-level)
+
+Sesi 2026-05-31 13:51 (continuation of 13:05) = autonomous quality stack #4. 3 stacks shipped:
+1. **SHA-pin prom images** (path J) — `prom/prometheus:v3.4.0` and `prom/alertmanager:v0.28.1` updated to manifest-list digests in 3 places (docker-compose.yml + 2 CI validation steps).
+2. **Mypy strict expansion 4 → 11 modules** — 7 new modules pass strict mode (5 already clean, 2 needed tiny fixes: explicit `str()` cast in `llm.py:38` and `isinstance(list)` validation in `pr_review.py:42`).
+3. **boto3 version alignment** — agent `1.43.14` → `1.43.15` to match bot's pin. Patch-level, low-risk consistency fix.
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-05-31 13:51 — SHA-pin prom + mypy strict 7 new modules + boto3 align. Path A still unblocked.
+
+### Session 2026-05-31 13:51 — what shipped (3 commits)
+
+**Stack 13 — SHA-pin remaining production images:**
+
+1. **`ci: SHA-pin prom/prometheus and prom/alertmanager images`**
+   - Both images previously tag-only pinned (`v3.4.0`, `v0.28.1`)
+   - Updated to manifest-list digests in 3 places (docker-compose.yml + 2 deploy.yml validation steps)
+   - Pinned: `prom/prometheus:v3.4.0@sha256:78ed1f9050eb9...`, `prom/alertmanager:v0.28.1@sha256:27c475db5fb...`
+   - Caddy was the only fully SHA-pinned image; these were the remaining outliers
+   - Supply chain hygiene: protects against tag re-tagging or upstream compromise
+   - Dependabot already groups Docker image updates, so SHA bumps surface as PRs naturally
+
+**Stack 14 — Mypy strict expansion 4 → 11 modules:**
+
+2. **`ci+types: expand mypy strict whitelist 4 → 11 modules`**
+   - Whitelist now: `config`, `docs_sync`, `embedding`, `gitlab_review`, `journal`, `llm`, `meeting_notes`, `pr_review`, `skills`, `telegram`, `tools`
+   - 5 modules clean as-is, 2 needed tiny fixes:
+     - `llm.py:38` — `return data["choices"][0]["message"]["content"].strip()` → `return str(data["choices"][0]["message"]["content"]).strip()` (json.loads returns Any, needed explicit cast)
+     - `pr_review.py:42-49` — `get_whitelist()` was returning `json.loads(...)` directly; now validates `isinstance(data, list)` and coerces items to `str`
+   - 50% of agent modules now pass strict mode (11/22)
+   - Remaining harder modules: `deps_watchdog` (303 stmts), `code_repos` (375 stmts), `qdrant_helper` (102 stmts), `sync` (101 stmts), `main` (355 stmts), `workflow`, `vps_status`, `system_status`, `resource_alerts` — likely require more substantive type fixes
+   - CI step + pre-commit pre-push hook updated in lockstep
+
+**Stack 15 — boto3 version alignment:**
+
+3. **`chore: align boto3 version between agent and bot (1.43.14 → 1.43.15)`**
+   - Agent `langgraph-agent/requirements.txt`: `1.43.14` → `1.43.15`
+   - Bot `telegram-bot/requirements.txt`: unchanged (`1.43.15`)
+   - Patch-level diff, low-risk consistency fix
+   - Repo housekeeping check also confirmed: no `.flake8` / `setup.cfg` / `pyproject.toml` dead config (clean), `httpx==0.28.1` already aligned across both services, `.gitignore` healthy
+
+### Production state at handoff (NOT re-verified this session)
+
+Last verified: 2026-05-31 ~13:13 UTC via deploy run 26713505954.
+
+**Containers (assumed unchanged):**
+```
+alertmanager      Up (healthy)
+caddy             Up
+calcom            Up (healthy)
+langgraph-agent   Up (healthy)
+n8n               Up (healthy)
+prometheus        Up (healthy)
+telegram-bot      Up
+```
+
+**CI pipeline (after this session):**
+- `lint` (~80-100s estimated, was ~70-90s) — 8 gates total
+- `test` (~30s) — 409 tests, floor 27%
+- `deploy` (~1m32-2m03s) — Docker compose up + post-deploy probes
+- Node 24 active for all jobs
+
+### Files changed this session
+
+**Infrastructure:**
+- `docker-compose.yml` — SHA-pin prom/prometheus + prom/alertmanager
+- `.github/workflows/deploy.yml` — SHA-pin prom validation steps + extend mypy-strict file list
+- `.pre-commit-config.yaml` — extend `mypy-strict` hook file list
+
+**Application code (2 files, type-annotation only):**
+- `langgraph-agent/app/llm.py` — `str()` cast on json.loads access
+- `langgraph-agent/app/pr_review.py` — `isinstance(list)` validation + `str()` coerce
+
+**Dependencies:**
+- `langgraph-agent/requirements.txt` — boto3 1.43.14 → 1.43.15
+
+**No README/docs/test changes.**
+
+### Active Tasks (for next session)
+
+- [ ] **DOGFOOD WINDOW (active, ~39h elapsed)** — observe 7 features for 1-2 weeks total
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com`. Now safe.
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs IP/SSH list
+- [ ] **DECISION POINT: pick next roadmap items** — see "Pick your work". Path A still UNBLOCKED.
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Recently Completed (chronological)
+
+- ✅ [2026-05-31 13:51 UTC] **boto3 version alignment** — patch-level consistency fix
+- ✅ [2026-05-31 13:45 UTC] **Mypy strict expansion 4 → 11** — 7 new modules in whitelist, 2 tiny fixes
+- ✅ [2026-05-31 13:35 UTC] **SHA-pin prom images** — manifest-list digests in 3 places
+- ✅ [2026-05-31 13:05 UTC] **Caddy + promtool + amtool CI gates** — 3 new validation steps
+- ✅ [2026-05-31 13:00 UTC] **Mypy strict +tools.py** — 4th module
+- ✅ [2026-05-31 12:50 UTC] **Pytest batch 4** — 129 new tests, floor 23→27
+- ✅ [2026-05-31 12:35 UTC] **README Local Development section** — 83 lines
+- ✅ [2026-05-31 12:25 UTC] **Mypy strict whitelist (3 modules)** — embedding/journal/telegram
+- ✅ [2026-05-31 12:10 UTC] **Pytest batch 3** — 75 new tests, floor 19→23
+- ✅ [2026-05-31 12:00 UTC] **cmd_* docstring audit** — 0/29 missing, deferred
+- ✅ [2026-05-31 11:30 UTC] **Pytest batch 2** — 89 new tests, floor 14→19
+- ✅ [2026-05-31 10:30 UTC] **Orphan-ref script extraction** — multi-file walker
+- ✅ [2026-05-31 09:15 UTC] **Pytest batch 1** — 46 new tests, floor 12→14
+- ✅ [2026-05-31 09:00 UTC] **Logging standardization** — 8 modules
+- ✅ [2026-05-31 08:30 UTC] **Pre-commit hooks** — initial config
+- ✅ [2026-05-31 08:15 UTC] **GHA action SHA pinning** — `run-command.yml`
+
+### Lessons from this session
+
+1. **Mypy strict scaling pattern** — most "small" modules (50-200 stmts) pass strict mode with 0-1 line fixes. Bigger modules (300+ stmts with deep external state) need substantial type work. Sweet spot for batch ratchet: scan all modules, add the clean ones immediately, defer the dirty ones to dedicated cleanup sessions.
+2. **Manifest-list vs single-platform digests** — `docker buildx imagetools inspect` returns top-level "Digest" (manifest list, multi-arch) plus per-platform child digests. For SHA-pinning in production, always pin to manifest-list digest, not platform-specific. Caddy was already SHA-pinned to manifest-list — followed same pattern for prom images.
+3. **`json.loads` Any-return is the most common strict-mode trap** — both `llm.py` and `pr_review.py` failures came from using `json.loads(...)` returns directly without isinstance/cast. Pattern: `data = json.loads(...)`, then `isinstance(data, list)` or `str(data[...])` to satisfy `no-any-return`.
+4. **Repo housekeeping is fast-but-fast-evaporating-ROI** — finding `.flake8` (none), checking requirements (1 minor mismatch), checking `.gitignore` health (clean) took <30 minutes total. Worth doing once per major project shake-up. Diminishing returns after first sweep.
+5. **Diminishing returns warning is real** — by stack #15, "low-hanging fruit" exhausted. Next sessions should pivot to single-focus work (path A bot.py refactor) or wait for dogfood signal. Continuing autonomous quality work past this point would mean pursuing mock-heavy tests with poor ROI.
 
 ### Verify state in <2 minutes
 
@@ -128,201 +335,6 @@ Sesi 2026-05-31 13:05 (continuation of 12:35) = autonomous quality stack #3. 4 s
 2. **Mypy strict +tools.py** — 4th module added to whitelist. CI step + pre-commit hook updated. Module passes as-is, no code changes needed.
 3. **Caddy + Prometheus + Alertmanager config validation** — 3 new CI gates. Catches: invalid Caddyfile syntax, malformed prometheus rules, broken alertmanager routing. Smoke-tested locally with docker pull + run.
 4. **(README Local Development) — already done in 12:35 session.**
-
----
-
-## 🤝 FOR NEXT SESSION (detailed handoff)
-
-**Where we left off:** Sesi 2026-05-31 13:05 — pytest batch 4 + mypy strict +tools + 3 config-validation CI gates. Path A still unblocked.
-
-### Session 2026-05-31 13:05 — what shipped (2 commits)
-
-**Stack 11 — Pytest batch 4:**
-
-1. **`test(pytest+ci): batch 4 — tools/code_repos, floor 23→27`**
-   - `tests/test_tools.py` (44 tests, NEW): all of `tools.py` covered (search_knowledge, search_memory, store_memory, create_task, list_pending_tasks, complete_task, delete_tasks, find_pending_tasks_by_title, store_note, get_today_schedule). Pattern: stub_qdrant fixture + FakeClient httpx mock.
-   - `tests/test_code_repos.py` (85 tests, NEW): `load_repos` yaml parse, `resolve_repo_id`/`get_repo`, `_extract_keywords`/`_extract_path_terms`/`_pluralize_variants`, `_prioritize_paths`/`_merge_hits`, `_safe_url`/`_sanitize_git_error`, `_skip_path`/`_language_for`, `_line_chunks`, `_citation`/`_compact`, `format_search_results`, `_token_for`. Skipped: git/qdrant network paths (would need full integration mock).
-   - Coverage delta:
-     - tools.py: 0% → **100%** (51 stmts)
-     - code_repos.py: 19% → **58%** (375 stmts)
-     - TOTAL: 24.78% → **28.45%** (+3.67pp)
-   - Floor bumped 23 → 27 in `pytest.ini`
-   - Total: 280 → 409 tests pass
-   - Bug found during writing: `_token_for` raises on missing token AND non-HTTPS URL (Phase 1 constraint), so initial tests with `url="x"` failed. Fixed tests to use `https://...` URLs and added explicit `pytest.raises` cases for both error paths.
-
-**Stack 12 — Mypy strict +tools.py + 3 config-validation gates:**
-
-2. **`ci+types: expand mypy strict whitelist with tools.py + add config validation gates`**
-   - **Mypy strict whitelist** now: `embedding`, `journal`, `telegram`, **`tools`** (4 modules). `tools.py` passes `mypy --strict` as-is (no code changes). CI step + pre-commit `mypy-strict` hook updated.
-   - **Caddy validate** — `caddy:2-alpine` image, `caddy validate --config /etc/caddy/Caddyfile`. **Critical caveat**: Caddyfile uses `{$ENV_VAR}` placeholders that parse as global options when empty. CI step passes stub env vars (`N8N_HOST=n8n.example.com` etc.) so validation passes.
-   - **Prometheus validate** — `prom/prometheus:v3.4.0` image with `--entrypoint promtool`, runs `check config /etc/prometheus/prometheus.yml`. Validates the main config AND `alert_rules.yml` (9 rules detected).
-   - **Alertmanager validate** — `prom/alertmanager:v0.28.1` image with `--entrypoint amtool`, runs `check-config /etc/alertmanager/alertmanager.yml`. **Critical caveat**: production `alertmanager.yml` has `chat_id: PLACEHOLDER_CHAT_ID` (string) but YAML expects int64. CI step sed-substitutes both placeholders with valid-shaped values (`-1001234567890` for chat_id) before validation, leaving production file unchanged.
-   - Smoke-tested all 3 locally (docker run): caddy = "Valid configuration", promtool = "9 rules found, syntax OK", amtool = "1 receiver, 0 templates parsed OK".
-
-### Production state at handoff (NOT re-verified this session)
-
-Last verified: 2026-05-31 ~12:35 UTC via deploy run 26712866430.
-
-**Containers (assumed unchanged, no deploy yet for this stack):**
-```
-alertmanager      Up (healthy)
-caddy             Up
-calcom            Up (healthy)
-langgraph-agent   Up (healthy)
-n8n               Up (healthy)
-prometheus        Up (healthy)
-telegram-bot      Up
-```
-
-**CI pipeline (after this session):**
-- `lint` (~70-90s estimated, was ~50s) — compileall + actionlint + ruff F + mypy lenient + mypy strict (4 files) + orphan-refs + **caddy validate** + **promtool** + **amtool**. New steps add ~30-50s due to docker pulls (caddy ~30MB, prom ~200MB, alertmanager ~100MB).
-- `test` (~30s) — pytest + coverage baseline summary + floor **27%** (was 23%)
-- `deploy` (~1m32-2m03s) — Docker compose up + post-deploy probes
-- Node 24 active for all jobs
-
-### Files changed this session
-
-**Infrastructure:**
-- `.github/workflows/deploy.yml` — add 3 config-validation steps + extend mypy-strict file list
-- `.pre-commit-config.yaml` — extend `mypy-strict` hook file list
-- `pytest.ini` — coverage floor 23 → 27
-
-**No application code changed.**
-
-**Tests (2 NEW):**
-- `tests/test_tools.py` (44 tests, ~370 lines, NEW)
-- `tests/test_code_repos.py` (85 tests, ~600 lines, NEW)
-
-**No README/docs changes.**
-
-### Active Tasks (for next session)
-
-- [ ] **DOGFOOD WINDOW (active, ~38h elapsed)** — observe 7 features for 1-2 weeks total
-- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com`. Now safe.
-- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs IP/SSH list
-- [ ] **DECISION POINT: pick next roadmap items** — see "Pick your work". Path A still UNBLOCKED.
-- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
-- [ ] **DEFERRED: Grafana, py3.14**
-
-### Recently Completed (chronological)
-
-- ✅ [2026-05-31 13:05 UTC] **Caddy + promtool + amtool CI gates** — 3 new config-validation steps
-- ✅ [2026-05-31 13:00 UTC] **Mypy strict +tools.py** — 4th module in whitelist
-- ✅ [2026-05-31 12:50 UTC] **Pytest batch 4** — 129 new tests, floor 23→27, +3.67pp coverage
-- ✅ [2026-05-31 12:35 UTC] **README Local Development section** — 83 lines, full CI gate doc
-- ✅ [2026-05-31 12:25 UTC] **Mypy strict whitelist (3 modules)** — embedding/journal/telegram
-- ✅ [2026-05-31 12:10 UTC] **Pytest batch 3** — 75 new tests, floor 19→23
-- ✅ [2026-05-31 12:00 UTC] **cmd_* docstring audit** — 0/29 missing, deferred
-- ✅ [2026-05-31 11:30 UTC] **Pytest batch 2** — 89 new tests, floor 14→19
-- ✅ [2026-05-31 10:30 UTC] **Orphan-ref script extraction** — multi-file walker
-- ✅ [2026-05-31 09:15 UTC] **Pytest batch 1** — 46 new tests, floor 12→14
-- ✅ [2026-05-31 09:00 UTC] **Logging standardization** — 8 modules
-- ✅ [2026-05-31 08:30 UTC] **Pre-commit hooks** — initial config
-- ✅ [2026-05-31 08:15 UTC] **GHA action SHA pinning** — `run-command.yml`
-
-### Lessons from this session
-
-1. **Container ENTRYPOINT vs CMD matters in CI** — `prom/prometheus:v3.4.0` and `prom/alertmanager:v0.28.1` have `prometheus` and `alertmanager` as default ENTRYPOINT, not the CLI tools. Without `--entrypoint promtool`/`--entrypoint amtool`, the docker run command tries to invoke prometheus binary with `promtool ...` as args, which fails with "unexpected promtool". Always check default entrypoint when reusing production images for adjacent CLIs.
-2. **Production config files often have validation traps** — Caddyfile's `{$ENV_VAR}` placeholder syntax parses as global options when env empty (caddy validate fails). Alertmanager's `chat_id: PLACEHOLDER_CHAT_ID` is a string where YAML schema expects int64 (amtool fails). Both need pre-processing in CI: env stubs for caddy, sed substitution for alertmanager. Don't refactor production files just to make CI pass — pre-process in CI step.
-3. **Comprehensive parser test = faster bug surface** — 85 tests for `code_repos.py` surfaced 5 wrong assumptions on first run: `_extract_keywords` keeps "untuk" (not in stopwords list), `_line_chunks` returns `end_line=3` not `4` (no off-by-one phantom from trailing newline), `_token_for` raises on missing token / non-HTTPS instead of returning empty string. Each was a wrong test, but all 5 surfaced via 1 pytest run. Faster than reading source-code line-by-line to derive expected behavior.
-4. **mypy --strict on small modules is fast quality ratchet** — 51-stmt `tools.py` passed strict as-is. No code changes needed. Each new module added to whitelist = compounding type safety. After 4 modules whitelisted, pattern proves out.
-5. **Coverage floor cadence: bump 1.5pp below actual** — actual 28.45% → floor 27 (margin 1.45pp). Tighter than batch 3 (1.78pp margin) because batch 4 mostly added stable, deterministic tests. Future bumps could afford ~1pp margin if test stability is confirmed across multiple sessions.
-
-### Verify state in <2 minutes
-
-```bash
-git status                                    # clean
-git log --oneline -10                         # matches above
-gh run list --workflow=deploy.yml --limit 3   # last 3 green
-python3 -m pytest -q                          # 280 passed, ~25% coverage
-python3 -m ruff check --select=F telegram-bot langgraph-agent tests
-python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
-python3 -m mypy --strict langgraph-agent/app/{embedding,journal,telegram}.py
-python3 -m compileall -q telegram-bot langgraph-agent
-python3 scripts/lint_orphan_refs.py
-pre-commit run --all-files                    # all 4 hooks pass
-pre-commit run --all-files --hook-stage pre-push  # +mypy lenient + strict
-```
-
-If anything fails: do not proceed. Diagnose first.
-
-### Pick your work
-
-**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.** Multiple valid directions:
-
-| Path | Effort | Risk | Notes |
-|---|---|---|---|
-| **A. Bot.py refactor pilot** (DNS watchdog) | 4-6h | 🟡 Med | UNBLOCKED. Multi-file orphan walker shipped. Smallest blast radius. |
-| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | Foundation: coverage.xml, baseline 24.78%. |
-| **D. Pytest expansion batch 4** (sync 0%, vps_status 0%, system_status 0%, resource_alerts 0%, workflow 0%, code_repos 19%, qdrant_helper 24%) | 3-4h | 🟢 Low | Continue increasing floor 23 → 26+. |
-| **I. Mypy strict expansion** | 1-2h | 🟢 Low | Whitelist next clean modules: tools, sync, qdrant_helper (incremental). |
-| **H. Add cmd_* docstrings** | 2-3h | 🟢 Low | 29/29 cmd_* functions di bot.py tanpa docstring. Defer ke saat refactor (path A). |
-| **G. Wait for dogfood signal** | — | — | Phase 2 work blocked. ~5-12 days remaining. |
-
-**Blocked on user input (don't start without):**
-- Spec-to-Implementation (needs PRD)
-- Onboard 8-13 VPS to Prometheus (needs IP/SSH list)
-- Activate DNS+SSL schedulers (needs `/ssl add yourdomain.com` via Telegram)
-
-### Bot.py refactor — UNBLOCKED 🎉
-
-The orphan-ref walker has been extracted to `scripts/lint_orphan_refs.py` and supports multi-file packages. CI gate calls the script, pre-commit also wires it. Refactoring `bot.py` to a multi-module package no longer requires CI changes.
-
-**Pattern for refactor:**
-```
-telegram-bot/
-├── __init__.py          (new)
-├── bot.py               (orchestrator + handler registration only)
-├── watchdogs/
-│   ├── __init__.py
-│   ├── ssl.py
-│   ├── dns.py           ← START HERE
-│   ├── drift.py
-│   ├── capacity.py
-│   ├── hygiene.py
-│   ├── firewall.py
-│   ├── deps.py
-│   └── morning_brief.py
-├── infra/
-│   ├── ssh.py
-│   ├── prometheus.py
-│   └── config_store.py
-└── handlers/            (optional, extract cmd_* if useful)
-```
-
-Start with **DNS watchdog** — smallest blast radius:
-- Self-contained: `_ssh_exec`, `_get_ssh_targets`, `_config_get/_set`
-- Already has its own scheduler hook
-- ~200 lines, easy to verify by grep before/after
-
-1 PR per watchdog. Each verifiable via deploy log capture (post-deploy probes already check container health) + script catches orphan refs at lint stage.
-
-### Safety net you can rely on
-
-- **5 CI lint gates** — actionlint, ruff F, mypy lenient (whole package), mypy strict (3-module whitelist), orphan-refs script (multi-file ready), compileall
-- **5 pre-commit hooks** (mirror CI for fast local feedback) + 2 pre-push hooks (mypy lenient + strict)
-- **280 pytest tests** (was 206) — parser + module-unit regressions caught
-- **Coverage floor 23%** (was 19%) — prevents test deletion, actual at 24.78%
-- **Strict mypy whitelist** — `embedding`, `journal`, `telegram` (incremental safety ratchet)
-- **Deploy gated** `needs: [lint, test]` — broken code can't reach prod
-- **Post-deploy probes** — verify containers healthy after each deploy
-- **README has Local Development section** — full CI gate reproduction documented
-
-### What this session DID NOT do (handoff items)
-
-- Did not refactor bot.py (now unblocked, ready for path A in next session)
-- Did not write Test Coverage Agent (proper design work, not autonomous-suitable)
-- Did not touch Phase 2 logic — wait dogfood signal
-- Did not migrate to Python 3.14 (waiting for py-rust-stemmers wheels)
-- Did not add cmd_* docstrings (29/29 missing — defer to refactor)
-- Did not use `mypy.ini` per-section strict — bleeds across modules in mypy 1.x; standalone `mypy --strict` is cleaner
-
-### Sesi recap (high-level)
-
-Sesi 2026-05-31 12:35 (continuation of 12:00) = autonomous quality stack #2. 3 stacks shipped:
-1. **Pytest batch 3** — 75 new tests (meeting_notes 41, deps_watchdog +36). Coverage 20.09% → 24.78% (+4.69pp). Floor bumped 19 → 23.
-2. **Mypy strict whitelist** — 3 modules pass `mypy --strict`. CI new step + pre-commit pre-push hook mirror it. Code changes minimal: `dict` → `dict[str, Any]` in 2 files.
-3. **README Local Development section** — 83 lines documenting full CI gate reproduction, pre-commit usage, coverage floor, strict-whitelist expansion procedure.
 
 ---
 

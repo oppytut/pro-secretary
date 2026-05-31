@@ -1,6 +1,6 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 06:50 UTC
+**Last Updated:** 2026-05-31 07:00 UTC
 **Project:** AI Personal Secretary Stack
 **Status:** ✅ 13 features shipped + CI fully hardened (6 lint gates: actionlint + ruff F + mypy + bot.py orphan + main.py orphan + compileall, 71 tests, coverage floor 12%, Node 24). Sesi 2026-05-31 closed dengan 8 commits + **4 latent production bugs caught & fixed** sebagai byproduct CI hardening.
 
@@ -8,7 +8,111 @@
 
 ---
 
-## 🤝 FOR NEXT SESSION (read this first)
+## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
+
+**Last session ended 2026-05-31 07:00 UTC. Continuing in a new opencode session.**
+
+### Repo state right now
+
+```
+Branch: main, working tree clean
+Last 4 commits all green CI:
+  cb6f4f0 docs(TASK): handoff for stack 4 (mypy gate + 3 type bugs)
+  6a43994 ci+fix(bot): mypy lenient gate + 3 type bugs caught
+  c46702f docs(TASK): handoff for stack 2 + production bug catch
+  76d8ccb fix(bot)+ci: expand ruff to full F-class, fix latent SSL_CHECK_DOMAINS bug
+
+Production: 7 containers up + healthy (verified run 26705725700)
+Dogfood: ~32h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+```
+
+### Verify state in <2 minutes
+
+```bash
+git status                                    # should be clean
+git log --oneline -5                          # should match above
+gh run list --workflow=deploy.yml --limit 3   # last 3 should be green
+python3 -m pytest -q                          # 71 passed, 12.75% coverage
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+python3 -m compileall -q telegram-bot langgraph-agent
+```
+
+If anything fails: do not proceed with new work. Diagnose first.
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.** Multiple valid directions:
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A. Bot.py refactor pilot** (DNS watchdog) | 4-6h | 🟡 Med | Smallest blast radius. Validate pattern. **Heads-up below.** |
+| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | Eat own dogfood. Foundation: coverage.xml, baseline 12.75%. |
+| **C. Pre-commit hooks config** | 1-2h | 🟢 Low | Mirror CI lint locally. Quality of life. |
+| **D. Pytest expansion** (skills/journal/telegram, 98 stmts) | 3-4h | 🟢 Low | Small modules, coverage delta visible. Bump floor 12→13/14. |
+| **E. GHA action SHA pinning audit** | 1h | 🟢 Low | Supply chain. Quick mechanical task. |
+| **F. Logging standardization** | 2-3h | 🟢 Low | `logging.getLogger(__name__)` everywhere. |
+| **G. Wait for dogfood signal** | — | — | Phase 2 work blocked on this. ~5-12 days remaining. |
+
+**Blocked on user input (don't start without):**
+- Spec-to-Implementation (needs PRD)
+- Onboard 8-13 VPS to Prometheus (needs IP/SSH list)
+- Activate DNS+SSL schedulers (needs `/ssl add yourdomain.com` via Telegram)
+
+### Critical heads-up if you pick path A (bot.py refactor)
+
+**The orphan-ref AST check in `.github/workflows/deploy.yml` parses `bot.py` as a single file.** Refactor to multi-module will break the gate. Two options:
+
+1. **Update the AST walker first** — extend it to walk `telegram-bot/` package: collect functions across all `.py` files, then verify handler/scheduler refs resolve to *any* defined function in the package. Single PR before refactor.
+2. **Disable the bot.py-specific check, rely on import resolution** — `python -m compileall` already catches import errors. Less precise but simpler.
+
+Recommended: option 1, ship as separate PR before any extraction.
+
+**Pattern for refactor itself:**
+```
+telegram-bot/
+├── bot.py (orchestrator + handlers registration only)
+├── watchdogs/{ssl,dns,drift,capacity,hygiene,firewall,deps,morning_brief}.py
+├── infra/{ssh,prometheus,config_store}.py
+└── handlers/ (extract cmd_* if useful)
+```
+
+Start with **DNS watchdog** — smallest blast radius:
+- Self-contained: only depends on `_ssh_exec`, `_get_ssh_targets`, `_config_get/_set`
+- Already has its own scheduler hook
+- ~200 lines, easy to verify by grep before/after
+
+1 PR per watchdog. Each verifiable via deploy log capture (post-deploy probes already check container health).
+
+### Safety net you can rely on
+
+- **6 lint gates** in CI — catch syntax/name/type bugs before deploy
+- **71 pytest tests** — parser regressions caught
+- **Coverage floor 12%** — prevents test deletion
+- **Deploy gated** `needs: [lint, test]` — broken code can't reach prod
+- **Post-deploy probes** in deploy job — verify containers healthy after each deploy
+
+### What this session DID NOT do (handoff items)
+
+- Did not refactor bot.py (3500+ lines, needs fresh focus session)
+- Did not write Test Coverage Agent (proper design work, not autonomous-suitable)
+- Did not touch Phase 2 logic (Deps/Docs/Firewall auto-PR/auto-remediation) — wait dogfood signal
+- Did not bump coverage floor above 12 (no new tests added; bumping prematurely = false guarantee)
+- Did not migrate GHA action versions (only opted into Node 24 runtime via env)
+
+### Sesi recap (high-level)
+
+Sesi 2026-05-31 = autonomous CI hardening arc. 8 commits across 4 stacks shipped 6 lint gates + coverage floor + Node 24. Caught 4 latent production bugs as byproduct:
+1. F821 — `SSL_CHECK_DOMAINS` undefined name (would crash SSL scheduler init)
+2. Type — `r` shadow `httpx.Response` (broke type narrowing in cmd_review)
+3. Type — PTB 22 `Voice.duration` int→timedelta change (silent TypeError)
+4. Type — `parsedate_to_datetime` arg union (always-runtime-str typed as union)
+
+Bug catch ROI extraordinary. Validates the entire CI hardening investment.
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
 
 **Where we left off:** Sesi 2026-05-31 — 3 stack autonomous CI hardening shipped (lint extension + Node24/coverage/ruff F401 + actionlint/coverage-floor/ruff-F + mypy lenient). Ruff F-class catch 1 latent bug, mypy catch 3 lebih. Dogfood window terus berjalan ~32h.
 

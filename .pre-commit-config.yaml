@@ -24,6 +24,13 @@ repos:
         pass_filenames: false
         files: ^(telegram-bot|langgraph-agent)/.*\.py$
 
+      - id: orphan-refs
+        name: orphan-reference checks
+        language: system
+        entry: python3 scripts/lint_orphan_refs.py
+        pass_filenames: false
+        files: ^(telegram-bot|langgraph-agent)/.*\.py$
+
       - id: mypy
         name: mypy (lenient, pre-push)
         language: system

@@ -75,6 +75,7 @@ jobs:
             telegram-bot/watchdogs/deps.py \
             telegram-bot/watchdogs/dns.py \
             telegram-bot/watchdogs/drift.py \
+            telegram-bot/watchdogs/hygiene.py \
             telegram-bot/watchdogs/ssl.py
 
       - name: Orphan-reference checks (bot.py + agent main.py)

@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-30 22:55 UTC
+**Last Updated:** 2026-05-31 04:38 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + Auto PR Review fully fixed: Morning Brief, Auto-Responder, Drift Detector, SSL Watchdog, Dynamic Config, Capacity Planning, Auto PR Review (GitHub + GitLab), Meeting Notes → Action Items, Dependency Watchdog, Documentation Sync, **Docker Image Hygiene, DNS Health Monitor, Firewall Audit Agent (NEW)**.
+**Status:** ✅ 13 features shipped + CI hardening (lint gate + 71 unit tests). Sesi 2026-05-30 part 2 closed dengan 8 PR merged.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,278 +10,226 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-30 part 2 — shipped 3 read-only infra agents (Docker Hygiene, DNS Health Monitor, Firewall Audit) sambil menunggu dogfood dari 4 fitur Phase 1 sebelumnya.
+**Where we left off:** Sesi 2026-05-30 part 2 — shipped 3 read-only infra agents (Docker Hygiene, DNS Health, Firewall Audit) + CI infrastructure hardening (lint gate + first pytest suite) + dependabot housekeeping. Production state stabil, dogfood window aktif untuk 7 fitur Phase 1.
 
-### What happened (this session, in order)
+### Session 2026-05-30 part 2 — what shipped (8 PRs to main)
 
-1. **Docker Image Hygiene** (Tier I.6) — 0.5 hari
-   - Inline di `bot.py` (~210 lines): `_run_docker_hygiene`, `_docker_hygiene_job`, `cmd_hygiene`
-   - `docker system df --format` TSV parser (`_parse_docker_df` + `_docker_size_to_gb` handles K/M/G/T/B)
-   - Local docker via static binary + remote via `_ssh_exec`
-   - Auto-prune dangling-only (`docker image prune -f`) saat reclaimable > `DOCKER_HYGIENE_RECLAIMABLE_WARN_GB` (default 5 GB)
-   - Daily 02:15 WIB scheduler, silent-on-clean
-   - Smoke tests pass: parser handles 7 size formats + edge cases (empty string, 0B)
-   - Env: `DOCKER_HYGIENE_ENABLED|HOUR|MINUTE|RECLAIMABLE_WARN_GB|AUTO_PRUNE`
+**Feature work:**
+1. **PR #14** — `feat(bot): docker hygiene + DNS health + firewall audit` (commit `aa34e0b`)
+   - 3 read-only infra watchdogs inline di `bot.py` (~520 lines total)
+   - **Docker Image Hygiene** (Tier I.6) daily 02:15 WIB — `_run_docker_hygiene`, `_parse_docker_df`, `_docker_size_to_gb`, `cmd_hygiene`
+   - **DNS Health Monitor** (Tier I.7) every 4h — multi-resolver dig (Cloudflare/Google/Quad9), `_check_domain_consistency`, `cmd_dns`
+   - **Firewall Audit Agent** (Tier I.5) daily 03:30 WIB — SSH `ss -H -tlnp`, public/loopback split, per-VPS whitelist, `cmd_firewall`
+   - Reuse pattern: `_ssh_exec`, `_get_ssh_targets`, `_config_get/_set`, JSON config store, silent-on-clean alert
+   - Dockerfile: added `dnsutils` (dig) + `iproute2` (fallback ss)
+   - 5 BotCommand entries: `/hygiene`, `/dns`, `/firewall` + add/del/list subcommands
+   - All schedulers wired in `post_init`, AST orphan-ref check passed (38 handler/scheduler refs / 124 functions)
+   - Phase 2 firewall auto-remediation deferred until audit data validates noise
 
-2. **DNS Health Monitor** (Tier I.7) — 0.5 hari
-   - Inline di `bot.py` (~155 lines): `_check_domain_consistency`, `_run_dns_check`, `_dns_check_job`, `cmd_dns`
-   - Multi-resolver `dig` against Cloudflare (1.1.1.1), Google (8.8.8.8), Quad9 (9.9.9.9)
-   - Detect: divergent record sets across resolvers, empty responses, dig errors
-   - Domains seeded dari SSL watchlist via `_get_ssl_domains()`, override via `/dns add/del`
-   - Every 4h scheduler (`run_repeating`), silent-on-clean
-   - Live test: `cloudflare.com` returns 2 records consistent across all 3 resolvers
-   - Dockerfile: added `dnsutils` (ships `dig`)
-   - Env: `DNS_CHECK_ENABLED|INTERVAL_SEC` (default 14400)
+**Operational improvements:**
+2. **PR #15** — `chore(ci): capture telegram-bot startup log on deploy` (commit `7987f2d`)
+   - Adds `docker logs telegram-bot --tail 80` to post-deploy block
+   - Filtered grep: scheduler registration / errors
+   - Validated useful 3× this session (after #14, #9+#7, #16)
 
-3. **Firewall Audit Agent** (Tier I.5) — 1 hari (actual ~0.5 reuse)
-   - Inline di `bot.py` (~155 lines): `_audit_vps_firewall`, `_run_firewall_audit`, `_firewall_audit_job`, `cmd_firewall`
-   - SSH `ss -H -tlnp` (fallback `ss -H -tln` lalu `netstat -tln`) per VPS
-   - `_parse_listening_ports` distinguishes `0.0.0.0`/`::`/`*` (public) vs `127.0.0.1` (private)
-   - Per-VPS whitelist (default `{22, 80, 443}`), override via `/firewall add <vps> <port>` (config-store JSON)
-   - Daily 03:30 WIB, silent-on-clean
-   - Smoke test: ss sample with 5 sockets correctly classified (4 public, 1 loopback)
-   - Dockerfile: added `iproute2` (fallback if VPS missing `ss`)
-   - Env: `FIREWALL_AUDIT_ENABLED|HOUR|MINUTE`
+3. **PR #16** — `ci: gate deploy on lint job` (commit `761836e`)
+   - New `lint` job in deploy.yml runs sebelum deploy
+   - Step 1: `compileall` semua .py di telegram-bot/ + langgraph-agent/
+   - Step 2: AST orphan-ref check on bot.py
+     - Walks all `CommandHandler(name, target)` + `run_daily/run_repeating/run_once(callback, ...)` calls
+     - Verifies each target/callback resolves to function defined in same module
+     - **Catches the exact failure mode** dari sesi 2026-05-30 part 1 (cmd_deps orphan)
+   - `deploy` job declares `needs: lint` → deploy skipped on lint failure
+   - Smoke-tested: injecting `cmd_dns_TYPO_NOT_DEFINED` caught at line 3509
 
-### Why this scope (instead of Spec-to-Implementation)
+4. **PR #17 + #18** — `ci: add pytest suite covering bot.py + deps_watchdog parsers` (commits `a32f824` + `ed5f211`)
+   - **71 unit tests** across 2 files (`tests/test_bot_parsers.py`, `tests/test_deps_watchdog.py`)
+   - bot.py coverage: `_docker_size_to_gb`, `_parse_docker_df`, `_format_hygiene_section`, `_parse_listening_ports`, `_human_bytes`, `_human_uptime`, `_container_health`, `_is_fresh_restart`
+   - deps_watchdog.py coverage: `_strip_npm_range`, `_parse_package_json`, `_parse_requirements_txt`, `_parse_pyproject`, `_parse_go_mod`, `_dedupe`, `_severity_from_detail`, `_collect_manifests`
+   - New `test` job in deploy.yml — `deploy` now `needs: [lint, test]`
+   - PR #18 was hot-fix: initial test job failed CI (`yaml` missing transitively via `app.code_repos`); fixed by installing full langgraph-agent reqs
+   - **CI gate working as designed**: caught broken state before reaching VPS, no prod regression
+   - Local: 71 passed in 1.72s | CI: 71 passed in 1.72s
 
-- 4 Phase 1 fitur (Meeting Notes, Deps, Docs Sync, Auto PR Review) butuh 1-2 minggu dogfood pasif dulu sebelum Phase 2 auto-PR di-justify
-- Spec-to-Implementation butuh real PRD dari user untuk kalibrasi prompt — tanpa input itu = AI slop generator
-- 3 fitur ini semua **read-only**, low-risk, fit pattern existing (SSL Watchdog/Capacity Planning/Drift Detector)
-- Ship momentum tetap jalan, dogfood paralel tanpa interferensi
+**Dependency housekeeping:**
+5. **PR #9** — `fix(deps): langgraph-agent minor-patch batch` (commit `f1540d1`)
+   - fastapi 0.136.1→0.136.3, uvicorn 0.47.0→0.48.0, langgraph 1.2.0→1.2.1
+   - boto3 1.43.9→1.43.14, PyYAML 6.0.2→6.0.3
+   - All within minor/patch, no breaking changes
+
+6. **PR #7** — `fix(deps): bump boto3 to 1.43.15 in telegram-bot` (commit `a337740`)
+   - Patch release, R2 upload uses stable s3 client API
+
+7. **PR #8** — closed (py3.14 migration)
+   - Deferred per existing TASK.md decision pending py-rust-stemmers wheels
+
+8. **5 dependabot labels created** via `gh label create`:
+   - `dependencies`, `python`, `docker`, `langgraph-agent`, `telegram-bot`
+   - Eliminates "label not found" warning on future dependabot PRs
+
+### Production state at handoff (verified live)
+
+**Containers (verified via run 26698097199 post-deploy probe):**
+```
+alertmanager      Up (healthy)
+caddy             Up
+calcom            Up (healthy)
+langgraph-agent   Up (healthy) — fastapi 0.136.3, uvicorn 0.48.0, langgraph 1.2.1
+n8n               Up (healthy)
+prometheus        Up (healthy)
+telegram-bot      Up — boto3 1.43.15, dnsutils + iproute2 installed
+```
+
+**7 schedulers registered (verified via deploy log capture):**
+- Health check every 300s
+- Morning brief 07:00 WIB
+- Drift 02:00, Capacity 02:10, **Hygiene 02:15** (NEW), Deps 03:00, **Firewall 03:30** (NEW) WIB
+
+**Schedulers conditional pada config (currently idle):**
+- SSL check — needs `SSL_CHECK_DOMAINS` env or `/ssl add domain.com`
+- DNS check — auto-seeds dari SSL list, currently empty
+
+**CI pipeline (verified end-to-end):**
+- `lint` job ~10s — compileall + AST orphan-ref
+- `test` job ~30s — 71 pytest unit tests
+- `deploy` job ~1m — Docker compose up + post-deploy probes
+
+### How to verify CI gate is working
+
+```bash
+# Trigger lint failure: rename a CommandHandler target to a typo
+sed -i 's/cmd_dns/cmd_dns_TYPO/' telegram-bot/bot.py
+git commit -am "test: trigger CI"
+git push  # CI should fail at lint job, deploy skipped
+
+# Trigger test failure: break a parser
+# Edit _docker_size_to_gb to multiply GB by 1024
+# CI should fail at test job, deploy skipped
+
+# Both verified working this session
+```
 
 ### Files changed this session
 
-**Modified:**
-- `telegram-bot/bot.py` — +633/-1 lines: 3 inline blocks (DNS, Docker Hygiene, Firewall Audit) + 3 BotCommand entries + 3 CommandHandler registrations + 4 scheduler blocks + help text update
+**Application code:**
+- `telegram-bot/bot.py` — +633 lines (3 new watchdog blocks + handlers + scheduler regs)
 - `telegram-bot/Dockerfile` — added `dnsutils` + `iproute2` to apt install
-- `.env.example` — 3 new sections (Docker Hygiene, DNS, Firewall Audit) with config defaults
-- `AI_AGENT_ROADMAP.md` — 3 sections marked done (I.5, I.6, I.7), shipped table updated
+
+**Infrastructure / config:**
+- `.github/workflows/deploy.yml` — added `lint` job + `test` job + post-deploy bot log capture
+- `.env.example` — 3 new sections (Docker Hygiene, DNS, Firewall Audit)
+- `langgraph-agent/requirements.txt` — bumped 5 deps (#9)
+- `telegram-bot/requirements.txt` — bumped boto3 (#7)
+
+**New files:**
+- `tests/__init__.py`, `tests/conftest.py`
+- `tests/test_bot_parsers.py` (37 tests)
+- `tests/test_deps_watchdog.py` (34 tests)
+- `pytest.ini`
+
+**Documentation:**
+- `AI_AGENT_ROADMAP.md` — I.5/I.6/I.7 marked done, shipped table updated
 - `TASK.md` — this update
 
-### Verification done
+### Active Tasks (for next session)
 
-- ✅ `py_compile` clean
-- ✅ AST orphan-ref check: all 27 expected functions defined (avoid lesson dari sesi sebelumnya)
-- ✅ LSP diagnostics: only pre-existing PTB Optional warnings (no new errors)
-- ✅ Smoke test parsers:
-  - `_docker_size_to_gb`: 7 size formats (K/M/G/T/B + empty + 0B) all correct
-  - `_parse_docker_df`: 4-row sample parsed, totals match
-  - `_format_hygiene_section`: aggregation correct (7.5 GB reclaimable)
-  - `_parse_listening_ports`: 5-socket sample, public vs loopback classification correct
-  - `_check_domain_consistency`: live `cloudflare.com` consistent across all 3 resolvers
-- ✅ Schedule allocation non-overlapping: 02:00 drift, 02:05 ssl, 02:10 capacity, 02:15 hygiene, 03:00 deps, 03:30 firewall, DNS every 4h
-
-### NOT verified (need real-world dogfood)
-
-- ⚠️ DNS check on actual customer domains (TTL anomaly detection)
-- ⚠️ Docker hygiene auto-prune on real disk pressure
-- ⚠️ Firewall audit catching real unauthorized exposure
-- ⚠️ Daily schedulers fire correctly at allocated times
-
-### Deferred (wait dogfood data)
-
-- **Auto-PR for deps** (Phase 2) — after Phase 1 validates noise level
-- **Auto-PR with doc updates** (docs_sync Phase 2) — same reason
-- **Firewall auto-remediation** (Phase 2) — UFW rule replay, wait audit data dulu
-- Grafana (tunggu actual trend visualization need)
-- Embedding model upgrade / Hybrid search BM25
-- Skills Phase 2C (executable skills)
-- py3.14 migration (wait wheels)
-- `/repo add/del/list` — dynamic project management via Telegram
+- [ ] **DOGFOOD WINDOW (active, started 2026-05-30 23:00 UTC)** — observe 7 features on real workload for 1-2 weeks:
+  - Phase 1 (since 2026-05-30 morning): `/meeting`, `/deps`, `/docsync`, Auto PR Review
+  - Phase 2 (since this session): `/hygiene`, `/dns` (idle), `/firewall`
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com` via Telegram, DNS auto-seeds. Without this, 2 schedulers stay idle.
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
+- [ ] **DECISION POINT: pick next roadmap items** — see "Next session focus" below
+- [ ] **DEFERRED: Deps Watchdog Phase 2 (auto-PR)** — wait Phase 1 dogfood data
+- [ ] **DEFERRED: Docs Sync Phase 2 (auto-PR)** — wait Phase 1 dogfood data
+- [ ] **DEFERRED: Firewall Audit Phase 2 (auto-remediation)** — wait audit signal data
+- [ ] **DEFERRED: Grafana** — wait actual trend visualization need
+- [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels (PR #8 closed pending this)
 
 ### Next session focus (PRIORITY ORDER)
 
-1. **Dogfood the 7 new features** — passive ongoing, real workload signal
-   - `/meeting`, `/deps`, `/docsync`, Auto PR Review (from previous session)
-   - `/hygiene`, `/dns`, `/firewall` (this session)
-2. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion)
-   - Butuh dari user: list IP/hostname + provider + SSH access
-   - `/monitor add <name> <host> <port> <user>` via Telegram
-3. **Next roadmap items** (AI-suitable, recommended order):
-   - **Spec-to-Implementation** (2-3 hari) — needs real spec from user
-   - **Deps Watchdog Phase 2: auto-PR** (1 hari) — after dogfood Phase 1
-   - **Docs Sync Phase 2: auto-PR** (1 hari) — after dogfood Phase 1
-   - **Firewall Audit Phase 2: auto-remediation** (1 hari) — after audit data
-   - **Test Coverage Agent** (Tier 1.5, 2-3 hari) — coverage report → gap test gen
-   - **Performance Regression Detector** (Tier 2.2, 1-2 hari) — per-deploy benchmark
+**Tier 1 — Fully autonomous AI-suitable, no blocker:**
 
-### What happened (this session, in order)
+1. **Lint check for langgraph-agent** (~1 jam) — extend the AST orphan-ref pattern from PR #16 to cover FastAPI route handlers in `app/main.py`. Same approach: walk AST, find `@app.get/post/...` decorators + their target functions. Catches missing endpoint implementations before deploy.
 
-1. **Meeting Notes → Action Items** — 0.5 hari quick win
-   - `langgraph-agent/app/meeting_notes.py` NEW (~200 lines): extraction prompt + parser + auto-task creation
-   - `/api/meeting_notes` endpoint (rate-limited 6/min, max 20K chars)
-   - `/meeting <transkrip>` command + reply-mode + voice auto-route (≥500 chars OR ≥2 keywords)
-   - Reuses Whisper + `tools.create_task()` — zero new deps, zero new env vars
+2. **Refactor bot.py into modules** (1-2 hari, RECOMMENDED) — `bot.py` is now **3500+ lines** with 8 watchdogs inline. Extract to `telegram-bot/watchdogs/`:
+   ```
+   telegram-bot/
+   ├── bot.py (orchestrator + handlers registration only)
+   ├── watchdogs/
+   │   ├── __init__.py
+   │   ├── ssl.py, dns.py, drift.py, capacity.py
+   │   ├── hygiene.py, firewall.py, deps.py, morning_brief.py
+   │   └── health_check.py
+   └── infra/
+       ├── ssh.py (shared `_ssh_exec`, `_get_ssh_targets`)
+       ├── prometheus.py (shared `_prom_query`)
+       └── config_store.py (shared `_config_get`/`_config_set`)
+   ```
+   - **Why now:** before next watchdog adds another 200+ lines. Tech debt grows quadratic with each new feature.
+   - **Risk:** medium — pure code reorg, no behavior change, but PTB handler registration order matters
+   - **Mitigation:** 1 PR per watchdog (8 incremental PRs), each independently verifiable via deploy log capture
+   - **Coverage:** 71-test suite catches parser regressions, lint catches orphan refs
 
-2. **Dependency Watchdog Phase 1** — 1 hari, detection-only
-   - `langgraph-agent/app/deps_watchdog.py` NEW (~340 lines): 6 parsers (npm, PyPI, Packagist, Go) + OSV.dev client + report formatter
-   - `/api/deps/scan` endpoint (rate-limited 4/min)
-   - `/deps [repo_id]` command + daily scheduler 03:00 WIB (silent on clean)
-   - OSV.dev integration verified: lodash@4.17.20 → 5 real CVEs (HIGH/MODERATE)
-   - **Phase 2 (auto-PR) deferred** until dogfood data validates noise level
+3. **Test Coverage Agent** (Tier 1.5 from roadmap, 2-3 hari) — now that test foundation exists:
+   - Reuse explore agent → coverage report scan
+   - Identify untested public functions
+   - Generate test stub + run pytest
+   - Auto-PR if test passes
+   - First target: pro-secretary itself (eat own dogfood)
 
-3. **README + DEPLOYMENT_LOW_RESOURCE cleanup** — 0.5 hari
-   - Removed stale OpenFang banner claiming sections that don't exist
-   - Replaced outdated bullet Roadmap with 15-feature shipped table + Horizon section
-   - Fixed inconsistent container counts (5 → 7) in 2 places
-   - Added Prometheus/Alertmanager rows to Hardware breakdown
-   - Cleaned all internal `openfang` refs in DEPLOYMENT_LOW_RESOURCE
-   - Verified: zero `openfang|OpenFang` matches in active docs (TASK_ARCHIVE retains historical)
+**Tier 2 — Blocked on user input:**
 
-4. **Documentation Sync Phase 1** — 1 hari, detection-only
-   - `langgraph-agent/app/docs_sync.py` NEW (~250 lines): diff classifier + LLM analyzer + Telegram formatter
-   - Pre-classifies diff via regex: API changes, env vars, command handlers, doc files
-   - LLM output: VERDICT (NEEDS_DOCS / NO_DOCS_NEEDED) + AFFECTED_AREAS + SUGGESTIONS + SUMMARY
-   - `/api/docs/suggest` endpoint (rate-limited 6/min)
-   - `/docsync owner/repo#123` (GitHub) or `/docsync gitlab:project_id!iid` (GitLab)
-   - Reuses `pr_review.fetch_pr_diff()` and `gitlab_review.fetch_mr_diff()`
+4. **Spec-to-Implementation** (2-3 hari) — needs real PRD/feature spec from user
+5. **Onboard VPS to Prometheus** — needs IP/SSH list from user
 
-5. **Auto PR Review — full dogfood loop, 5 bugs surfaced + fixed** ⭐ MAJOR DEBUGGING WIN
-   - User reported: bot kirim Telegram with verdict but PR never got review comment (silent failure on `oppytut/jeevatix#10/11/12`)
-   - Diagnosed via SSH to VPS, webhook delivery telemetry, container exec — found 5 distinct bugs in single feature
+**Tier 3 — Wait for dogfood signal (1-2 weeks minimum):**
 
-   **Bug 1: Silent post failure** (commit `535cfdf`)
-   - `post_review()` returned `None` on HTTP error, caller ignored
-   - Telegram always sent fake-success notification
-   - Fix: return `{ok, status, data, error}` dict; surface `✅ Posted` / `⚠️ NOT posted (HTTP X)` in Telegram
+6. **Deps Watchdog Phase 2 (auto-PR)** — review noise level on `/deps` reports
+7. **Docs Sync Phase 2 (auto-PR)** — review false positive rate on `/docsync`
+8. **Firewall Audit Phase 2 (auto-remediation)** — review audit signal accuracy
 
-   **Bug 2: Webhook timeout** (commit `717a1cc`, in PR #10)
-   - Handler `await handle_pr_event()` blocks 30-60s for fetch+LLM+post
-   - GitHub webhook timeout limit = 10s → "timed out 504"
-   - Fix: FastAPI `BackgroundTasks` — return `{queued: true}` in <3s, pipeline runs async
-   - Telemetry verified: 504 (10s) → 200 (1.02-2.55s)
+### Useful commands for next session
 
-   **Bug 3: PAT scope insufficient** (user-side fix)
-   - Telegram surfaced after Bug 1 fix: `HTTP 403 — Resource not accessible by personal access token`
-   - User updated GH_PAT with `pull_requests: write` scope, manually triggered redeploy
+```bash
+# Verify CI status
+gh run list --workflow=deploy.yml --limit 5
 
-   **Bug 4: Empty diff silent skip** (commit on PR #12)
-   - PR #11 (empty commits) caused `fetch_pr_diff` return empty string
-   - `if not diff: return {"error": ...}` early-exit silently — no Telegram notif
-   - Fix: send explicit `⚠️ Skipped: empty or unfetchable diff` Telegram message
+# Run tests locally
+python3 -m pytest -v
 
-   **Bug 5: send_message can raise from background** (caught by Auto PR Review on PR #12)
-   - Bot reviewed my Bug 4 fix, found `await telegram.send_message` can raise httpx.RequestError → crash background pipeline
-   - Fix: defensive `telegram.py` — wrap client setup + per-recipient POST in try/except, never raise, always return dict
-   - Per-recipient errors captured in `results[i].error`
+# Run lint check locally
+python3 -m compileall -q telegram-bot langgraph-agent
+# AST orphan-ref check is inline in deploy.yml, can copy-paste to local script
 
-   **Verification flow:**
-   - PR #10 merged → CI deploy fix #1+2 → 504→200 telemetry confirmed
-   - PR #11 (empty commits) → exposed bug #4
-   - PR #12 → real diff → bot self-reviewed, posted GitHub comment ✅, caught bug #5
-   - Bot re-reviewed after bug #5 fix → suggested caller-level wrapper (defense-in-depth, optional, deferred)
-   - PR #12 merged → CI deploy → 6 webhook deliveries 200 OK in 1-3s
+# Tail bot logs (requires SSH to VPS)
+ssh prosec "docker logs telegram-bot --tail 100 -f"
 
-### Bug fixed mid-session (earlier)
+# Trigger DNS + SSL via Telegram
+/ssl add domain1.com
+/ssl add domain2.com
+/dns                    # auto-uses SSL list
+```
 
-- ⚠️ **Bot.py orphan-references** — Earlier deps watchdog code injection had silent oldString mismatch. Bot referenced `cmd_deps`, `_deps_check_job`, `_run_deps_check` without defining them → would NameError on startup. Fixed by injecting full Dependency Watchdog block before "Config Drift Detector" section.
-- **Lesson:** `py_compile` catches syntax but NOT undefined module-level references. After multi-step edits, also run AST check: `python3 -c "import ast; ast.parse(open('file.py').read())"` then verify required functions exist.
+### Lessons from this session (institutional memory)
 
-### Key debugging techniques (Auto PR Review session)
+1. **CI gate caught broken test** (PR #17→#18) — proved the value within hours of shipping. Without `needs: [lint, test]`, broken pyyaml import would have shipped to prod.
 
-1. **Webhook delivery telemetry** — `gh api repos/X/hooks/HOOK_ID/deliveries` shows status_code + duration per delivery. Pre/post-deploy comparison ironclad evidence (504/10s vs 200/1.4s).
-2. **SSH to VPS for log inspection** — `docker logs --since Xm langgraph-agent | grep ...` reveals what BackgroundTask actually did. **Critical for any silent failure.**
-3. **`docker exec ... python3 -c "..."` for live diagnosis** — verified `fetch_pr_diff` returns `0 bytes for empty commit` vs `95KB for real diff`. Eliminated guesswork.
-4. **Self-test with the feature itself** — bot reviews its own PR. Catches real bugs (twice in this session). Best dogfood pattern available.
-5. **Trust webhook ack ≠ pipeline success** — GitHub returns 200 if webhook accepted; doesn't tell you if BackgroundTask completed. Always require terminal observability (Telegram notif, GitHub review, log line).
+2. **Transitive imports in tests** — `app.deps_watchdog` imports `app.code_repos` which imports `yaml`. Test job needs full langgraph-agent reqs, not just bot's. Future: test new langgraph-agent module → must update CI install step.
 
-### Key decisions
+3. **GitHub release CDN flakiness** — appleboy/ssh-action download via GitHub releases got 502 once (run 26697264312). Self-resolves on rerun. Not worth fixing unless recurring.
 
-- **All Phase 1 detection-only, no auto-PR yet** — risk of N repos × M issues = PR spam. Dogfood first.
-- **Reuse existing infra everywhere** — Whisper, `tools.create_task()`, `code_repos._sync_repo()`, `pr_review.fetch_pr_diff()`. Zero new dependencies, zero new env vars.
-- **Silent on clean (matches capacity/SSL pattern)** — only notify when issues found
-- **OSV.dev over Snyk/GitHub Advisory** — free, no API key, comprehensive coverage
-- **Lockfile preferred over manifest for npm** — drops `package.json` if `package-lock.json` exists (avoids version-range guesswork)
-- **Severity enrichment limited to 30 vulns/scan** — avoid OSV detail-endpoint rate limit
+4. **Smoke-test pattern for CI gates** — always intentionally inject the bug we're trying to catch, verify CI catches it, restore. Did this for both lint orphan-ref and pytest gate.
 
-### Files changed this session
+5. **Cancelled deploy ≠ failed deploy** — when 2 PRs merge in quick succession, GitHub auto-cancels the in-flight run via `concurrency.cancel-in-progress`. Showed `[X]` icon but conclusion was `cancelled`, not `failure`. Don't panic.
 
-**NEW modules:**
-- `langgraph-agent/app/meeting_notes.py` (~200 lines)
-- `langgraph-agent/app/deps_watchdog.py` (~340 lines)
-- `langgraph-agent/app/docs_sync.py` (~250 lines)
+### Recently Completed
 
-**Modified:**
-- `langgraph-agent/app/main.py` — 3 imports + 3 request models + 3 endpoints (`/api/meeting_notes`, `/api/deps/scan`, `/api/docs/suggest`) + BackgroundTasks for webhook handlers
-- `langgraph-agent/app/pr_review.py` — `post_review` returns dict, surface posting status, empty-diff Telegram notif
-- `langgraph-agent/app/gitlab_review.py` — `post_mr_comment` returns dict, surface posting status, empty-diff Telegram notif
-- `langgraph-agent/app/telegram.py` — defensive `send_message` (never raises, always returns dict)
-- `telegram-bot/bot.py` — `cmd_meeting`, `cmd_deps`, `cmd_docsync` + `_run_deps_check`, `_deps_check_job`, `_looks_like_meeting`, `_process_meeting_transcript` + voice routing + scheduler block + 3 BotCommand entries + menu/help text
-- `README.md` — Status banner, AI Agent Engine section, Roadmap (table + Horizon), Hardware breakdown, container counts
-- `DEPLOYMENT_LOW_RESOURCE.md` — Banner refocused, openfang refs replaced (mkdir, restart, resource table)
-- `AI_AGENT_ROADMAP.md` — Tier 1.3 + 3.3 + 3.4 marked done, Shipped Features table updated
-- `TASK.md` — this update
-
-### Commits/PRs landed (in order)
-
-- `535cfdf` fix(review): surface GitHub/GitLab post failures in Telegram
-- `32291a3` feat: meeting notes + dependency watchdog + docs sync (Phase 1)
-- `4db67b7` docs: refresh README, deployment guide, roadmap, TASK handoff
-- `717a1cc` fix(webhook): return 202 immediately to avoid GitHub 10s timeout
-- PR #10 → merged (squashed to `05a7ecc`) → CI deploy success 1m57s
-- Manual workflow_dispatch redeploy after user updated GH_PAT scope → 1m35s
-- `6dfe61c` PR #12 squash: empty-diff surface + defensive telegram.send_message → CI deploy 2m1s
-
-### Verification done
-
-- ✅ Syntax (`py_compile`) clean on all changed files
-- ✅ AST verification: all required functions present (after orphan-ref bug)
-- ✅ LSP diagnostics: no new errors (only pre-existing slowapi/Telegram Optional warnings)
-- ✅ Meeting parser smoke test: 5 action items + edge cases (empty sections, malformed priority, bare title)
-- ✅ Deps parsers smoke test: npm/pip/composer/go.mod with synthetic manifests
-- ✅ OSV.dev integration test: lodash@4.17.20 returned 5 real CVEs with severity
-- ✅ Docs_sync diff parser + classifier + LLM response parser tested with multi-file diff
-- ✅ **Auto PR Review end-to-end** (PR #12): bot reviewed itself, posted GitHub comment, caught real bug in own fix
-- ✅ Webhook telemetry: 504 (10s) → 200 (1.0-2.5s) across 6 deliveries post-deploy
-- ✅ Live diagnosis via `docker exec ... python3` — verified `fetch_pr_diff` empty for empty commits, 95KB for real diffs
-
-### NOT verified (need real-world dogfood)
-
-- ⚠️ `/meeting` accuracy on actual voice rapat (heuristic false-positive on long monologue?)
-- ⚠️ `/deps` real repo timing (gmedia-erp, dokfin-backend) — could OSV batch take >300s?
-- ⚠️ `/docsync` LLM output quality on real PRs
-- ⚠️ Daily schedulers fire correctly at 03:00 WIB
-
-### Deferred (wait dogfood data)
-
-- **Auto-PR for deps** (Phase 2) — after Phase 1 validates noise level
-- **Auto-PR with doc updates** (docs_sync Phase 2) — same reason
-- Grafana (tunggu actual trend visualization need)
-- Embedding model upgrade / Hybrid search BM25
-- Skills Phase 2C (executable skills)
-- py3.14 migration (wait wheels)
-- `/repo add/del/list` — dynamic project management via Telegram
-
-### Next session focus (PRIORITY ORDER)
-
-1. **Dogfood the 4 new features** — passive ongoing, real workload signal
-   - `/meeting` — test voice rapat real
-   - `/deps` — run on `gmedia-erp` + `dokfin-backend`, verify scheduler
-   - `/docsync` — test on actual PR
-   - Auto PR Review (still open from previous session) — webhook on real repo
-2. **Onboard remaining 8-13 VPS to Prometheus** (high priority, monitoring scope completion)
-   - Butuh dari user: list IP/hostname + provider + SSH access
-   - `/monitor add <name> <host> <port> <user>` via Telegram
-3. **Next roadmap items** (AI-suitable, recommended order):
-   - **Firewall Audit Agent** (1 hari) — nightly UFW scan via SSH, alert-only, read-only by default
-   - **Docker Image Hygiene** (0.5 hari) — track image size growth, prune dangling only
-   - **DNS Health Monitor** (0.5 hari) — hourly multi-resolver dig, alert anomaly
-   - **Spec-to-Implementation** (2-3 hari) — needs real spec from user
-   - **Deps Watchdog Phase 2: auto-PR** (1 hari) — after dogfood Phase 1
-   - **Docs Sync Phase 2: auto-PR** (1 hari) — after dogfood Phase 1
-
-### Critical patterns (read before onboarding next VPS)
-
-**Port 19100, NOT 9100:** ISP-level filter on well-known Prometheus port discovered onboarding erpstg (Biznet → DO Singapore). Use `:19100` for ALL future VPS.
-
-**`--force-recreate prometheus alertmanager` di CI deploy:** Bind-mount Docker pins to inode at container start. `git pull` rewrites config → new inode → running container serves stale. Fix: force-recreate after `up -d --remove-orphans`.
-
-**Adding a new VPS target:**
-1. Install `prometheus-node-exporter`, override listen to `:19100`, enable+start
-2. Firewall: allow 19100 only from pro-secretary IP (`159.223.40.74`)
-3. Append target to `prometheus/prometheus.yml`
-4. Push → CI auto-deploys with force-recreate
+- ✅ [2026-05-30 23:45 UTC] **CI pytest suite shipped** — 71 unit tests across 2 modules, deploy `needs: [lint, test]`, smoke-tested with regression injection
+- ✅ [2026-05-30 23:30 UTC] **CI lint gate shipped** — AST orphan-ref check on bot.py, deploy gated on lint pass
+- ✅ [2026-05-30 23:18 UTC] **3 dependabot PRs resolved** — #9 + #7 merged, #8 closed (py3.14 deferred), 5 labels created
+- ✅ [2026-05-30 23:08 UTC] **Deploy log capture shipped** (PR #15) — post-deploy bot startup log filtered for scheduler/error patterns
+- ✅ [2026-05-30 22:55 UTC] **3 read-only infra agents shipped** — Docker Hygiene + DNS Health + Firewall Audit (PR #14)
+- ✅ [2026-05-30 10:50 UTC] Auto PR/MR Review silent-failure fixed
 
 ---
 
@@ -351,182 +299,6 @@ Self-hosted AI personal secretary system - 24/7 assistant yang tahu semua pekerj
 ### Monitoring targets
 - `pro-secretary` (`host.docker.internal:9100`) — up
 - `erpstg` (`119.2.52.24:19100`) — up
-
----
-
-## 🚧 CURRENT WORK
-
-### Active Tasks
-- [ ] **DOGFOOD 7 new features** — `/meeting`, `/deps`, `/docsync`, Auto PR Review (Phase 1) + `/hygiene`, `/dns`, `/firewall` (read-only infra) on real workload (passive 1-2 minggu)
-- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs list from user (IP, provider, SSH access)
-- [ ] **DECISION POINT: Pick next roadmap items** — user decides from `AI_AGENT_ROADMAP.md`
-- [ ] **DEFERRED: Deps Watchdog Phase 2 (auto-PR)** — wait Phase 1 dogfood data
-- [ ] **DEFERRED: Docs Sync Phase 2 (auto-PR)** — wait Phase 1 dogfood data
-- [ ] **DEFERRED: Firewall Audit Phase 2 (auto-remediation)** — wait audit signal data
-- [ ] **DEFERRED: Grafana** — wait actual trend visualization need
-- [ ] **DEFERRED: py3.14** — wait py-rust-stemmers wheels
-
-### Blocked/Waiting
-- VPS list from user (blocks Prometheus onboarding)
-- Real PR/MR + voice rapat for Phase 1 dogfood validation
-
-### Recently Completed
-
-- ✅ [2026-05-30 22:55 UTC] **Docker Image Hygiene + DNS Health Monitor + Firewall Audit Agent** shipped
-  - 3 read-only infra agents inline di `bot.py` (~520 lines total): scheduler + parsers + commands
-  - Reuse pattern: `_ssh_exec`, `_get_ssh_targets`, `_config_get/_set`, JSON config store, silent-on-clean alert
-  - Schedule allocation: 02:15 hygiene, 03:30 firewall, DNS every 4h (non-overlap dengan existing)
-  - Dockerfile: added `dnsutils` (dig) + `iproute2` (fallback ss)
-  - 5 BotCommand entries added: `/hygiene`, `/dns`, `/firewall` (+ `add/del/list` subcommands)
-  - Smoke tests pass: docker size parser (7 formats), df parser, ss output parser (public/loopback split), live DNS dig
-  - All schedulers wired in `post_init`, AST orphan-ref check passed (27 expected functions)
-  - Phase 2 firewall auto-remediation deferred until audit data validates noise level
-
-- ✅ [2026-05-30 10:50 UTC] Auto PR/MR Review silent-failure fixed
-  - **Bug:** Bot mengirim Telegram notif "Verdict: COMMENT" + summary, tapi review TIDAK pernah muncul di GitHub/GitLab. User report: oppytut/jeevatix#10/11/12 dapat Telegram tapi PR comment kosong.
-  - **Root cause:** `post_review()` / `post_mr_comment()` returns `None` on HTTP error (logged but swallowed). Caller IGNORE failure dan tetap kirim Telegram dengan summary seolah berhasil.
-  - **Fix:** `post_review()` / `post_mr_comment()` sekarang return `{"ok": bool, "status": int, "data": dict, "error": str}`. Telegram message includes ✅/⚠️ post status + HTTP code + error snippet kalau gagal.
-  - Files: `langgraph-agent/app/pr_review.py` (handle_pr_event, review_pr_on_demand, post_review), `langgraph-agent/app/gitlab_review.py` (handle_mr_event, review_mr_on_demand, post_mr_comment)
-  - **Diagnostic next time:** kalau Telegram say `⚠️ NOT posted (HTTP 403)`, cek PAT scope (`pull_requests: write` for fine-grained) atau collaborator access ke repo.
-
-- ✅ [2026-05-30 10:40 UTC] TASK.md handoff cleanup
-  - `langgraph-agent/app/docs_sync.py` (~250 lines) — diff classifier + LLM analyzer + Telegram formatter
-  - Pre-classifies diff with regex: API changes, env vars, command handlers, doc files
-  - LLM analyzer: VERDICT (NEEDS_DOCS / NO_DOCS_NEEDED) + AFFECTED_AREAS + SUGGESTIONS + SUMMARY
-  - Endpoint `/api/docs/suggest` (rate-limited 6/min)
-  - `/docsync owner/repo#123` (GitHub) or `/docsync gitlab:project_id!iid` (GitLab)
-  - Reuses `pr_review.fetch_pr_diff()` and `gitlab_review.fetch_mr_diff()`
-  - Smoke tests passed: diff parser + classifier + LLM response parser + edge cases
-  - Phase 2 (auto-PR with doc updates) deferred until dogfood
-
-- ✅ [2026-05-30 10:32 UTC] Bot.py orphan-references bug fixed
-  - Earlier deps watchdog code injection had silent oldString mismatch
-  - Bot.py referenced `cmd_deps`, `_deps_check_job`, `_run_deps_check` without defining them — would NameError on startup
-  - Fixed by injecting full Dependency Watchdog block + cmd_docsync before "Config Drift Detector" section
-  - Verified via AST: all required functions present
-
-- ✅ [2026-05-30 10:20 UTC] README + DEPLOYMENT_LOW_RESOURCE cleanup
-  - README banner — removed stale "OpenFang vs LangGraph" reference (no such section exists)
-  - README Roadmap section — replaced outdated bullet list with shipped table + Horizon section
-  - README "AI Agent Engine" — cleaned defensive justification, focused on LangGraph rationale
-  - README Quick Start — fixed inconsistent container count (5 → 7)
-  - README Hardware Requirements — fixed container count + added Prometheus/Alertmanager rows
-  - DEPLOYMENT_LOW_RESOURCE banner — refocused warning on CI-driven deploy
-  - DEPLOYMENT_LOW_RESOURCE — removed all internal `openfang` references
-  - Verified: zero `openfang|OpenFang` matches in active docs
-
-- ✅ [2026-05-30 10:13 UTC] Dependency Watchdog Phase 1 shipped
-  - `langgraph-agent/app/deps_watchdog.py` (~340 lines) — multi-ecosystem scanner
-  - Parsers: npm (`package.json` + `package-lock.json` v1/v2/v3), PyPI (`requirements.txt` + `pyproject.toml`), Packagist (`composer.lock`), Go (`go.mod`)
-  - OSV.dev integration — batch query, severity enrichment, free no API key
-  - Endpoint `/api/deps/scan` (rate-limited 4/min)
-  - `/deps [repo_id]` command + daily scheduler at 03:00 WIB (silent on clean)
-  - Reuses `code_repos._sync_repo()` for git clone with PAT auth
-  - Smoke tests passed: parsers + OSV (lodash@4.17.20 → 5 CVEs detected)
-  - Phase 2 (auto-PR) deferred until dogfood data validates noise level
-
-- ✅ [2026-05-30 09:58 UTC] Meeting Notes → Action Items shipped
-  - New module `langgraph-agent/app/meeting_notes.py` (198 lines)
-  - Endpoint `/api/meeting_notes` (rate-limited 6/min, 20K char transcript max)
-  - `/meeting <transkrip>` command + reply-mode + voice auto-route (≥500 chars OR ≥2 keywords)
-  - Output: action items (priority + owner + deadline), decisions, next steps, summary
-  - Auto-creates tasks via existing `tools.create_task()` — reuse Whisper + task infra existing
-  - Parser smoke-test passed: 5 action items + edge cases (empty sections, malformed priority, bare title)
-  - Files: `meeting_notes.py` (new), `main.py`, `bot.py`, `AI_AGENT_ROADMAP.md`
-
-- ✅ [2026-05-30 00:22 UTC] Auto PR Review hardening + deploy.yml audit
-  - `parse_mode=HTML` fix for Telegram notifications
-  - Whitelist sync error handling (log + notify instead of silent pass)
-  - Diff truncation notice in review body when >12K chars
-  - Single retry with 2s backoff on diff fetch failure
-  - Webhook setup helper: `/review add` shows `gh`/`glab` CLI snippet
-  - deploy.yml: added AGENT_HOST, GH_WEBHOOK_SECRET, GITLAB_WEBHOOK_SECRET
-  - deploy.yml: removed deprecated OPENFANG_SECRET
-  - `.env.example`: documented PAT scopes + webhook secrets
-
-- ✅ [2026-05-28 14:36 UTC] Auto PR Review deployed
-  - GitHub webhook → agent `/api/webhook/github` endpoint
-  - GitLab webhook → agent `/api/webhook/gitlab` endpoint
-  - Signature verification (HMAC SHA-256 for GitHub, token for GitLab)
-  - Fetches PR/MR diff, LLM analyzes (bugs, security, performance, error handling)
-  - GitHub: posts review (APPROVE/COMMENT/REQUEST_CHANGES)
-  - GitLab: posts comment on MR
-  - `/review add github:owner/repo` or `/review add gitlab:owner/repo` — manage whitelist via Telegram
-  - `/review del`, `/review list` — remove/list monitored repos
-  - `/review owner/repo#123` — on-demand review trigger
-  - Whitelist synced from bot → agent on every add/del
-  - Empty whitelist = review all (backward compat)
-  - Telegram notification on every review posted
-  - Caddy route exposes only webhook paths
-  - New files: `langgraph-agent/app/pr_review.py`, `langgraph-agent/app/gitlab_review.py`
-  - Env: `GH_WEBHOOK_SECRET`, `GITLAB_WEBHOOK_SECRET`, `AGENT_HOST`
-  - Setup: configure repo webhook → `https://{AGENT_HOST}/api/webhook/github` or `/api/webhook/gitlab`
-
-- ✅ [2026-05-28 14:24 UTC] Capacity Planning deployed
-  - predict_linear forecast: disk + RAM exhaustion (7d lookback, 14d horizon)
-  - Daily 02:10 WIB scheduled (silent when OK, alerts on predicted exhaustion)
-  - `/capacity` command for on-demand forecast
-  - Current usage snapshot included in report
-  - Env: `CAPACITY_CHECK_ENABLED`, `CAPACITY_CHECK_HOUR`, `CAPACITY_CHECK_MINUTE`, `CAPACITY_WARN_DAYS`
-
-- ✅ [2026-05-28 14:12 UTC] Dynamic Config via Telegram
-  - `/ssl add/del/list` — manage SSL watchlist domains
-  - `/monitor add/del/list` — manage VPS SSH targets
-  - JSON config store persisted in `bot_data` volume
-  - Env vars remain as seed/fallback, config store takes precedence
-  - All existing code refactored to use dynamic config
-
-- ✅ [2026-05-28 11:36 UTC] SSL/Domain Watchdog deployed
-  - Check SSL cert expiry for all configured domains via TLS connection
-  - Alert 30 days before expiry (configurable via `SSL_WARN_DAYS`)
-  - Daily scheduled at 02:05 WIB (silent when OK, alerts on warnings)
-  - `/ssl` command for on-demand check
-  - Env: `SSL_CHECK_ENABLED`, `SSL_CHECK_DOMAINS`, `SSL_WARN_DAYS`
-  - Requires: set `SSL_CHECK_DOMAINS=domain1.com,domain2.com` in `.env`
-
-- ✅ [2026-05-28 10:56 UTC] Config Drift Detector deployed
-  - Docker image version drift check (running vs expected from docker-compose.yml)
-  - Container set check (missing/unexpected containers)
-  - Cron entry verification (health_check, backup, sync_vault)
-  - Remote VPS container liveness via SSH
-  - Daily 02:00 WIB scheduled (silent when clean, alerts on drift)
-  - `/drift` command for on-demand check
-  - Docker CLI added to bot container (static binary + socket mount)
-  - Env: `DRIFT_CHECK_ENABLED`, `DRIFT_CHECK_HOUR`, `DRIFT_CHECK_MINUTE`
-
-- ✅ [2026-05-28 10:35 UTC] Incident Auto-Responder deployed
-  - Auto-restart down/unhealthy containers via SSH (skips restart loops)
-  - Auto-prune Docker when disk >90% (Prometheus-triggered)
-  - Verification re-check after each fix (10s restart, 35s prune)
-  - Separate Telegram audit message for all auto-fix actions
-  - Env: `AUTO_FIX_ENABLED`, `DISK_AUTOFIX_THRESHOLD_PCT`
-
-- ✅ [2026-05-28 08:56 UTC] Morning Standup Brief implemented
-  - Bot-side aggregation: schedule+tasks (agent), VPS status+alerts (Prometheus), open PRs+commits+CI (GitHub API)
-  - `run_daily` at 07:00 WIB via PTB JobQueue with `Asia/Jakarta` timezone
-  - `/briefing` command now triggers full morning brief on-demand
-  - Env vars: `GH_PAT`, `MORNING_BRIEF_ENABLED`, `MORNING_BRIEF_HOUR`, `MORNING_BRIEF_MINUTE`
-
-- ✅ [2026-05-28 03:26 UTC] AI Agent 24/7 Roadmap documented
-  - `AI_AGENT_ROADMAP.md` — 30+ features across 6 tiers with technical how-it-works
-
-- ✅ [2026-05-28 02:45 UTC] `/menu` UX overhaul
-  - Grouped inline keyboard buttons (6 categories)
-  - Help button with full command reference
-  - BotCommand list reduced to 6 most-used
-
-- ✅ [2026-05-28 02:30 UTC] Restart loop detection + Alertmanager dedup
-  - Track restart count in rolling window (3x in 15 min = alert)
-  - Removed InstanceDown from Prometheus (bot covers it)
-
-- ✅ [2026-05-28 02:10 UTC] Periodic health check verified end-to-end
-  - Stop meilisearch → alert fired → restart → recovery alert fired
-  - Both sendMessage returned 200 OK
-
-- ✅ [2026-05-27 09:52 UTC] Container monitoring via SSH — deployed
-  - SSH-based approach: bot SSH → docker ps. erpstg 3 containers visible.
-
-- ✅ [2026-05-27 08:40 UTC] TASK.md condensed (2562→266 lines)
 
 ---
 

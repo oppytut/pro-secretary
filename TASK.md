@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 05:00 UTC
+**Last Updated:** 2026-05-31 05:21 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + CI hardening (lint gate covers bot.py + langgraph-agent main.py + 71 unit tests). Sesi 2026-05-31 closed dengan 1 PR merged + live smoke test.
+**Status:** ✅ 13 features shipped + CI hardened (3 lint gates: bot.py orphan + main.py cross-module orphan + ruff F401, 71 unit tests, coverage baseline 12.8%, Node 24 active). Sesi 2026-05-31 closed dengan 4 PR ke main.
 
 > Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
 
@@ -10,26 +10,41 @@
 
 ## 🤝 FOR NEXT SESSION (read this first)
 
-**Where we left off:** Sesi 2026-05-31 — extended lint gate to langgraph-agent main.py (cross-module orphan-ref check). Dogfood window terus berjalan (7 fitur Phase 1, sejak 2026-05-30 23:00 UTC).
+**Where we left off:** Sesi 2026-05-31 — extended lint gate ke langgraph-agent main.py + autonomous stack (Node 24 + pytest-cov + ruff F401). Dogfood window terus berjalan (7 fitur Phase 1, sejak 2026-05-30 23:00 UTC, ~30h elapsed).
 
-### Session 2026-05-31 — what shipped (1 PR direct to main + smoke test cycle)
+### Session 2026-05-31 — what shipped (4 commits ke main)
 
 **Feature work:**
-1. **commit `ed5f211`+** (direct push, no PR) — `ci: extend lint gate to langgraph-agent main.py orphan-refs` (commit hash di history setelah merge)
+
+1. **`ci: extend lint gate to langgraph-agent main.py orphan-refs`** (early sesi)
    - New step di `lint` job: parses `langgraph-agent/app/main.py` AST, extracts `module.attr` references where `module` is from `from . import ...`, verifies each `attr` is a top-level name in sibling `.py` file
    - Catches same failure mode as bot.py gate (PR #16) but for cross-module calls (e.g. `pr_review.handle_pr_event` typo)
-   - Defined names checked: `FunctionDef`, `AsyncFunctionDef`, `ClassDef`, `Assign`, `AnnAssign`, `Import`, `ImportFrom` (covers re-exports)
    - Local: 44 cross-module refs across 16 modules clean
-   - Run 26703604570 baseline green: lint 5s, test 30s, deploy 1m36s
+   - Live smoke test: run 26703689068 caught injected typo, run 26703708905 restored green
 
-2. **Smoke test cycle (commits + revert)**
-   - Injected `pr_review.handle_pr_event_TYPO_SMOKE` typo, pushed → run 26703689068 caught at line 528, lint failed in 6s, deploy correctly skipped via `needs: [lint, test]`
-   - Reverted typo, pushed → run 26703708905 fully green, deploy succeeded
-   - **CI gate behaves identical to PR #16 pattern** — proven end-to-end before relying on it
+2. **`ci: opt into Node 24 for GHA actions`** (autonomous stack #1)
+   - Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"` di workflow-level `env`
+   - Eliminates Node 20 deprecation noise; verified live in run 26703894545
+   - GitHub deprecates Node 20 di June 16, 2026
+
+3. **`ci: add pytest-cov + coverage baseline summary`** (autonomous stack #2)
+   - Foundation untuk Test Coverage Agent (Tier 1.5)
+   - `pytest.ini`: `--cov=bot --cov=app --cov-report=term --cov-report=xml`
+   - New step parses `coverage.xml`, writes per-package breakdown ke `GITHUB_STEP_SUMMARY` (markdown table, sorted ascending by coverage)
+   - **Baseline (verified):** Line 12.8% (634/4973), `langgraph-agent.app` 11.0%, `telegram-bot` 14.9%
+   - No threshold enforced — pure measurement
+
+4. **`ci: gate unused imports via ruff F401 + cleanup existing`** (autonomous stack #3)
+   - New step di `lint` job: `ruff check --select=F401`
+   - Cleanup 4 existing violations:
+     - `deps_watchdog.py`: removed unused `config` import
+     - `gitlab_review.py`: removed unused `hashlib` + `llm` imports
+     - `system_status.py`: removed unused `subprocess` import
+   - Verified each not re-exported (no `__all__` in `app/`)
 
 ### Production state at handoff (verified live)
 
-**Containers (verified via run 26703708905 post-deploy probe):**
+**Containers (verified via run 26704109680 post-deploy probe):**
 ```
 alertmanager      Up (healthy)
 caddy             Up
@@ -40,19 +55,26 @@ prometheus        Up (healthy)
 telegram-bot      Up
 ```
 
-**CI pipeline now covers (3 gates total):**
-- `lint` (~6s) — compileall + bot.py orphan-ref + **main.py cross-module orphan-ref (NEW)**
-- `test` (~30s) — 71 pytest unit tests
-- `deploy` (~1m35s) — Docker compose up + post-deploy probes
+**CI pipeline now covers (4 lint gates + coverage):**
+- `lint` (~6s) — compileall + **ruff F401 (NEW)** + bot.py orphan-ref + **main.py cross-module orphan-ref (NEW)**
+- `test` (~33s) — 71 pytest tests + **coverage baseline summary (NEW)**
+- `deploy` (~1m32-2m03s) — Docker compose up + post-deploy probes
+- **Node 24** active for all jobs
 
 ### Files changed this session
 
-**Infrastructure:**
-- `.github/workflows/deploy.yml` — +76 lines (new "Langgraph-agent main.py cross-module orphan-reference check" step in lint job)
+**Infrastructure (4 PRs):**
+- `.github/workflows/deploy.yml` — +124 lines net (3 new steps in lint, 2 new steps in test, env block, lint step ordering)
+- `pytest.ini` — coverage flags
+- `.gitignore` — `.coverage`, `coverage.xml`, `htmlcov/`
+
+**Application code (cleanup only):**
+- `langgraph-agent/app/deps_watchdog.py` — -1 line
+- `langgraph-agent/app/gitlab_review.py` — -2 lines
+- `langgraph-agent/app/system_status.py` — -1 line
 
 **Documentation:**
 - `TASK.md` — this update
-- `AI_AGENT_ROADMAP.md` — Tier 1 next-session item #1 marked done
 
 ### Active Tasks (for next session)
 
@@ -72,7 +94,7 @@ telegram-bot      Up
 
 **Tier 1 — Fully autonomous AI-suitable, no blocker:**
 
-1. **Refactor bot.py into modules** (1-2 hari, RECOMMENDED) — `bot.py` is now **3500+ lines** with 8 watchdogs inline. Extract to `telegram-bot/watchdogs/`:
+1. **Refactor bot.py into modules** (1-2 hari, RECOMMENDED) — `bot.py` 3500+ lines dengan 8 watchdog inline. Extract to `telegram-bot/watchdogs/`:
    ```
    telegram-bot/
    ├── bot.py (orchestrator + handlers registration only)
@@ -85,26 +107,33 @@ telegram-bot      Up
    ```
    - **Why now:** before next watchdog adds another 200+ lines. Tech debt grows quadratic.
    - **Risk:** medium — pure code reorg, no behavior change, but PTB handler registration order matters
-   - **Mitigation:** 1 PR per watchdog (start with DNS or Hygiene, smallest blast radius), each independently verifiable via deploy log capture
-   - **Coverage:** 71-test suite catches parser regressions, 2 lint gates catch orphan refs (bot.py + main.py)
+   - **Mitigation:** 1 PR per watchdog (start with DNS or Hygiene, smallest blast radius), verifiable via deploy log capture
+   - **Coverage:** 71-test suite + 3 lint gates + ruff F401 sebagai safety net
+   - **Heads-up:** orphan-ref check in deploy.yml currently parses `bot.py` as single file. Refactor will need to update the AST walker to handle multi-file or follow imports.
 
-2. **Test Coverage Agent** (Tier 1.5 from roadmap, 2-3 hari) — now that test foundation exists + 2 lint gates protect against orphan refs:
-   - Reuse explore agent → coverage report scan
-   - Identify untested public functions
+2. **Test Coverage Agent** (Tier 1.5 from roadmap, 2-3 hari) — coverage baseline already shipped:
+   - Reuse explore agent → coverage.xml parser
+   - Identify untested public functions (start dengan files showing 0% in baseline: `docs_sync`, `gitlab_review`, `journal`, `meeting_notes`, `pr_review`, `resource_alerts`, `skills`, `sync`, `system_status`, `telegram`, `tools`, `vps_status`, `workflow`)
    - Generate test stub + run pytest
    - Auto-PR if test passes
    - First target: pro-secretary itself (eat own dogfood)
 
+3. **Quick wins backlog (autonomous-suitable, low risk):**
+   - Pin remaining GHA actions ke SHA (audit + fix any miss)
+   - Standardize logging format (`logging.getLogger(__name__)` everywhere)
+   - Pytest expansion untuk modul belum ter-cover (`docs_sync`, `meeting_notes`, `pr_review` parsers, `gitlab_review`)
+   - Mypy strict gate for public API (Pydantic models di main.py sudah typed, gap di bot.py)
+
 **Tier 2 — Blocked on user input:**
 
-3. **Spec-to-Implementation** (2-3 hari) — needs real PRD/feature spec from user
-4. **Onboard VPS to Prometheus** — needs IP/SSH list from user
+4. **Spec-to-Implementation** (2-3 hari) — needs real PRD/feature spec from user
+5. **Onboard VPS to Prometheus** — needs IP/SSH list from user
 
 **Tier 3 — Wait for dogfood signal (1-2 weeks minimum from 2026-05-30):**
 
-5. **Deps Watchdog Phase 2 (auto-PR)** — review noise level on `/deps` reports
-6. **Docs Sync Phase 2 (auto-PR)** — review false positive rate on `/docsync`
-7. **Firewall Audit Phase 2 (auto-remediation)** — review audit signal accuracy
+6. **Deps Watchdog Phase 2 (auto-PR)** — review noise level on `/deps` reports
+7. **Docs Sync Phase 2 (auto-PR)** — review false positive rate on `/docsync`
+8. **Firewall Audit Phase 2 (auto-remediation)** — review audit signal accuracy
 
 ### Useful commands for next session
 
@@ -112,12 +141,17 @@ telegram-bot      Up
 # Verify CI status
 gh run list --workflow=deploy.yml --limit 5
 
-# Run tests locally
-python3 -m pytest -v
-
-# Run lint check locally (both files)
+# Run full local lint pipeline
 python3 -m compileall -q telegram-bot langgraph-agent
-# Inline AST checks live in deploy.yml — extract heredoc blocks if you want local script
+python3 -m ruff check --select=F401 telegram-bot langgraph-agent tests
+# AST orphan-ref checks live in deploy.yml inline (extract heredoc if needed)
+
+# Run tests with coverage
+python3 -m pytest -v
+# Reads pytest.ini, generates coverage.xml + term report
+
+# View latest coverage delta
+gh run view --log --job=<test_job_id> | grep -A 30 "Coverage summary"
 
 # Tail bot logs (requires SSH to VPS)
 ssh prosec "docker logs telegram-bot --tail 100 -f"
@@ -129,22 +163,23 @@ ssh prosec "docker logs telegram-bot --tail 100 -f"
 
 ### Lessons from this session (institutional memory)
 
-1. **Pattern transfer is cheap when you keep heredoc inline** — copying the bot.py orphan-ref AST walker style to main.py took ~1 hour total (prototype + smoke test + port + live verify + revert). Inline heredoc keeps the lint logic next to the workflow that runs it.
+1. **Stack 3 micro-PRs > 1 mega-PR** — Node 24 + pytest-cov + ruff F401 shipped sequentially in <1 jam total. Each PR independently verifiable via CI run, easy to revert.
 
-2. **`from . import X` → walk Attribute nodes whose value.id ∈ imports** — simpler than tracking call expressions. Catches both `module.fn(...)` and bare attribute access (`module.CONSTANT`).
+2. **Coverage baseline first, threshold later** — measuring without enforcing creates buy-in for Test Coverage Agent. Threshold without baseline = arbitrary number. Baseline = 12.8% gives concrete starting point.
 
-3. **Smoke-test pattern still pays off** — same as PR #16/#17. Inject the bug we're trying to catch, verify CI catches it, restore. Without this, no one would trust the gate.
+3. **textwrap.dedent dies on mixed indentation** — markdown tables generated with f-string + leading whitespace need explicit `\n.join` of pre-built parts. Faster + clearer than wrestling with dedent edge cases.
 
-4. **Cross-module checks have a natural false-positive limit** — only catches direct `module.attr`. Skips: nested `module.sub.attr`, `getattr(module, ...)`, dynamic dispatch. This is intentional — catching the common 80% with zero false positives is better than catching 95% with noise.
+4. **Ruff F401 = high signal, zero noise** — current codebase had 4 violations, all true positives. F401 alone catches the most common dead-code accumulator without false positives from other F-class rules (`F811`, `F841`).
+
+5. **`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` opt-in is cleaner than version bumps** — single env line vs N action version bumps. Annotation still appears (warning becomes informational), but Node 24 actually runs.
 
 ### Recently Completed
 
-- ✅ [2026-05-31 05:00 UTC] **CI lint gate extended to langgraph-agent main.py** — cross-module orphan-ref check, smoke-tested live (run 26703689068 caught typo, run 26703708905 restored green)
+- ✅ [2026-05-31 05:20 UTC] **Ruff F401 gate + cleanup** — 4 unused imports removed, gate active in lint job
+- ✅ [2026-05-31 05:15 UTC] **Coverage baseline** — pytest-cov + GITHUB_STEP_SUMMARY breakdown, 12.8% baseline
+- ✅ [2026-05-31 05:08 UTC] **Node 24 migration** — `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` opt-in
+- ✅ [2026-05-31 05:00 UTC] **CI lint gate extended to langgraph-agent main.py** — cross-module orphan-ref, smoke-tested live (run 26703689068 caught typo, run 26703708905 restored green)
 - ✅ [2026-05-30 23:45 UTC] **CI pytest suite shipped** — 71 unit tests across 2 modules, deploy `needs: [lint, test]`
-- ✅ [2026-05-30 23:30 UTC] **CI lint gate shipped** — AST orphan-ref check on bot.py
-- ✅ [2026-05-30 23:18 UTC] **3 dependabot PRs resolved** — #9 + #7 merged, #8 closed
-- ✅ [2026-05-30 23:08 UTC] **Deploy log capture shipped** (PR #15)
-- ✅ [2026-05-30 22:55 UTC] **3 read-only infra agents shipped** — Docker Hygiene + DNS Health + Firewall Audit (PR #14)
 
 ---
 

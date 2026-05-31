@@ -81,6 +81,13 @@ from watchdogs.morning_brief import (
     cmd_briefing,
     morning_brief_job,
 )
+from watchdogs.test_coverage import (
+    COVERAGE_AGENT_ENABLED,
+    COVERAGE_AGENT_HOUR,
+    COVERAGE_AGENT_MINUTE,
+    cmd_coverage,
+    coverage_scan_job,
+)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = [int(x) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip()]
@@ -2169,6 +2176,19 @@ async def post_init(application: Application):
         )
         logger.info(f"Firewall audit scheduled daily at {FIREWALL_AUDIT_HOUR:02d}:{FIREWALL_AUDIT_MINUTE:02d} WIB.")
 
+    if COVERAGE_AGENT_ENABLED:
+        coverage_time = _time(
+            hour=COVERAGE_AGENT_HOUR,
+            minute=COVERAGE_AGENT_MINUTE,
+            tzinfo=ZoneInfo("Asia/Jakarta"),
+        )
+        application.job_queue.run_daily(
+            coverage_scan_job,
+            time=coverage_time,
+            name="coverage_scan",
+        )
+        logger.info(f"Coverage scan scheduled daily at {COVERAGE_AGENT_HOUR:02d}:{COVERAGE_AGENT_MINUTE:02d} WIB.")
+
     if DNS_CHECK_ENABLED and get_dns_domains():
         application.job_queue.run_repeating(
             dns_check_job,
@@ -2215,6 +2235,7 @@ def main():
     app.add_handler(CommandHandler("docsync", cmd_docsync))
     app.add_handler(CommandHandler("hygiene", cmd_hygiene))
     app.add_handler(CommandHandler("firewall", cmd_firewall))
+    app.add_handler(CommandHandler("coverage", cmd_coverage))
     app.add_handler(CommandHandler("dns", cmd_dns))
     app.add_handler(CallbackQueryHandler(handle_skill_callback, pattern="^autoskill$"))
     app.add_handler(CallbackQueryHandler(handle_menu_callback, pattern="^menu:"))

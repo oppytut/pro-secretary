@@ -10,7 +10,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from . import code_repos, config, deps_watchdog, docs_sync, gitlab_review, journal, llm, meeting_notes, pr_review, resource_alerts, skills, system_status, telegram, tools, vps_status, workflow
+from . import code_repos, config, deps_watchdog, docs_sync, gitlab_review, journal, llm, meeting_notes, pr_review, resource_alerts, skills, system_status, telegram, test_coverage, tools, vps_status, workflow
 from .qdrant_helper import ensure_payload_indexes
 from .sync import sync_vault
 
@@ -574,4 +574,33 @@ async def get_review_repos() -> dict[str, Any]:
 @app.post("/api/review/repos", dependencies=[Depends(verify_secret)])
 async def set_review_repos(req: ReviewReposRequest) -> dict[str, Any]:
     pr_review.set_whitelist(req.repos)
+    return {"ok": True, "repos": req.repos}
+
+
+# --- Test Coverage Agent ---
+
+
+class CoverageScanRequest(BaseModel):
+    repo: str = Field(..., min_length=1)
+    branch: str = Field(default="main", min_length=1)
+    min_coverage: float | None = Field(default=None, ge=0, le=100)
+
+
+@app.post("/api/coverage/scan", dependencies=[Depends(verify_secret)])
+async def coverage_scan(req: CoverageScanRequest) -> dict[str, Any]:
+    return await test_coverage.scan_and_pr(req.repo, branch=req.branch, min_coverage=req.min_coverage)
+
+
+class CoverageReposRequest(BaseModel):
+    repos: list[str]
+
+
+@app.get("/api/coverage/repos", dependencies=[Depends(verify_secret)])
+async def get_coverage_repos() -> dict[str, Any]:
+    return {"repos": test_coverage.get_whitelist()}
+
+
+@app.post("/api/coverage/repos", dependencies=[Depends(verify_secret)])
+async def set_coverage_repos(req: CoverageReposRequest) -> dict[str, Any]:
+    test_coverage.set_whitelist(req.repos)
     return {"ok": True, "repos": req.repos}

@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 17:55 UTC
+**Last Updated:** 2026-05-31 18:20 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 13 features shipped + bot.py refactor batch 6 complete (6 watchdogs + 6 infra modules, 607 tests, all 6 watchdogs at 80%+ coverage, mypy strict 23 modules). Sesi 2026-05-31 closed dengan 41 commits autonomous (~12h).
+**Status:** ✅ 13 features shipped + bot.py refactor batch 7 complete (8 watchdogs + 6 infra modules, 665 tests, all 8 watchdogs at 80%+ coverage, mypy strict 25 modules). Sesi 2026-05-31 closed dengan 44 commits autonomous (~13h).
 
 > ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
 
@@ -10,21 +10,21 @@
 
 ---
 
-## 📦 SESSION HANDOFF (2026-05-31 17:55 UTC) — for fresh opencode session
+## 📦 SESSION HANDOFF (2026-05-31 18:20 UTC) — for fresh opencode session
 
-**Last activity:** Sesi 2026-05-31 closed at 17:55 UTC after run `26719992239` deployed successfully.
+**Last activity:** Sesi 2026-05-31 closed at 18:20 UTC after run `26720591293` deployed successfully.
 
 **Latest commits (last 5):**
 ```
-6d8a8f5 ci+types: add hygiene to mypy strict whitelist (22 -> 23 modules)
-0c2b9ee refactor(bot): extract Hygiene watchdog to watchdogs/hygiene.py
-46d04d8 test: coverage gap fill for watchdogs/{dns,drift,ssl}
-[handoff]  docs(TASK): handoff for sesi 2026-05-31 17:22 (refactor batch 5 polish)
-5c4cb37    docs: add ARCHITECTURE.md
+69ce53a ci+types: add firewall + morning_brief to mypy strict (23 -> 25)
+d2d27c5 refactor(bot): extract Firewall + Morning Brief watchdogs
+[handoff]  docs(TASK): handoff for sesi 2026-05-31 17:55 (refactor batch 6)
+6d8a8f5    ci+types: add hygiene to mypy strict (22 -> 23)
+0c2b9ee    refactor(bot): extract Hygiene watchdog
 ```
 
 **Latest deploy verified:**
-- Run `26719992239` — lint+test+deploy 1m39s — all green
+- Run `26720591293` — lint+test+deploy 1m38s — all green
 - All 7 schedulers registered: health 300s, morning brief 07:00, drift 02:00, capacity 02:10, deps 03:00, hygiene 02:15, firewall 03:30 WIB
 - DNS+SSL schedulers idle (SSL list empty — expected)
 - All 7 containers healthy (verified via post-deploy probes)
@@ -34,13 +34,13 @@
 git status                                    # expect: clean, on main
 git log --oneline -5                          # expect: matches above
 gh run list --workflow=deploy.yml --limit 2   # expect: last 2 'ok'
-python3 -m pytest -q                          # expect: 607 passed
-python3 scripts/lint_orphan_refs.py           # expect: 15 files, 130 functions clean
+python3 -m pytest -q                          # expect: 665 passed
+python3 scripts/lint_orphan_refs.py           # expect: 17 files, 130 functions clean
 ```
 
 **What's safe to start without asking:**
-- Refactor at near-final state. bot.py 2598 LOC. Remaining only Firewall (~280 LOC, multi-config-helper deps) + Morning Brief (~125 LOC, multi-dep) — both medium-risk.
-- See `## 🚀 FRESH SESSION ENTRYPOINT` → "Pick your work" table.
+- **Refactor at terminal state.** All 8 watchdogs extracted. bot.py 2232 LOC. Remaining is purely handler code (cmd_* + monitor + voice + meeting + journal + skill + tanya + health-check) that's tightly coupled with bot orchestration. Further extraction = pure code movement, no design improvement.
+- See `## 🚀 FRESH SESSION ENTRYPOINT` → "Pick your work" table for next steps.
 
 **What's blocked on user:**
 - Spec-to-Implementation (PRD)
@@ -48,22 +48,227 @@ python3 scripts/lint_orphan_refs.py           # expect: 15 files, 130 functions 
 - Activate DNS+SSL (`/ssl add yourdomain.com` via Telegram)
 - **TEST FEATURES IN TELEGRAM** (high-value: dogfood window 43h elapsed)
 
-**Cumulative metrics from sesi 2026-05-31 (~12h, 41 commits):**
-- Tests: 71 → 607 (+536, 8.5x)
-- Coverage: 12.75% → ~38% (+25pp)
+**Cumulative metrics from sesi 2026-05-31 (~13h, 44 commits):**
+- Tests: 71 → 665 (+594, 9.4x)
+- Coverage: 12.75% → ~40% (+27pp)
 - Coverage floor: 12% → 27%
 - CI lint gates: 4 → 8
 - Pre-commit hooks: 0 → 6
-- Mypy strict modules: 0 → 23 (~98% of "leaf" modules)
+- Mypy strict modules: 0 → 25 (~100% of "leaf" modules)
 - SHA-pinned images: 1 → 5 (all production)
-- **bot.py LOC: 3524 → 2598 (-926, -26.3%)**
+- **bot.py LOC: 3524 → 2232 (-1292, -36.7%)**
 - **Top-level docs: README + TASK + ARCHITECTURE.md**
 - **All 6 infra/* modules at 100% coverage**
-- **All 6 watchdogs/* modules at 80%+ coverage (3 at 100%)**
+- **All 8 watchdogs/* modules at 80%+ coverage (6 at 100%)**
 
-**Production state at handoff:** 7 containers up + healthy (verified via run 26719992239). Dogfood window ~43h elapsed of 1-2 week target.
+**Production state at handoff:** 7 containers up + healthy (verified via run 26720591293). Dogfood window ~43h elapsed of 1-2 week target.
 
 ---
+
+## 🏗️ Bot.py Refactor — TERMINAL STATE (see also ARCHITECTURE.md)
+
+**All extractable units now extracted. 8 watchdogs + 6 infra modules. Pattern proven across 7 batches.**
+
+```
+telegram-bot/
+├── bot.py                  (2232 lines — orchestrator + handler-only code)
+├── infra/                  (all 100% covered, all mypy strict)
+│   ├── agent.py            (24 LOC — agent_post + agent_headers)
+│   ├── auth.py             (32 LOC — ALLOWED_USERS + @authorized)
+│   ├── config_store.py     (33 LOC — config_get/set)
+│   ├── gh.py               (29 LOC — gh_api GitHub REST client)
+│   ├── prom.py             (22 LOC — prom_query)
+│   └── ssh.py              (66 LOC — SSH targets registry + ssh_exec)
+└── watchdogs/              (all mypy strict, all 80%+ coverage)
+    ├── capacity.py         (152 LOC — 80% covered)
+    ├── deps.py             (66 LOC — 83% covered)
+    ├── dns.py              (200 LOC — 100% covered)
+    ├── drift.py            (158 LOC — 100% covered)
+    ├── firewall.py         (240 LOC — 100% covered, NEW)
+    ├── hygiene.py          (177 LOC — 100% covered)
+    ├── morning_brief.py    (152 LOC — 100% covered, NEW)
+    └── ssl.py              (165 LOC — 93% covered)
+```
+
+**Refactor history table:**
+
+| Batch | Modules extracted | bot.py LOC delta |
+|---|---|---|
+| 1 (DNS pilot) | `infra/{auth,config_store}` + `watchdogs/dns` | -174 |
+| 2 | `infra/ssh` + `watchdogs/ssl` | -200 |
+| 3 | `infra/prom` + `watchdogs/{capacity,deps,drift}` | -354 |
+| 4 | `infra/{agent,gh}` | -27 |
+| 5 (polish) | tests + ARCHITECTURE.md | 0 |
+| 6 | tests + `watchdogs/hygiene` | -171 |
+| 7 (final) | `watchdogs/{firewall,morning_brief}` | -366 |
+
+**Cumulative: -1292 LOC (-36.7%) across 7 batches.**
+
+**Still inline in bot.py (NOT extractable cleanly):**
+- All `cmd_*` handlers (voice, meeting, journal, skill, tanya, monitor, vps, eod, etc.)
+- Health check + auto-fix loop (uses bot orchestration state)
+- /monitor + /vps multi-step config commands (tightly coupled with handlers)
+- post_init / main() bootstrap
+
+These are handler-only code, ~80% of remaining bot.py. Extracting them = code movement without design improvement. Refactor effort better spent on feature work or coverage on remaining gaps.
+
+---
+
+## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
+
+**Last session ended 2026-05-31 18:20 UTC. Continuing in a new opencode session.**
+
+### Repo state right now
+
+```
+Branch: main, working tree clean
+Last 5 commits:
+  69ce53a    ci+types: add firewall + morning_brief to mypy strict (25)
+  d2d27c5    refactor(bot): extract Firewall + Morning Brief
+  [handoff]  docs(TASK): handoff for sesi 2026-05-31 17:55
+  6d8a8f5    ci+types: add hygiene to mypy strict (23)
+  0c2b9ee    refactor(bot): extract Hygiene watchdog
+
+Production: 7 containers up + healthy (last verified run 26720591293)
+Dogfood: ~43h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+telegram-bot/: bot.py (2232) + infra/ (206 LOC, 100% covered) + watchdogs/ (1310 LOC, 80%+ covered)
+tests/: 665 passing, ~40% coverage
+mypy strict: 25 modules whitelisted
+Top-level docs: README, TASK, ARCHITECTURE
+```
+
+### Verify state in <2 minutes
+
+```bash
+git status                                    # clean
+git log --oneline -5                          # matches above
+gh run list --workflow=deploy.yml --limit 3   # last 3 green
+python3 -m pytest -q                          # 665 passed
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+python3 -m mypy --strict langgraph-agent/app/{config,docs_sync,embedding,gitlab_review,journal,llm,meeting_notes,pr_review,skills,telegram,tools}.py telegram-bot/infra/*.py telegram-bot/watchdogs/*.py
+python3 -m compileall -q telegram-bot langgraph-agent
+python3 scripts/lint_orphan_refs.py           # 17 files, 130 functions
+pre-commit run --all-files                    # 4 hooks pass
+pre-commit run --all-files --hook-stage pre-push  # +mypy lenient + strict
+```
+
+If anything fails: do not proceed. Diagnose first.
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.**
+
+**REFACTOR DONE. Decision: feature work, coverage polish, or wait?**
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A. Coverage gap fill: capacity 80→95%, deps 83→95%** | 30-60min | 🟢 Low | Pure test work. Diminishing ROI. |
+| **B. Test Coverage Agent (Tier 1.5)** | 2-3h design + 4-6h impl | 🟡 Med | **RECOMMENDED PIVOT.** Feature work. |
+| **C. Spec-to-Implementation Agent (Tier 1.5)** | 3-4h design + 6-8h impl | 🟡 Med | High-value but blocked on PRD. |
+| **D. Auto-PR Agent dengan dogfood signals** | 4-6h | 🟡 Med | Phase 2 work. Wait dogfood >1week. |
+| **G. Wait for dogfood signal** | — | — | ~5-12 days remaining. |
+
+**Blocked on user input (HIGH-VALUE):**
+- Test 7 features in Telegram (`/morning_brief`, `/drift`, `/capacity`, `/deps`, `/hygiene`, `/firewall`)
+- Spec-to-Implementation (needs PRD)
+- Onboard VPS to Prometheus (needs IP/SSH list)
+- Activate DNS+SSL schedulers (needs `/ssl add yourdomain.com`)
+
+### Safety net you can rely on
+
+- **8 CI lint gates** — actionlint, ruff F, mypy lenient, mypy strict (25 modules), orphan-refs (17 files), compileall, caddy, promtool, amtool
+- **5 pre-commit hooks** + 2 pre-push hooks
+- **665 pytest tests** (286 new this session, ~43% of total test suite)
+- **Coverage floor 27%** — actual ~40%
+- **All 6 infra/* modules at 100% coverage**
+- **All 8 watchdogs/* at 80%+ coverage (6 at 100%)**
+- **All production images SHA-pinned**
+- **README.md** + **ARCHITECTURE.md** + **TASK.md**
+- **Multi-file orphan-ref walker** proven across 7 batches, 17 files
+
+### What this session DID NOT do
+
+- Did not write Test Coverage Agent (recommended pivot for next session)
+- Did not touch Phase 2 logic — wait dogfood signal
+- Did not migrate to Python 3.14
+- Did not extract handler code from bot.py (architectural decision: not worth it)
+
+### Sesi recap (high-level)
+
+Sesi 2026-05-31 18:20 = **bot.py refactor batch 7 (FINAL)** (continued from batch 6 at 17:55).
+
+1. **Firewall + Morning Brief extraction** (commit `d2d27c5`):
+   - `watchdogs/firewall.py` (240 LOC) — get/set/add/del whitelist, parse_listening_ports, audit, run, scheduler, cmd_firewall
+   - `watchdogs/morning_brief.py` (152 LOC) — collect_github/prom/agent_briefing, build, scheduler, cmd_briefing
+   - bot.py: 2598 → 2232 LOC (-366, -14% in single batch)
+   - Removed unused imports (datetime.timezone, infra.gh.gh_api)
+   - 58 new unit tests (32 firewall + 26 morning_brief), both modules at 100% coverage
+   - Updated `tests/test_bot_parsers.py` to use `firewall.parse_listening_ports`
+
+2. **Mypy strict expansion** (commit `69ce53a`):
+   - 23 → 25 modules
+   - All 8 watchdogs + all 6 infra modules now strict-typed
+   - Effectively 100% of "leaf" modules in telegram-bot/ are strict
+
+3. **Production deploy verified** (run `26720591293`):
+   - lint + test + deploy 1m38s — all green
+   - 7 schedulers registered cleanly (incl. firewall audit at 03:30 WIB)
+   - All 7 containers healthy
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-05-31 18:20 — refactor batch 7 (FINAL) complete. All 8 watchdogs extracted. bot.py at 2232 LOC (-36.7%). 665 tests passing. Production stable.
+
+### Files changed this session (2 commits)
+
+**d2d27c5 — Firewall + Morning Brief refactor:**
+- `+ telegram-bot/watchdogs/firewall.py` (240 LOC)
+- `+ telegram-bot/watchdogs/morning_brief.py` (152 LOC)
+- `~ telegram-bot/bot.py` (-366 net)
+- `+ tests/test_firewall_watchdog.py` (32 tests)
+- `+ tests/test_morning_brief.py` (26 tests)
+- `~ tests/test_bot_parsers.py` (rewire 4 references to firewall module)
+
+**69ce53a — Mypy strict:**
+- `~ .pre-commit-config.yaml` (+2 modules)
+- `~ .github/workflows/deploy.yml` (+2 modules)
+
+### Active Tasks (for next session)
+
+- [ ] **DOGFOOD WINDOW (active, ~43h elapsed)** — observe 7 features for 1-2 weeks total. Test in Telegram.
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit) — user runs `/ssl add yourdomain.com`
+- [ ] **Onboard remaining 8-13 VPS to Prometheus** — needs IP/SSH list
+- [ ] **DECIDE: Test Coverage Agent (Tier 1.5) OR Spec-to-Implementation Agent OR coverage polish OR wait dogfood**
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Recently Completed (chronological)
+
+- ✅ [2026-05-31 18:20 UTC] **Refactor batch 7 (FINAL)** — Firewall + Morning Brief extracted, mypy strict 23→25
+- ✅ [2026-05-31 17:55 UTC] **Refactor batch 6** — Path C coverage + Hygiene extraction
+- ✅ [2026-05-31 17:22 UTC] **Refactor batch 5 (polish)** — coverage gap fill, ARCHITECTURE.md
+- ✅ [2026-05-31 16:19 UTC] **Refactor batch 4** — agent_post + gh_api extracted
+- ✅ [2026-05-31 15:46 UTC] **Refactor batch 3** — Deps+Capacity+Drift+prom extracted
+- ✅ [2026-05-31 15:18 UTC] **Refactor batch 2** — SSL+SSH primitives extracted
+- ✅ [2026-05-31 14:49 UTC] **DNS watchdog refactor pilot**
+
+### Lessons from this session
+
+1. **Mypy strict + dict[str, Any]** — when extracting watchdog with mixed-type dict return (`vps`, `error`, `findings`, `whitelist`), mypy strict requires explicit `Any` (not `object`). `dict[str, object]` blocks runtime field access. `dict[str, Any]` is the right escape hatch when contract is intentionally heterogeneous.
+
+2. **Aggregate extraction works for related blocks** — Firewall + Morning Brief shared no code but I extracted both in one batch (single bot.py edit, single delete-block sed pass). Worked because no dependency between them. Reduced churn vs 2 separate batches.
+
+3. **Refactor terminal state recognition** — at 36.7% reduction with 14 modules extracted, all "leaf" modules are out. Remaining bot.py is 80% handler code which is structurally coupled to bot orchestration (`update.message`, `context.bot`, `application.add_handler`, etc.). Trying to extract handlers gives test surface no improvement and adds indirection. **Stop here.**
+
+4. **`importlib.reload` for env-dependent module-level state** — morning_brief module reads `GH_PAT` and `_GH_REPOS` at import time. Tests use `importlib.reload(morning_brief)` after `monkeypatch.setenv("GH_PAT", "ghp_x")` to re-parse. Documented previously, used again here.
+
+5. **The session arc was clean** — Started 2026-05-30 23:00 UTC (sesi prior). Today 2026-05-31 ran 7 batches over ~13h: 1 pilot + 5 incremental refactor batches + 1 polish + 1 final. Each batch had clear scope, tests, CI verification, and TASK.md handoff. Pattern is reproducible. Future similar refactors can follow this script.
+
+---
+
 
 ## 🏗️ Bot.py Refactor — Status (see also ARCHITECTURE.md)
 

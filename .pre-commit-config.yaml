@@ -31,6 +31,13 @@ repos:
         pass_filenames: false
         files: ^(telegram-bot|langgraph-agent)/.*\.py$
 
+      - id: docs-freshness
+        name: docs-freshness lint (README + ARCHITECTURE.md)
+        language: system
+        entry: python3 scripts/lint_docs_freshness.py
+        pass_filenames: false
+        files: ^(README|ARCHITECTURE)\.md$|^telegram-bot/(infra|watchdogs)/.*\.py$
+
       - id: mypy
         name: mypy (lenient, pre-push)
         language: system

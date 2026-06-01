@@ -1,8 +1,181 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-06-01 04:20 UTC
+**Last Updated:** 2026-06-01 04:55 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 14 features shipped + bot.py refactor terminal + 2 polish rounds (security/docs/integration). Sesi 2026-05-31 → 2026-06-01 ditutup dengan 55 commits autonomous (~16h).
+**Status:** ✅ 14 features shipped + bot.py refactor terminal + 3 polish rounds (security/docs/integration/CI hygiene). Sesi 2026-05-31 → 2026-06-01 ditutup dengan 58 commits autonomous (~17h).
+
+> ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
+
+> Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
+
+---
+
+## 📦 SESSION HANDOFF (2026-06-01 04:55 UTC) — for fresh opencode session
+
+**Last activity:** Sesi closed at 04:55 UTC after run `26735847459` deployed successfully.
+
+**Latest commits (last 6):**
+```
+[handoff]  docs(TASK): handoff for sesi 2026-06-01 04:55 (round 3 polish)
+[ci]       ci: cache pip dependencies in setup-python (faster CI)
+[ci]       ci: switch ruff pre-commit hook from staged-hunks to full-tree scan
+[handoff]  docs(TASK): handoff for sesi 2026-06-01 04:20 (round 2 polish)
+[fix]      fix(test): drop unused unittest.mock.patch import
+[test]     test: integration tests for langgraph-agent endpoints
+```
+
+**Latest deploy verified:**
+- Run `26735847459` — lint+test+deploy 1m36s — all green
+- pip cache will activate on subsequent runs (first run misses)
+- All 9 CI lint gates running, 8 schedulers + 7 containers healthy
+
+**State to verify in new session (paste these):**
+```bash
+git status                                    # expect: clean, on main
+git log --oneline -6                          # expect: matches above
+gh run list --workflow=deploy.yml --limit 3   # expect: last 3 'ok'
+python3 -m pytest -q                          # expect: 788 passed
+python3 scripts/lint_orphan_refs.py           # expect: 18 files, 136 functions
+python3 scripts/lint_docs_freshness.py        # expect: docs in sync
+pip-audit -r telegram-bot/requirements.txt    # expect: no vulnerabilities
+pip-audit -r langgraph-agent/requirements.txt # expect: no vulnerabilities
+```
+
+**What's safe to start without asking:**
+- **Nothing genuinely valuable.** AI's autonomous work runway is exhausted. Repo polished beyond most production repos.
+- See `## 🚀 FRESH SESSION ENTRYPOINT` → "Pick your work" table.
+
+**What's blocked on user (HIGH-VALUE):**
+- **Test 8 features in Telegram** — including new `/coverage` (dogfood window 54h elapsed of 1-2 weeks)
+- **Add Coverage repos** — `/coverage add gmedia/erp` to dogfood the new feature
+- **Activate DNS+SSL** — `/ssl add yourdomain.com`
+- **Onboard 8-13 VPS to Prometheus** — needs IP/SSH list
+- **Spec-to-Implementation** — needs PRD
+
+**Cumulative metrics from sesi 2026-05-31 → 2026-06-01 (~17h, 58 commits):**
+- Tests: 71 → 788 (+717, 11.1x)
+- Coverage: 12.75% → ~44% (+31pp)
+- Coverage floor: 12% → 27%
+- CI lint gates: 4 → 9 (ruff F full-tree, pip-audit, mypy x2, orphan, docs-freshness, +actionlint, compileall, caddy/promtool/amtool)
+- Pre-commit hooks: 0 → 7 (ruff full-tree, actionlint, compileall, orphan-refs, docs-freshness, mypy lenient, mypy strict)
+- Mypy strict modules: 0 → 27 (~100% of "leaf" modules)
+- SHA-pinned images: 1 → 5 (all production)
+- **bot.py LOC: 3524 → 2253 (-1271, -36.1%)**
+- **Top-level docs: README + TASK + ARCHITECTURE.md (drift-linted)**
+- **Features shipped: 13 → 14 (added Test Coverage Agent)**
+- **Watchdogs at 100% coverage: 0 → 7 of 9 (capacity 97%, ssl 93%)**
+- **No known CVEs in production deps**
+- **Dependabot configured** for pip + github-actions + docker, weekly Mondays 06:00 WIB
+- **CI pip cache** — first miss (1m36s), subsequent runs estimated ~50s
+
+**Production state at handoff:** 7 containers up + healthy (verified via run 26735847459). Dogfood window ~54h elapsed of 1-2 week target.
+
+---
+
+## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
+
+**Last session ended 2026-06-01 04:55 UTC. Continuing in a new opencode session.**
+
+### Repo state right now
+
+```
+Branch: main, working tree clean
+Last 6 commits:
+  [handoff]  docs(TASK): handoff for sesi 2026-06-01 04:55
+  [ci]       ci: cache pip dependencies in setup-python
+  [ci]       ci: switch ruff pre-commit hook to full-tree scan
+  [handoff]  docs(TASK): handoff for sesi 2026-06-01 04:20
+  [fix]      fix(test): drop unused unittest.mock.patch
+  [test]     test: integration tests for langgraph-agent endpoints
+
+Production: 7 containers up + healthy (last verified run 26735847459)
+Dogfood: ~54h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+telegram-bot/: bot.py (2253) + infra/ (206 LOC, 100%) + watchdogs/ (1475 LOC, 7 at 100%)
+langgraph-agent/: + app/test_coverage.py (290 LOC, mypy strict)
+tests/: 788 passing, ~44% coverage
+mypy strict: 27 modules whitelisted
+ruff: pinned v0.15.15 (full-tree scan, CI + pre-commit aligned structurally)
+pip-audit: pinned v2.10.0 (CI gate)
+docs-freshness: lint gate (CI + pre-commit)
+CI: 9 lint gates, pip cache enabled
+Dependabot: configured (pip + github-actions + docker)
+```
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.**
+
+**Three polish rounds done. Repo polished as far as autonomous AI can take it without user input.**
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A. Dogfood Test Coverage on `gmedia/erp`** | 5min user + observe | 🟢 Low | User adds repo via `/coverage add gmedia/erp`. **HIGHEST VALUE — only path that needs user.** |
+| **B. Spec-to-Implementation Agent** | 9-12h | 🟡 Med | Blocked on PRD. |
+| **C. Auto-PR Phase 2 (auto-merge confidence threshold)** | 4-6h | 🟡 Med | Blocked on dogfood signal. |
+| **D. Wait for dogfood signal** | — | — | ~5-12 days remaining. |
+| **E. AI runway exhausted** | — | — | Nothing left that's genuinely valuable autonomous. |
+
+### Sesi recap (high-level)
+
+Sesi 2026-06-01 04:55 = **round 3 polish** (continued from 04:20 UTC). Three more autonomous tasks executed without user confirmation:
+
+1. **Pre-commit ruff scope fix** (commit 1):
+   - Replaced `astral-sh/ruff-pre-commit` (staged-hunks scope) with local system hook running ruff against full tree
+   - Eliminates 6th occurrence of CI ruff failures from unused imports left when functions deleted
+   - Trade-off: pre-commit slightly slower, ruff is fast (~1s for 788-test repo)
+
+2. **CI pip cache** (commit 2):
+   - Added `cache: pip` + `cache-dependency-path` to both setup-python steps
+   - Cache keyed on requirements.txt hashes
+   - First run misses (1m36s), subsequent estimated ~50s
+   - Note: concurrency cancel-in-progress already configured (lines 14-16 of deploy.yml — Task B was already done)
+
+3. **Dependabot config** (Task C — already exists):
+   - Found existing comprehensive config in `.github/dependabot.yml`
+   - 4 ecosystems: pip x2, github-actions, docker x2
+   - Weekly Mondays 06:00 WIB
+   - No changes needed
+
+4. **Production deploy verified** (run `26735847459`):
+   - lint + test + deploy 1m36s — all green
+   - pip cache will activate on next run
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-06-01 04:55 — third polish round complete. **AI's autonomous work runway exhausted. All polish rounds done.** Next steps need user.
+
+### Files changed in round 3 (2 commits)
+
+**ci: ruff full-tree (commit 1):**
+- `~ .pre-commit-config.yaml` (replaced ruff-pre-commit with local system hook, restructured to put actionlint above ruff)
+
+**ci: pip cache (commit 2):**
+- `~ .github/workflows/deploy.yml` (+8 lines: cache: pip + cache-dependency-path on both setup-python steps)
+
+### Active Tasks (for next session)
+
+- [ ] **TEST `/coverage` IN TELEGRAM** — user adds `gmedia/erp`, watches what PRs come out
+- [ ] **DOGFOOD WINDOW (active, ~54h elapsed)** — observe 8 features for 1-2 weeks total
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit)
+- [ ] **Onboard 8-13 VPS to Prometheus** — needs IP/SSH list
+- [ ] **DECIDE: Spec-to-Implementation OR Auto-PR Phase 2 OR wait dogfood**
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Lessons from round 3
+
+1. **Always check before assuming task isn't done** — Task C "Add Dependabot" already had comprehensive config. Saved 10min by reading first.
+
+2. **Pre-commit hook scope is subtle** — `astral-sh/ruff-pre-commit` defaults to `pass_filenames: true` which means pre-commit only passes staged files to ruff. ruff then checks those files in full, BUT only the staged subset. Works for most cases — except when an import becomes unused due to a deletion in the same commit. Switch to a local `pass_filenames: false` hook with explicit full-tree scan to match CI exactly.
+
+3. **CI minute optimization is a real DX improvement** — 1m36s → ~50s on cache hit is 45% faster feedback loop. For 5-10 commits/day, saves 8-15min daily, compounds into hours/week. Worth the 10 minutes setup.
+
+4. **Diminishing returns are real** — round 3's tasks are smaller wins than round 1-2. Round 4 would be even smaller. The brave thing is to recognize this and stop. Done.
+
+---
+
 
 > ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
 

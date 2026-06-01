@@ -199,19 +199,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 _MAIN_MENU_TEXT = (
     "📋 <b>Menu</b>\n\n"
-    "📅 <b>Produktivitas</b> — Jadwal, Task, Tasks\n"
-    "📝 <b>Catatan</b> — Catat, Journal, Cari\n"
-    "💻 <b>Developer</b> — Tanya, Projects, Index, Review\n"
-    "🖥️ <b>Infra</b> — Monitor, VPS, Status, Capacity, SSL\n"
-    "🛡️ <b>Watchdogs</b> — Drift, Deps, DNS, Hygiene, Firewall, Coverage, Docsync, Meeting\n"
-    "⚙️ <b>Lainnya</b> — Briefing, EOD, Model, Skill, Sync\n\n"
+    "📅 <b>Produktivitas</b> — Jadwal, Task, Tasks, Briefing, EOD\n"
+    "📝 <b>Catatan</b> — Catat, Journal, Meeting, Cari\n"
+    "💻 <b>Developer</b> — Tanya, Projects, Index, Skill, Review, Docsync, Coverage\n"
+    "🖥️ <b>Infra</b> — Monitor, VPS, Status, Capacity, SSL, DNS, Drift, Hygiene, Firewall, Deps\n"
+    "⚙️ <b>Settings</b> — Model, Sync, Help\n\n"
     "Tap tombol di bawah atau ketik command langsung."
-)
-
-_WATCHDOG_MENU_TEXT = (
-    "🛡️ <b>Watchdogs &amp; Agents</b>\n\n"
-    "Pilih watchdog untuk dijalankan, atau ketik command langsung.\n"
-    "Tap ⬅️ Kembali untuk balik ke menu utama."
 )
 
 
@@ -220,39 +213,32 @@ def _main_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📅 Jadwal", callback_data="menu:jadwal"),
          InlineKeyboardButton("✅ Task", callback_data="menu:task"),
          InlineKeyboardButton("📋 Tasks", callback_data="menu:tasks")],
+        [InlineKeyboardButton("☀️ Briefing", callback_data="menu:briefing"),
+         InlineKeyboardButton("🌙 EOD", callback_data="menu:eod")],
         [InlineKeyboardButton("📝 Catat", callback_data="menu:catat"),
          InlineKeyboardButton("📓 Journal", callback_data="menu:journal"),
-         InlineKeyboardButton("🔍 Cari", callback_data="menu:cari")],
+         InlineKeyboardButton("🎙️ Meeting", callback_data="menu:meeting")],
+        [InlineKeyboardButton("🔍 Cari", callback_data="menu:cari")],
         [InlineKeyboardButton("💬 Tanya", callback_data="menu:tanya"),
          InlineKeyboardButton("📂 Projects", callback_data="menu:projects"),
          InlineKeyboardButton("🔄 Index", callback_data="menu:index")],
+        [InlineKeyboardButton("🧠 Skill", callback_data="menu:skill"),
+         InlineKeyboardButton("🔍 Review", callback_data="menu:review"),
+         InlineKeyboardButton("📚 Docsync", callback_data="menu:docsync")],
+        [InlineKeyboardButton("🧪 Coverage", callback_data="menu:coverage")],
         [InlineKeyboardButton("🖥️ Monitor", callback_data="menu:monitor"),
          InlineKeyboardButton("📊 VPS", callback_data="menu:vps"),
          InlineKeyboardButton("🔌 Status", callback_data="menu:status")],
-        [InlineKeyboardButton("☀️ Briefing", callback_data="menu:briefing"),
-         InlineKeyboardButton("🌙 EOD", callback_data="menu:eod"),
-         InlineKeyboardButton("🤖 Model", callback_data="menu:model")],
-        [InlineKeyboardButton("🧠 Skill", callback_data="menu:skill"),
+        [InlineKeyboardButton("📈 Capacity", callback_data="menu:capacity"),
+         InlineKeyboardButton("🔒 SSL", callback_data="menu:ssl"),
+         InlineKeyboardButton("🌐 DNS", callback_data="menu:dns")],
+        [InlineKeyboardButton("🩺 Drift", callback_data="menu:drift"),
+         InlineKeyboardButton("🧹 Hygiene", callback_data="menu:hygiene"),
+         InlineKeyboardButton("🔥 Firewall", callback_data="menu:firewall")],
+        [InlineKeyboardButton("📦 Deps", callback_data="menu:deps")],
+        [InlineKeyboardButton("🤖 Model", callback_data="menu:model"),
          InlineKeyboardButton("☁️ Sync", callback_data="menu:sync"),
          InlineKeyboardButton("❓ Help", callback_data="menu:help")],
-        [InlineKeyboardButton("📈 Capacity", callback_data="menu:capacity"),
-         InlineKeyboardButton("🔍 Review", callback_data="menu:review"),
-         InlineKeyboardButton("🔒 SSL", callback_data="menu:ssl")],
-        [InlineKeyboardButton("🛡️ Watchdogs", callback_data="menu:watchdogs")],
-    ])
-
-
-def _watchdog_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🩺 Drift", callback_data="menu:drift"),
-         InlineKeyboardButton("📦 Deps", callback_data="menu:deps"),
-         InlineKeyboardButton("🌐 DNS", callback_data="menu:dns")],
-        [InlineKeyboardButton("🧹 Hygiene", callback_data="menu:hygiene"),
-         InlineKeyboardButton("🔥 Firewall", callback_data="menu:firewall"),
-         InlineKeyboardButton("🧪 Coverage", callback_data="menu:coverage")],
-        [InlineKeyboardButton("📚 Docsync", callback_data="menu:docsync"),
-         InlineKeyboardButton("🎙️ Meeting", callback_data="menu:meeting")],
-        [InlineKeyboardButton("⬅️ Kembali", callback_data="menu:back")],
     ])
 
 
@@ -274,6 +260,7 @@ _MENU_HANDLERS: dict[str, str] = {
     "skill": "cmd_skill", "sync": "cmd_sync",
     "drift": "cmd_drift", "dns": "cmd_dns", "hygiene": "cmd_hygiene",
     "firewall": "cmd_firewall", "deps": "cmd_deps", "coverage": "cmd_coverage",
+    "capacity": "cmd_capacity",
 }
 
 
@@ -281,22 +268,6 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     cmd_name = query.data.replace("menu:", "")
-
-    if cmd_name == "watchdogs":
-        await query.edit_message_text(
-            _WATCHDOG_MENU_TEXT,
-            reply_markup=_watchdog_menu_keyboard(),
-            parse_mode="HTML",
-        )
-        return
-
-    if cmd_name == "back":
-        await query.edit_message_text(
-            _MAIN_MENU_TEXT,
-            reply_markup=_main_menu_keyboard(),
-            parse_mode="HTML",
-        )
-        return
 
     if cmd_name in ("task", "catat", "journal", "cari", "tanya", "index", "skill", "meeting"):
         await query.message.reply_text(f"Ketik: /{cmd_name} <isi>")
@@ -312,10 +283,6 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "• /review owner/repo#123 — Review on-demand",
             parse_mode="HTML",
         )
-        return
-
-    if cmd_name == "capacity":
-        await query.message.reply_text("📈 Ketik: /capacity")
         return
 
     if cmd_name == "ssl":

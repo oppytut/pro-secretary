@@ -44,6 +44,12 @@ jobs:
           pip install --quiet ruff==0.15.15
           ruff check --select=F telegram-bot langgraph-agent tests
 
+      - name: Dependency vulnerability scan (pip-audit)
+        run: |
+          pip install --quiet pip-audit==2.10.0
+          pip-audit -r telegram-bot/requirements.txt
+          pip-audit -r langgraph-agent/requirements.txt
+
       - name: Type check (mypy lenient)
         run: |
           pip install --quiet mypy
@@ -84,6 +90,9 @@ jobs:
 
       - name: Orphan-reference checks (bot.py + agent main.py)
         run: python scripts/lint_orphan_refs.py
+
+      - name: Docs-freshness lint (README + ARCHITECTURE.md)
+        run: python scripts/lint_docs_freshness.py
 
       - name: Validate Caddyfile
         run: |

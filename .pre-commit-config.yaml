@@ -3,14 +3,14 @@ default_language_version:
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.15.15
     hooks:
       - id: ruff
         args: [--select=F]
         files: ^(telegram-bot|langgraph-agent|tests)/.*\.py$
 
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.7
+    rev: v1.7.12
     hooks:
       - id: actionlint
         files: ^\.github/workflows/.*\.ya?ml$

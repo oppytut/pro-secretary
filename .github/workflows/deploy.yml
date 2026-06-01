@@ -41,7 +41,7 @@ jobs:
 
       - name: Pyflakes-class lint (ruff F)
         run: |
-          pip install --quiet ruff
+          pip install --quiet ruff==0.15.15
           ruff check --select=F telegram-bot langgraph-agent tests
 
       - name: Type check (mypy lenient)

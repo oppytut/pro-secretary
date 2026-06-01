@@ -1,8 +1,227 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-06-01 03:46 UTC
+**Last Updated:** 2026-06-01 04:20 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 14 features shipped (last: Test Coverage Agent) + bot.py refactor terminal state + coverage polish + ruff pin + docs sync. Sesi 2026-05-31 → 2026-06-01 ditutup dengan 50 commits autonomous (~15h).
+**Status:** ✅ 14 features shipped + bot.py refactor terminal + 2 polish rounds (security/docs/integration). Sesi 2026-05-31 → 2026-06-01 ditutup dengan 55 commits autonomous (~16h).
+
+> ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
+
+> Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
+
+---
+
+## 📦 SESSION HANDOFF (2026-06-01 04:20 UTC) — for fresh opencode session
+
+**Last activity:** Sesi closed at 04:20 UTC after run `26734864603` deployed successfully.
+
+**Latest commits (last 6):**
+```
+[handoff]  docs(TASK): handoff for sesi 2026-06-01 04:20 (round 2 polish)
+[fix]      fix(test): drop unused unittest.mock.patch import
+[test]     test: integration tests for langgraph-agent endpoints (FastAPI TestClient)
+[ci]       ci: add docs-freshness lint to prevent README/ARCHITECTURE drift
+[ci]       ci: add pip-audit dependency vulnerability scan
+[handoff]  docs(TASK): handoff for sesi 2026-06-01 03:46 (polish round)
+```
+
+**Latest deploy verified:**
+- Run `26734864603` — lint+test+deploy 1m35s — all green
+- 9 CI lint gates now (added pip-audit + docs-freshness)
+- All 8 schedulers + 7 containers healthy
+
+**State to verify in new session (paste these):**
+```bash
+git status                                    # expect: clean, on main
+git log --oneline -6                          # expect: matches above
+gh run list --workflow=deploy.yml --limit 3   # expect: last 2 'ok' (1 fail before fix)
+python3 -m pytest -q                          # expect: 788 passed
+python3 scripts/lint_orphan_refs.py           # expect: 18 files, 136 functions clean
+python3 scripts/lint_docs_freshness.py        # expect: docs in sync
+pip-audit -r telegram-bot/requirements.txt    # expect: no vulnerabilities
+pip-audit -r langgraph-agent/requirements.txt # expect: no vulnerabilities
+```
+
+**What's safe to start without asking:**
+- Repo in extended pause-state. Two polish rounds done. Next genuinely-autonomous work has minimal value.
+- See `## 🚀 FRESH SESSION ENTRYPOINT` → "Pick your work" table.
+
+**What's blocked on user (HIGH-VALUE):**
+- **Test 8 features in Telegram** — including new `/coverage` (dogfood window 53h elapsed of 1-2 weeks)
+- **Add Coverage repos** — `/coverage add gmedia/erp` to dogfood the new feature
+- **Activate DNS+SSL** — `/ssl add yourdomain.com`
+- **Onboard 8-13 VPS to Prometheus** — needs IP/SSH list
+- **Spec-to-Implementation** — needs PRD
+
+**Cumulative metrics from sesi 2026-05-31 → 2026-06-01 (~16h, 55 commits):**
+- Tests: 71 → 788 (+717, 11.1x)
+- Coverage: 12.75% → ~44% (+31pp)
+- Coverage floor: 12% → 27%
+- CI lint gates: 4 → 9 (+pip-audit, +docs-freshness)
+- Pre-commit hooks: 0 → 7 (+docs-freshness)
+- Mypy strict modules: 0 → 27 (~100% of "leaf" modules)
+- SHA-pinned images: 1 → 5 (all production)
+- **bot.py LOC: 3524 → 2253 (-1271, -36.1%)**
+- **Top-level docs: README + TASK + ARCHITECTURE.md (all in sync, drift-checked)**
+- **Features shipped: 13 → 14 (added Test Coverage Agent)**
+- **Watchdogs at 100% coverage: 0 → 7 of 9 (capacity 97%, ssl 93%)**
+- **No known CVEs in any production deps**
+
+**Production state at handoff:** 7 containers up + healthy (verified via run 26734864603). Dogfood window ~53h elapsed of 1-2 week target.
+
+---
+
+## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
+
+**Last session ended 2026-06-01 04:20 UTC. Continuing in a new opencode session.**
+
+### Repo state right now
+
+```
+Branch: main, working tree clean
+Last 5 commits:
+  [fix]      fix(test): drop unused unittest.mock.patch
+  [test]     test: integration tests for langgraph-agent endpoints
+  [ci]       ci: add docs-freshness lint
+  [ci]       ci: add pip-audit dependency scan
+  [handoff]  docs(TASK): handoff for sesi 2026-06-01 03:46
+
+Production: 7 containers up + healthy (last verified run 26734864603)
+Dogfood: ~53h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+telegram-bot/: bot.py (2253) + infra/ (206 LOC, 100% covered) + watchdogs/ (1475 LOC, 7 at 100%, 1 at 97%, 1 at 93%)
+langgraph-agent/: + app/test_coverage.py (290 LOC, mypy strict)
+tests/: 788 passing, ~44% coverage
+mypy strict: 27 modules whitelisted
+ruff: pinned v0.15.15 (CI + pre-commit aligned)
+pip-audit: pinned v2.10.0 (CI gate)
+docs-freshness: lint gate (CI + pre-commit)
+```
+
+### Verify state in <2 minutes
+
+```bash
+git status                                    # clean
+git log --oneline -6                          # matches above
+gh run list --workflow=deploy.yml --limit 3   # last 2 green
+python3 -m pytest -q                          # 788 passed
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+python3 -m compileall -q telegram-bot langgraph-agent
+python3 scripts/lint_orphan_refs.py           # 18 files, 136 functions
+python3 scripts/lint_docs_freshness.py        # docs sync
+pip-audit -r telegram-bot/requirements.txt
+pip-audit -r langgraph-agent/requirements.txt
+pre-commit run --all-files                    # 5 hooks pass
+pre-commit run --all-files --hook-stage pre-push  # +mypy lenient + strict
+```
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.**
+
+**Two polish rounds done. Repo polished beyond what most production repos look like. Decision:**
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A. Dogfood Test Coverage on `gmedia/erp`** | 5min user + observe | 🟢 Low | User adds repo via `/coverage add gmedia/erp`. **HIGHEST VALUE — only path that needs user.** |
+| **B. Spec-to-Implementation Agent** | 9-12h | 🟡 Med | Blocked on PRD. |
+| **C. Auto-PR Phase 2 (auto-merge confidence threshold)** | 4-6h | 🟡 Med | Blocked on dogfood signal. |
+| **D. Wait for dogfood signal** | — | — | ~5-12 days remaining. |
+| **E. Lower-value autonomous work** | varies | 🟢 Low | Diminishing returns: bot.py handler tests (low ROI), Python 3.12 syntax migration (broad change, want user buy-in), more integration tests (already covered main paths). **Recommend not.** |
+
+**Truthful assessment:** AI's autonomous work runway is genuinely exhausted. Every easy improvement is shipped. Every remaining task either needs user input (Telegram, PRD, IPs) or real-world signal (dogfood). Continuing solo work risks code bloat without product value.
+
+### Safety net you can rely on
+
+- **9 CI lint gates** — actionlint, ruff F (pinned v0.15.15), pip-audit (pinned v2.10.0), mypy lenient, mypy strict (27 modules), orphan-refs (18 files), docs-freshness, compileall, caddy, promtool, amtool
+- **7 pre-commit hooks** + 2 pre-push hooks
+- **788 pytest tests** (409 new this session, ~52% of total test suite)
+- **Coverage floor 27%** — actual ~44%
+- **All 6 infra/* modules at 100% coverage**
+- **7 of 9 watchdogs/* at 100% coverage** (capacity 97%, ssl 93%)
+- **All production images SHA-pinned**
+- **README.md** + **ARCHITECTURE.md** + **TASK.md** all in sync (drift-linted)
+- **No known CVEs in production deps**
+
+### Sesi recap (high-level)
+
+Sesi 2026-06-01 04:20 = **round 2 polish** (continued from 03:46 UTC). Three more autonomous tasks executed without user confirmation:
+
+1. **pip-audit security scan** (commit 1):
+   - New CI gate `pip-audit==2.10.0` runs against both requirements files
+   - Both deps clean — no known CVEs
+   - Prevents regression: future transitive CVEs will fail CI
+
+2. **Docs-freshness lint** (commit 2):
+   - New `scripts/lint_docs_freshness.py` (124 LOC) verifies:
+     - ARCHITECTURE.md infra/ tree matches filesystem (6 files)
+     - ARCHITECTURE.md watchdogs/ tree matches filesystem (9 files)
+     - README.md "N features shipped" matches feature table row count (19=19)
+   - Wired to pre-commit hook + CI lint step
+   - 14 new tests for the lint script itself
+
+3. **Integration tests** (commit 3):
+   - 21 new FastAPI TestClient integration tests for agent endpoints
+   - Coverage: auth boundary (4), coverage repos (3), coverage scan (3),
+     review repos (2), review_pr endpoint (4), GitHub webhook (2),
+     GitLab webhook (2), health (1)
+   - Test pyramid was unit-only; this fills the integration gap
+
+4. **CI ruff catch + fix** (commit 4):
+   - Local pre-commit ruff scope only diff hunks, missed unused
+     `from unittest.mock import patch`
+   - CI ruff full-file scan caught it. Fixed and pushed.
+
+5. **Production deploy verified** (run `26734864603`):
+   - lint + test + deploy 1m35s — all green
+   - 9 CI lint gates run cleanly
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-06-01 04:20 — second polish round complete. **All AI autonomous work is genuinely done.** Next steps need user.
+
+### Files changed in round 2 (4 commits)
+
+**ci: pip-audit (commit 1):**
+- `~ .github/workflows/deploy.yml` (+9 lines new lint step)
+
+**ci: docs-freshness (commit 2):**
+- `+ scripts/lint_docs_freshness.py` (124 LOC)
+- `+ tests/test_lint_docs_freshness.py` (14 tests)
+- `~ .pre-commit-config.yaml` (+8 lines hook)
+- `~ .github/workflows/deploy.yml` (+3 lines step)
+
+**test: integration (commit 3):**
+- `+ tests/test_agent_integration.py` (21 tests)
+
+**fix: ruff (commit 4):**
+- `~ tests/test_lint_docs_freshness.py` (drop 1 unused import)
+
+### Active Tasks (for next session)
+
+- [ ] **TEST `/coverage` IN TELEGRAM** — user adds `gmedia/erp`, watches what PRs come out
+- [ ] **DOGFOOD WINDOW (active, ~53h elapsed)** — observe 8 features for 1-2 weeks total
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit)
+- [ ] **Onboard 8-13 VPS to Prometheus** — needs IP/SSH list
+- [ ] **DECIDE: Spec-to-Implementation OR Auto-PR Phase 2 OR wait dogfood**
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Lessons from round 2
+
+1. **pip-audit catches what people forget** — first run was clean, but the gate has zero ongoing cost (~10s in CI) and high payoff when a dep gains a CVE later. Should have been added day 1.
+
+2. **Lints that prevent the bug you just fixed** — README drift cost real engineering time. The docs-freshness lint script (124 LOC + 14 tests) costs 60min once and prevents that exact regression forever. Apply this pattern: every bug fix → ask "what lint would have caught this?"
+
+3. **Test pyramid imbalance** — we had 753 unit tests but ~0 integration tests. FastAPI's TestClient + pytest + monkeypatch makes integration tests trivial. 21 tests in 90 minutes covered all main API paths. Should have been written alongside the API.
+
+4. **Pre-commit ruff scope drift vs CI ruff** — pre-commit only checks `staged hunks` for ruff (default behavior in ruff-pre-commit). CI checks full files. This means deletions of imports (where the import line stays unchanged but is now unused) won't be caught locally. Workaround: `pre-commit run --all-files` before pushing OR widen pre-commit hook to full files. Defer.
+
+5. **Recognize when to stop** — with 55 commits and all genuinely-valuable autonomous tasks done, generating more work would degrade signal-to-noise. The brave thing is to stop and wait for dogfood data.
+
+---
+
 
 > ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
 

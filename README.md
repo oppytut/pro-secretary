@@ -2,7 +2,7 @@
 
 > Sistem asisten pribadi AI self-hosted yang tahu semua pekerjaan Anda — berjalan 24/7, privasi terjaga, kontrol penuh di tangan Anda.
 
-> **Status (2026-05-30):** Production stack — 9 features shipped. AI engine adalah **custom LangGraph agent** di [`langgraph-agent/`](langgraph-agent/). Sumber otoritatif untuk state aktual: [`docker-compose.yml`](docker-compose.yml), [`TASK.md`](TASK.md), [`AI_AGENT_ROADMAP.md`](AI_AGENT_ROADMAP.md).
+> **Status (2026-06-01):** Production stack — 19 features shipped. AI engine adalah **custom LangGraph agent** di [`langgraph-agent/`](langgraph-agent/). Sumber otoritatif untuk state aktual: [`docker-compose.yml`](docker-compose.yml), [`TASK.md`](TASK.md), [`AI_AGENT_ROADMAP.md`](AI_AGENT_ROADMAP.md), [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## 📐 Architecture
 
@@ -3261,13 +3261,17 @@ docker exec calcom npm run db:migrate
 | 13 | Meeting Notes → Action Items | Voice ≥500 chars OR `/meeting` | `/meeting <transkrip>` |
 | 14 | Dependency Watchdog | 03:00 WIB daily | `/deps [repo_id]` |
 | 15 | Documentation Sync | On demand | `/docsync owner/repo#123` |
+| 16 | Firewall Audit | 03:30 WIB daily | `/firewall [list/add/del]` |
+| 17 | Docker Image Hygiene | 02:15 WIB daily | `/hygiene` |
+| 18 | DNS Watchdog | 02:20 WIB daily | `/dns add/del/list` |
+| 19 | Test Coverage Agent | 04:00 WIB daily | `/coverage [list/add/del/scan]` |
 
 Detail per fitur + roadmap lanjutan: [`AI_AGENT_ROADMAP.md`](AI_AGENT_ROADMAP.md).
 
 ### On the Horizon
 
-- **Documentation Sync** — auto-update API docs/README/changelog from PR diff
 - **Spec-to-Implementation** — kirim spec, agent breakdown + implement + PR
+- **Auto-PR Phase 2** — auto-merge confidence threshold setelah dogfood validate noise level
 - **Dependency Watchdog Phase 2** — auto-PR untuk patch versions setelah dogfood Phase 1 validate noise level
 - **Email auto-categorization + drafting** — IMAP integration, agent triage inbox
 - **Mobile app (React Native)** — companion app untuk on-the-go interactions

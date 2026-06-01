@@ -586,3 +586,64 @@ class TestScanPackages:
         findings = self._run(dw.scan_packages(pkgs))
         assert findings[0]["severity"] == "CRITICAL"
         assert findings[-1]["severity"] == "LOW"
+
+
+import asyncio as _asyncio_for_cmd
+from unittest.mock import AsyncMock, MagicMock
+from watchdogs import deps as _deps
+
+
+class TestCmdDeps:
+    def _update(self):
+        u = MagicMock()
+        u.effective_user = MagicMock()
+        u.effective_user.id = 42
+        u.message = MagicMock()
+        u.message.reply_text = AsyncMock()
+        return u
+
+    def _ctx(self, args):
+        c = MagicMock()
+        c.args = args
+        return c
+
+    def test_no_args(self, monkeypatch):
+        monkeypatch.setattr(_deps, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run(repo_id):
+            assert repo_id is None
+            return "✅ clean"
+
+        monkeypatch.setattr(_deps, "run_deps_check", fake_run)
+        u = self._update()
+        _asyncio_for_cmd.run(_deps.cmd_deps(u, self._ctx([])))
+        assert u.message.reply_text.await_count == 2
+
+    def test_with_repo(self, monkeypatch):
+        monkeypatch.setattr(_deps, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        captured = {}
+
+        async def fake_run(repo_id):
+            captured["repo"] = repo_id
+            return "✅ clean"
+
+        monkeypatch.setattr(_deps, "run_deps_check", fake_run)
+        u = self._update()
+        _asyncio_for_cmd.run(_deps.cmd_deps(u, self._ctx(["123"])))
+        assert captured["repo"] == "123"
+
+    def test_failure(self, monkeypatch):
+        monkeypatch.setattr(_deps, "ALLOWED_USERS", [42])
+        monkeypatch.setattr("infra.auth.ALLOWED_USERS", [42])
+
+        async def fake_run(repo_id):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(_deps, "run_deps_check", fake_run)
+        u = self._update()
+        _asyncio_for_cmd.run(_deps.cmd_deps(u, self._ctx([])))
+        last = u.message.reply_text.await_args_list[-1].args[0]
+        assert "Deps check failed" in last

@@ -1,8 +1,8 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-06-01 04:55 UTC
+**Last Updated:** 2026-06-01 05:20 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 14 features shipped + bot.py refactor terminal + 3 polish rounds (security/docs/integration/CI hygiene). Sesi 2026-05-31 → 2026-06-01 ditutup dengan 58 commits autonomous (~17h).
+**Status:** ✅ 14 features shipped + bot.py refactor terminal + 3 polish rounds. Sesi 2026-05-31 → 2026-06-01 ditutup dengan 58 commits autonomous (~17h). **User switching to fresh opencode session — read first 80 lines below.**
 
 > ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
 
@@ -10,9 +10,53 @@
 
 ---
 
-## 📦 SESSION HANDOFF (2026-06-01 04:55 UTC) — for fresh opencode session
+## 🆘 NEW SESSION QUICK START (read this first, ~2 min)
 
-**Last activity:** Sesi closed at 04:55 UTC after run `26735847459` deployed successfully.
+**Repo state right now (2026-06-01 05:20 UTC):**
+```
+Branch: main, working tree clean, all CI green
+Last commit: 202e197 docs(TASK): handoff for sesi 2026-06-01 04:55 (round 3 polish — final)
+Production: 7 containers up + healthy (last verified run 26735847459)
+Tests: 788 passing, ~44% coverage
+```
+
+**One-shot verification:**
+```bash
+cd /home/ubuntu/bench/pro-secretary
+git status                                    # clean, on main
+git log --oneline -5                          # see recent work
+gh run list --workflow=deploy.yml --limit 3   # last 3 'ok'
+python3 -m pytest -q                          # 788 passed
+```
+
+**The honest truth about this session:** AI's autonomous work runway is exhausted. 17h, 58 commits, 3 polish rounds. Every easy win is shipped. **Recommended next action: STOP and dogfood.** Do NOT start a 4th polish round.
+
+**What user (you) should do next, in order of value:**
+
+1. **Test 8 features in Telegram** — highest value, 30-60min. Send `/morning_brief`, `/drift`, `/capacity`, `/deps`, `/hygiene`, `/firewall`, `/coverage`, `/briefing` to bot. Note any rough edges.
+2. **`/coverage add gmedia/erp`** — dogfood the new Test Coverage Agent on a real repo. 1 day to first auto-PR.
+3. **`/ssl add yourdomain.com`** — activates DNS+SSL schedulers (currently idle).
+4. **Wait dogfood window** — ~5-12 days remaining of 1-2 week target. Real signal comes from observation.
+5. **(Blocked on PRD) Spec-to-Implementation Agent** — 9-12h work when ready.
+
+**What AI cannot do alone:**
+- Test features in Telegram (user-only via bot UI)
+- Onboard 8-13 VPS to Prometheus (needs IP/SSH list)
+- Write Spec-to-Impl (needs PRD)
+- Real-world dogfood signal
+
+**What AI could do but shouldn't (diminishing returns):**
+- More integration tests (main paths covered)
+- Bot.py handler tests (low ROI, hard-coupled to PTB)
+- Python 3.12 syntax migration (broad change, wants user buy-in)
+- Module docstrings (violates anti-AI-slop guideline)
+- Round 4 polish (would be ~30min of make-work)
+
+---
+
+## 📦 SESSION HANDOFF (2026-06-01 05:20 UTC) — full detail
+
+**Last activity:** Sesi closed at 04:55 UTC after run `26735847459` deployed successfully. Handoff text-edit only at 05:20 UTC.
 
 **Latest commits (last 6):**
 ```

@@ -1,8 +1,243 @@
 # 🎯 TASK HANDOFF
 
-**Last Updated:** 2026-05-31 19:48 UTC
+**Last Updated:** 2026-06-01 03:46 UTC
 **Project:** AI Personal Secretary Stack
-**Status:** ✅ 14 features shipped (Test Coverage Agent NEW) + bot.py refactor batch 7 complete (8 watchdogs + 6 infra modules + new test-coverage feature, 741 tests, 27 mypy strict modules). Sesi 2026-05-31 closed dengan 47 commits autonomous (~14h).
+**Status:** ✅ 14 features shipped (last: Test Coverage Agent) + bot.py refactor terminal state + coverage polish + ruff pin + docs sync. Sesi 2026-05-31 → 2026-06-01 ditutup dengan 50 commits autonomous (~15h).
+
+> ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
+
+> Full history (2562 lines, sessions 2026-05-08 → 2026-05-24) archived in [`TASK_ARCHIVE.md`](TASK_ARCHIVE.md).
+
+---
+
+## 📦 SESSION HANDOFF (2026-06-01 03:46 UTC) — for fresh opencode session
+
+**Last activity:** Sesi closed at 03:46 UTC after run `26733950073` deployed successfully.
+
+**Latest commits (last 5):**
+```
+f29f93b docs: ARCHITECTURE.md + README.md reflect terminal state + new features
+ed4d96a test: coverage polish for capacity + deps watchdogs
+9a8a47a ci: pin ruff to v0.15.15 (CI + pre-commit aligned)
+[handoff]  docs(TASK): handoff for sesi 2026-05-31 19:48 (Test Coverage Agent shipped)
+9e8b14f    fix(test): drop unused json import
+```
+
+**Latest deploy verified:**
+- Run `26733950073` — lint+test+deploy 1m33s — all green
+- All 8 schedulers registered: health 300s, morning brief 07:00, drift 02:00, capacity 02:10, deps 03:00, hygiene 02:15, firewall 03:30, coverage 04:00 WIB
+- DNS+SSL schedulers idle (SSL list empty — expected)
+- All 7 containers healthy
+
+**State to verify in new session (paste these):**
+```bash
+git status                                    # expect: clean, on main
+git log --oneline -5                          # expect: matches above
+gh run list --workflow=deploy.yml --limit 2   # expect: last 2 'ok'
+python3 -m pytest -q                          # expect: 753 passed
+python3 scripts/lint_orphan_refs.py           # expect: 18 files, 136 functions clean
+```
+
+**What's safe to start without asking:**
+- All "polish" tasks done. Refactor terminal. Coverage polish to 97-100%. Docs in sync.
+- Repo in extended pause-state. Next high-value action requires user (Telegram interaction).
+
+**What's blocked on user (HIGH-VALUE):**
+- **Test 8 features in Telegram** — including new `/coverage` (dogfood window 53h elapsed of 1-2 weeks)
+- **Add Coverage repos** — `/coverage add gmedia/erp` to dogfood the new feature
+- **Activate DNS+SSL** — `/ssl add yourdomain.com`
+- **Onboard 8-13 VPS to Prometheus** — needs IP/SSH list
+- **Spec-to-Implementation** — needs PRD
+
+**Cumulative metrics from sesi 2026-05-31 → 2026-06-01 (~15h, 50 commits):**
+- Tests: 71 → 753 (+682, 10.6x)
+- Coverage: 12.75% → ~43% (+30pp)
+- Coverage floor: 12% → 27%
+- CI lint gates: 4 → 8
+- Pre-commit hooks: 0 → 6 (ruff pinned)
+- Mypy strict modules: 0 → 27 (~100% of "leaf" modules)
+- SHA-pinned images: 1 → 5 (all production)
+- **bot.py LOC: 3524 → 2253 (-1271, -36.1%)**
+- **Top-level docs: README + TASK + ARCHITECTURE.md (all in sync)**
+- **Features shipped: 13 → 14 (added Test Coverage Agent)**
+- **Watchdogs at 100% coverage: 0 → 7 (capacity 97%, ssl 93%)**
+
+**Production state at handoff:** 7 containers up + healthy (verified via run 26733950073). Dogfood window ~53h elapsed of 1-2 week target.
+
+---
+
+## 🏗️ Bot.py Refactor — TERMINAL STATE (see also ARCHITECTURE.md)
+
+**All extractable units extracted. 9 watchdogs + 6 infra modules. Pattern proven across 7 batches + 1 feature.**
+
+```
+telegram-bot/
+├── bot.py                  (2253 lines — orchestrator + handler-only code)
+├── infra/                  (all 100% covered, all mypy strict)
+└── watchdogs/              (all mypy strict, all 80%+ coverage, 7 at 100%)
+    ├── capacity.py         (152 LOC — 97% covered)
+    ├── deps.py             (66 LOC — 100% covered)
+    ├── dns.py              (200 LOC — 100% covered)
+    ├── drift.py            (158 LOC — 100% covered)
+    ├── firewall.py         (240 LOC — 100% covered)
+    ├── hygiene.py          (177 LOC — 100% covered)
+    ├── morning_brief.py    (152 LOC — 100% covered)
+    ├── ssl.py              (165 LOC — 93% covered, lines 52-60 in threadpool inner func)
+    └── test_coverage.py    (165 LOC — 100% covered)
+```
+
+---
+
+## 🚀 FRESH SESSION ENTRYPOINT (read this if you're a new opencode session)
+
+**Last session ended 2026-06-01 03:46 UTC. Continuing in a new opencode session.**
+
+### Repo state right now
+
+```
+Branch: main, working tree clean
+Last 5 commits:
+  f29f93b    docs: ARCHITECTURE.md + README.md reflect terminal state
+  ed4d96a    test: coverage polish for capacity + deps watchdogs
+  9a8a47a    ci: pin ruff to v0.15.15 (CI + pre-commit aligned)
+  [handoff]  docs(TASK): handoff for sesi 2026-05-31 19:48
+  9e8b14f    fix(test): drop unused json import
+
+Production: 7 containers up + healthy (last verified run 26733950073)
+Dogfood: ~53h elapsed of 1-2 week window (started 2026-05-30 23:00 UTC)
+telegram-bot/: bot.py (2253) + infra/ (206 LOC, 100% covered) + watchdogs/ (1475 LOC, 7 at 100%, 1 at 97%, 1 at 93%)
+langgraph-agent/: + app/test_coverage.py (290 LOC, mypy strict)
+tests/: 753 passing, ~43% coverage
+mypy strict: 27 modules whitelisted
+ruff: pinned v0.15.15 (CI + pre-commit aligned)
+```
+
+### Verify state in <2 minutes
+
+```bash
+git status                                    # clean
+git log --oneline -5                          # matches above
+gh run list --workflow=deploy.yml --limit 3   # last 2 green
+python3 -m pytest -q                          # 753 passed
+python3 -m ruff check --select=F telegram-bot langgraph-agent tests
+python3 -m mypy --config-file=mypy.ini telegram-bot langgraph-agent
+python3 -m compileall -q telegram-bot langgraph-agent
+python3 scripts/lint_orphan_refs.py           # 18 files, 136 functions
+pre-commit run --all-files                    # 4 hooks pass
+pre-commit run --all-files --hook-stage pre-push  # +mypy lenient + strict
+```
+
+### Pick your work
+
+**If user says "lanjutkan" / "continue" without specifics, ASK FIRST.**
+
+**Repo polished. Next decision:**
+
+| Path | Effort | Risk | Notes |
+|---|---|---|---|
+| **A. Dogfood Test Coverage on `gmedia/erp`** | 5min user + observe | 🟢 Low | User adds repo via `/coverage add gmedia/erp`. **HIGHEST VALUE — only path that needs user.** |
+| **B. Spec-to-Implementation Agent** | 9-12h | 🟡 Med | Blocked on PRD. |
+| **C. SSL coverage 93→100%** | 30-60min | 🟢 Low | Mocking thread-pool inner func is invasive. Diminishing ROI. **Skip.** |
+| **D. Auto-PR Phase 2 (auto-merge confidence threshold)** | 4-6h | 🟡 Med | Blocked on dogfood signal. |
+| **E. Wait for dogfood signal** | — | — | ~5-12 days remaining. |
+
+**Truthful assessment:** AI's autonomous work runway is exhausted in this stack. All low-risk improvements done. All high-value next work needs:
+- User Telegram interaction (test features), OR
+- User input (PRD, IP list), OR
+- Real-world dogfood signal (1+ week of usage)
+
+### Safety net you can rely on
+
+- **8 CI lint gates** — actionlint, ruff F (pinned v0.15.15), mypy lenient, mypy strict (27 modules), orphan-refs (18 files), compileall, caddy, promtool, amtool
+- **5 pre-commit hooks** + 2 pre-push hooks
+- **753 pytest tests** (374 new this session, ~50% of total test suite)
+- **Coverage floor 27%** — actual ~43%
+- **All 6 infra/* modules at 100% coverage**
+- **7 of 9 watchdogs/* at 100% coverage** (capacity 97%, ssl 93%)
+- **All production images SHA-pinned**
+- **README.md** + **ARCHITECTURE.md** + **TASK.md** all in sync
+
+### Sesi recap (high-level)
+
+Sesi 2026-06-01 03:46 = **polish round** (continued from Test Coverage Agent ship at 19:48 UTC).
+
+Three autonomous tasks executed without user confirmation:
+
+1. **Pin ruff version** (commit `9a8a47a`):
+   - Pre-commit + CI both pinned to v0.15.15
+   - Fixes recurring local-vs-CI drift caught 5x this session
+   - actionlint also auto-bumped v1.7.7 → v1.7.12 (low-risk)
+
+2. **Coverage polish** (commit `ed4d96a`):
+   - capacity: 80% → 97% (+9 tests: RAM warning paths, capacity_check_job, cmd_capacity)
+   - deps: 83% → 100% (+3 tests: cmd_deps action paths)
+   - 12 new tests, total 741 → 753
+
+3. **Docs sync** (commit `f29f93b`):
+   - ARCHITECTURE.md: terminal state declared, langgraph-agent section added, refactor table updated
+   - README.md: 9 → 19 features shipped, table updated with new features 16-19
+   - "On the Horizon" updated (Documentation Sync removed — already shipped)
+
+4. **Production deploy verified** (run `26733950073`):
+   - lint + test + deploy 1m33s — all green
+   - All 8 schedulers + 7 containers healthy
+
+---
+
+## 🤝 FOR NEXT SESSION (detailed handoff)
+
+**Where we left off:** Sesi 2026-06-01 03:46 — polish round complete. **All work AI could do alone is done.** Next steps need user.
+
+### Files changed this session (3 commits)
+
+**9a8a47a — ruff pin:**
+- `~ .pre-commit-config.yaml` (ruff rev v0.8.4 → v0.15.15, actionlint v1.7.7 → v1.7.12)
+- `~ .github/workflows/deploy.yml` (`pip install ruff==0.15.15`)
+
+**ed4d96a — coverage polish:**
+- `~ tests/test_capacity_watchdog.py` (+9 tests for RAM/job/cmd)
+- `~ tests/test_deps_watchdog.py` (+3 tests for cmd_deps)
+
+**f29f93b — docs:**
+- `~ ARCHITECTURE.md` (terminal state + agent section + refactor table)
+- `~ README.md` (status line + features table + horizon)
+
+### Active Tasks (for next session)
+
+- [ ] **TEST `/coverage` IN TELEGRAM** — user adds `gmedia/erp`, watches what PRs come out
+- [ ] **DOGFOOD WINDOW (active, ~53h elapsed)** — observe 8 features for 1-2 weeks total
+- [ ] **ACTIVATE DNS + SSL schedulers** (5 menit)
+- [ ] **Onboard 8-13 VPS to Prometheus** — needs IP/SSH list
+- [ ] **DECIDE: Spec-to-Implementation OR Auto-PR Phase 2 OR wait dogfood**
+- [ ] **DEFERRED: Phase 2 auto-PR/auto-remediation** — wait dogfood signal
+- [ ] **DEFERRED: Grafana, py3.14**
+
+### Recently Completed (chronological)
+
+- ✅ [2026-06-01 03:46 UTC] **Polish round** — ruff pin + coverage polish + docs sync
+- ✅ [2026-05-31 19:48 UTC] **Test Coverage Agent feature** — 14th feature shipped
+- ✅ [2026-05-31 18:20 UTC] **Refactor batch 7 (FINAL)** — Firewall + Morning Brief
+- ✅ [2026-05-31 17:55 UTC] **Refactor batch 6** — Path C coverage + Hygiene
+- ✅ [2026-05-31 17:22 UTC] **Refactor batch 5 (polish)** — coverage gap fill, ARCHITECTURE.md
+- ✅ [2026-05-31 16:19 UTC] **Refactor batch 4** — agent_post + gh_api extracted
+- ✅ [2026-05-31 15:46 UTC] **Refactor batch 3** — Deps+Capacity+Drift+prom extracted
+- ✅ [2026-05-31 15:18 UTC] **Refactor batch 2** — SSL+SSH primitives extracted
+- ✅ [2026-05-31 14:49 UTC] **DNS watchdog refactor pilot**
+
+### Lessons from this polish round
+
+1. **AI autonomous runway has limits** — after 50 commits of pure code work, all that's left is user-blocked tasks (dogfood, PRD, VPS onboarding). Recognizing this is a feature, not a bug. Don't generate make-work.
+
+2. **Pin tool versions, always** — local-vs-CI drift cost us 5 incidents this session. Single line `ruff==0.15.15` in pre-commit + workflow eliminates this class of failure forever.
+
+3. **Coverage gap diminishing returns** — last 7-15pp of coverage is 80% of the test code. ssl.py 93%→100% requires mocking threadpool inner func — invasive, ROI-negative. Stop at 95%+ for production code, 100% only for trivial modules.
+
+4. **Docs drift faster than code** — README claimed "9 features shipped" while reality was 14. ARCHITECTURE.md still listed Hygiene/Firewall/Morning Brief as "still inline" after they were extracted. Solution: **after every feature ship, update docs in same commit chain** (or fail CI). Add a docs-freshness lint? Maybe. Defer.
+
+5. **Polish work goes fast** — tasks A+B+C combined: 75min estimated, 60min actual (delegated nothing). Pure mechanical refactors at this stack maturity are sub-1h each.
+
+---
+
 
 > ⚠️ **HANDOFF NOTE — User is switching to a fresh opencode session.** Read `## 🚀 FRESH SESSION ENTRYPOINT` below to pick up. All work is committed + pushed + CI green. Working tree clean.
 

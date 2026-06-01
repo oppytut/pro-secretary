@@ -197,9 +197,26 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-@authorized
-async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+_MAIN_MENU_TEXT = (
+    "📋 <b>Menu</b>\n\n"
+    "📅 <b>Produktivitas</b> — Jadwal, Task, Tasks\n"
+    "📝 <b>Catatan</b> — Catat, Journal, Cari\n"
+    "💻 <b>Developer</b> — Tanya, Projects, Index, Review\n"
+    "🖥️ <b>Infra</b> — Monitor, VPS, Status, Capacity, SSL\n"
+    "🛡️ <b>Watchdogs</b> — Drift, Deps, DNS, Hygiene, Firewall, Coverage, Docsync, Meeting\n"
+    "⚙️ <b>Lainnya</b> — Briefing, EOD, Model, Skill, Sync\n\n"
+    "Tap tombol di bawah atau ketik command langsung."
+)
+
+_WATCHDOG_MENU_TEXT = (
+    "🛡️ <b>Watchdogs &amp; Agents</b>\n\n"
+    "Pilih watchdog untuk dijalankan, atau ketik command langsung.\n"
+    "Tap ⬅️ Kembali untuk balik ke menu utama."
+)
+
+
+def _main_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 Jadwal", callback_data="menu:jadwal"),
          InlineKeyboardButton("✅ Task", callback_data="menu:task"),
          InlineKeyboardButton("📋 Tasks", callback_data="menu:tasks")],
@@ -221,16 +238,29 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📈 Capacity", callback_data="menu:capacity"),
          InlineKeyboardButton("🔍 Review", callback_data="menu:review"),
          InlineKeyboardButton("🔒 SSL", callback_data="menu:ssl")],
-    ]
+        [InlineKeyboardButton("🛡️ Watchdogs", callback_data="menu:watchdogs")],
+    ])
+
+
+def _watchdog_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🩺 Drift", callback_data="menu:drift"),
+         InlineKeyboardButton("📦 Deps", callback_data="menu:deps"),
+         InlineKeyboardButton("🌐 DNS", callback_data="menu:dns")],
+        [InlineKeyboardButton("🧹 Hygiene", callback_data="menu:hygiene"),
+         InlineKeyboardButton("🔥 Firewall", callback_data="menu:firewall"),
+         InlineKeyboardButton("🧪 Coverage", callback_data="menu:coverage")],
+        [InlineKeyboardButton("📚 Docsync", callback_data="menu:docsync"),
+         InlineKeyboardButton("🎙️ Meeting", callback_data="menu:meeting")],
+        [InlineKeyboardButton("⬅️ Kembali", callback_data="menu:back")],
+    ])
+
+
+@authorized
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📋 <b>Menu</b>\n\n"
-        "📅 <b>Produktivitas</b> — Jadwal, Task, Tasks\n"
-        "📝 <b>Catatan</b> — Catat, Journal, Cari\n"
-        "💻 <b>Developer</b> — Tanya, Projects, Index, Review\n"
-        "🖥️ <b>Infra</b> — Monitor, VPS, Status, Capacity, SSL\n"
-        "⚙️ <b>Lainnya</b> — Briefing, EOD, Model, Skill, Sync\n\n"
-        "Tap tombol di bawah atau ketik command langsung.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        _MAIN_MENU_TEXT,
+        reply_markup=_main_menu_keyboard(),
         parse_mode="HTML",
     )
 
@@ -242,6 +272,8 @@ _MENU_HANDLERS: dict[str, str] = {
     "monitor": "cmd_monitor", "vps": "cmd_vps", "status": "cmd_status",
     "briefing": "cmd_briefing", "eod": "cmd_eod", "model": "cmd_model",
     "skill": "cmd_skill", "sync": "cmd_sync",
+    "drift": "cmd_drift", "dns": "cmd_dns", "hygiene": "cmd_hygiene",
+    "firewall": "cmd_firewall", "deps": "cmd_deps", "coverage": "cmd_coverage",
 }
 
 
@@ -249,6 +281,22 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     cmd_name = query.data.replace("menu:", "")
+
+    if cmd_name == "watchdogs":
+        await query.edit_message_text(
+            _WATCHDOG_MENU_TEXT,
+            reply_markup=_watchdog_menu_keyboard(),
+            parse_mode="HTML",
+        )
+        return
+
+    if cmd_name == "back":
+        await query.edit_message_text(
+            _MAIN_MENU_TEXT,
+            reply_markup=_main_menu_keyboard(),
+            parse_mode="HTML",
+        )
+        return
 
     if cmd_name in ("task", "catat", "journal", "cari", "tanya", "index", "skill", "meeting"):
         await query.message.reply_text(f"Ketik: /{cmd_name} <isi>")
@@ -281,6 +329,15 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
+    if cmd_name == "docsync":
+        await query.message.reply_text(
+            "📚 <b>Documentation Sync</b>\n\n"
+            "• /docsync owner/repo#123 — Suggest doc updates untuk GitHub PR\n"
+            "• /docsync gitlab:project_id!iid — Untuk GitLab MR",
+            parse_mode="HTML",
+        )
+        return
+
     if cmd_name == "help":
         await query.message.reply_text(
             "❓ <b>Help</b>\n\n"
@@ -300,7 +357,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "• /projects — Lihat repo yang ter-index\n"
             "• /index &lt;repo|all&gt; — Re-index repo\n"
             "• /skill &lt;query&gt; — Simpan/cari skill\n"
-            "• /review — Auto PR/MR review (add/del/list)\n\n"
+            "• /review — Auto PR/MR review (add/del/list)\n"
+            "• /docsync &lt;owner/repo#123&gt; — Suggest doc updates untuk PR/MR\n"
+            "• /coverage — Auto-generate test PRs untuk file low-coverage\n\n"
             "🖥️ <b>Infra</b>\n"
             "• /monitor [nama] — Monitor VPS + containers\n"
             "• /vps — Resource VPS lokal (CPU/RAM/disk)\n"
@@ -310,7 +369,8 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "• /ssl — SSL cert expiry check\n"
             "• /dns — DNS resolver consistency check\n"
             "• /hygiene — Docker image hygiene + reclaimable size\n"
-            "• /firewall — Audit unauthorized public ports\n\n"
+            "• /firewall — Audit unauthorized public ports\n"
+            "• /deps [repo] — Scan vulnerable dependencies (OSV.dev)\n\n"
             "⚙️ <b>Settings</b>\n"
             "• /model [nama] — Ganti/lihat model AI\n"
             "• /sync — Sync Obsidian vault\n\n"
@@ -330,7 +390,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         def __init__(self, msg, user):
             self.message = msg
             self.effective_user = user
-    
+
     fake = _FakeUpdate(query.message, update.effective_user)
     context.args = []
     await handler_fn(fake, context)

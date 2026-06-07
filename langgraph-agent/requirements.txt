@@ -1,12 +1,12 @@
 fastapi==0.136.3
-uvicorn[standard]==0.48.0
+uvicorn[standard]==0.49.0
 httpx==0.28.1
 pydantic==2.13.4
 qdrant-client==1.18.0
 fastembed==0.8.0
-langgraph==1.2.1
+langgraph==1.2.4
 python-dotenv==1.2.2
 psycopg[binary]==3.3.4
-boto3==1.43.15
+boto3==1.43.24
 slowapi==0.1.9
 PyYAML==6.0.3
